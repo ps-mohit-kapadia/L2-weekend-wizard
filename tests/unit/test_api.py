@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
+
+import api
+from schemas.agent import InteractionResult, ToolObservation
+from schemas.api import ReadinessChecks, ReadinessResponse
+
+
+class _FakeWizardApp:
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.model_name = "llama3.2:latest"
+        self.tool_names = ["get_weather"]
+        self.server_path = Path("main.py")
+        self.is_initialized = False
+        self.run_interaction = AsyncMock(
+            return_value=InteractionResult(
+                answer="Weekend plan ready.",
+                tool_observations=[
+                    ToolObservation(
+                        tool_name="get_weather",
+                        args={"latitude": 40.7, "longitude": -74.0},
+                        payload='{"summary": "clear sky"}',
+                    )
+                ],
+                used_step_limit_fallback=False,
+            )
+        )
+        self.created_contexts = []
+
+    async def __aenter__(self) -> _FakeWizardApp:
+        self.is_initialized = True
+        return self
+
+    async def __aexit__(self, exc_type, exc, exc_tb) -> None:
+        self.is_initialized = False
+        return None
+
+    def create_interaction_context(self, model_name: str | None = None) -> object:
+        context = object()
+        self.created_contexts.append((context, model_name))
+        return context
+
+
+class _BrokenWizardApp(_FakeWizardApp):
+    async def __aenter__(self) -> _BrokenWizardApp:
+        raise RuntimeError("startup boom")
+
+
+class ApiTests(unittest.TestCase):
+    def test_health_endpoint_returns_ok(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_ready_endpoint_returns_structured_readiness_when_ready(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.get("/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(response.json()["tool_count"], 1)
+        self.assertTrue(response.json()["checks"]["mcp_session_ready"])
+        self.assertTrue(response.json()["checks"]["model_available"])
+
+    def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _BrokenWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.get("/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertIn("startup boom", response.json()["details"])
+
+    def test_chat_endpoint_returns_structured_response(self) -> None:
+        fake_app = _FakeWizardApp()
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
+                response = client.post("/chat", json={"prompt": "Plan me a weekend in New York"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["answer"], "Weekend plan ready.")
+        self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
+        self.assertEqual(len(fake_app.created_contexts), 1)
+        created_context, model_name = fake_app.created_contexts[0]
+        self.assertIsNone(model_name)
+        fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
+        joined = "\n".join(captured.output)
+        self.assertIn("event=api_chat_requested", joined)
+        self.assertIn("event=api_chat_completed", joined)
+        self.assertIn('layer="api"', joined)
+        self.assertRegex(joined, r'request_id="api-[0-9a-f]{8}"')
+
+    def test_chat_endpoint_surfaces_server_errors(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _BrokenWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "startup boom")
+
+    def test_chat_endpoint_uses_request_model_override_for_fresh_context(self) -> None:
+        fake_app = _FakeWizardApp()
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.list_available_models", return_value=["llama3.2:latest", "custom-model"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello", "model_name": "custom-model"})
+
+        self.assertEqual(response.status_code, 200)
+        _created_context, model_name = fake_app.created_contexts[0]
+        self.assertEqual(model_name, "custom-model")
+
+    def test_chat_endpoint_does_not_recompute_full_readiness_per_request(self) -> None:
+        fake_app = _FakeWizardApp()
+        ready_response = ReadinessResponse(
+            status="ready",
+            model_name="llama3.2:latest",
+            tool_count=1,
+            checks=ReadinessChecks(
+                model_resolved=True,
+                model_available=True,
+                server_path_exists=True,
+                ollama_reachable=True,
+                mcp_session_ready=True,
+                tools_discovered=True,
+            ),
+            details=None,
+        )
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.evaluate_runtime_readiness", side_effect=[ready_response]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_chat_endpoint_rejects_unavailable_model_override(self) -> None:
+        fake_app = _FakeWizardApp()
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello", "model_name": "missing-model"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Requested model is not available", response.json()["detail"])
+
+
+if __name__ == "__main__":
+    unittest.main()
