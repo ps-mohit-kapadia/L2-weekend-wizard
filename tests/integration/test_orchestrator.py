@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from agent.orchestrator import orchestrate_interaction
-from config.config import get_settings
+from mcp_runtime.client import ToolInvocationError
 from schemas.agent import OrchestratorContext
 
 
@@ -16,8 +15,38 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
-    @patch("agent.orchestrator.llm_json")
-    async def test_city_prompt_flows_to_grounded_final_answer(self, mock_llm_json: Mock) -> None:
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value={
+            "answer": (
+                "Weekend Wizard Plan\n"
+                "- Weather: 6.1C, clear sky\n"
+                "- Books: A Caribbean Mystery by Agatha Christie\n"
+                "- Joke: A fetched joke.\n"
+                "- Dog Pic: https://example.com/dog.jpg"
+            )
+        },
+    )
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_city_prompt_flows_to_reflected_grounded_final_answer(
+        self,
+        mock_plan: Mock,
+        mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = {
+            "goal": "weekend_plan",
+            "location": {"city": "New York"},
+            "book_topic": "mystery",
+            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog"],
+            "execution_steps": [
+                {"tool": "city_to_coords", "args": {"city": "New York"}},
+                {"tool": "get_weather", "args": {}},
+                {"tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
+                {"tool": "random_joke", "args": {}},
+                {"tool": "random_dog", "args": {}},
+            ],
+        }
+
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
             fake_tool_result(
@@ -54,7 +83,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         context = OrchestratorContext(
-            history=[{"role": "system", "content": "system prompt"}],
+            history=[],
             tool_names=[
                 "city_to_coords",
                 "get_weather",
@@ -71,143 +100,108 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Plan a cozy Saturday in New York. Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.",
         )
 
-        final_answer = result.answer
         self.assertFalse(result.used_step_limit_fallback)
-        mock_llm_json.assert_not_called()
-
-        self.assertEqual(context.history[-1]["role"], "assistant")
-        self.assertIn("Weekend Wizard Plan", final_answer)
-        self.assertIn("6.1C, clear sky", final_answer)
-        self.assertIn("A Caribbean Mystery by Agatha Christie", final_answer)
-        self.assertIn("A fetched joke.", final_answer)
-        self.assertIn("https://example.com/dog.jpg", final_answer)
+        self.assertIn("Weekend Wizard Plan", result.answer)
+        self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
-        self.assertEqual(len(result.tool_observations), 5)
+        mock_reflection.assert_called_once()
 
-    @patch("agent.orchestrator.llm_json")
-    async def test_single_joke_prompt_uses_deterministic_flow(self, mock_llm_json: Mock) -> None:
+    @patch("agent.orchestrator.llm_reflection_json", side_effect=ValueError("reflection boom"))
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_reflection_failure_falls_back_to_grounded_draft(
+        self,
+        mock_plan: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = {
+            "goal": "joke",
+            "requested_tools": ["random_joke"],
+            "execution_steps": [{"tool": "random_joke", "args": {}}],
+        }
+
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
 
+        context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
+        result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
+
+        self.assertFalse(result.used_step_limit_fallback)
+        self.assertIn("A fetched joke.", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_invalid_plan_returns_planner_failure_message(self, mock_plan: Mock) -> None:
+        mock_plan.return_value = {
+            "goal": "weekend_plan",
+            "requested_tools": ["get_weather"],
+            "execution_steps": [{"tool": "get_weather", "args": {}}],
+        }
+
+        tool_gateway = AsyncMock()
         context = OrchestratorContext(
-            history=[{"role": "system", "content": "system prompt"}],
-            tool_names=["random_joke"],
+            history=[],
+            tool_names=["get_weather", "city_to_coords"],
             model_name="demo-model",
         )
 
         result = await orchestrate_interaction(
             tool_gateway=tool_gateway,
             context=context,
-            user_prompt="Tell me a joke.",
+            user_prompt="What's the weather in New York?",
         )
 
         self.assertFalse(result.used_step_limit_fallback)
-        self.assertEqual(tool_gateway.call_tool.await_count, 1)
-        self.assertIn("A fetched joke.", result.answer)
-        mock_llm_json.assert_not_called()
-        self.assertEqual(context.history[-1]["role"], "assistant")
+        self.assertEqual(result.tool_observations, [])
+        self.assertIn("couldn't build a reliable weekend plan", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 0)
 
-    @patch("agent.orchestrator.llm_json")
-    async def test_reused_context_does_not_treat_old_tool_results_as_current_turn_results(
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value={
+            "answer": (
+                "Weekend Wizard Plan\n"
+                "- Weather: unavailable (weather request failed)\n"
+                "- Joke: A fetched joke."
+            )
+        },
+    )
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_tool_failures_are_recorded_and_remaining_steps_continue(
         self,
-        mock_llm_json: Mock,
+        mock_plan: Mock,
+        _mock_reflection: Mock,
     ) -> None:
-        tool_gateway = AsyncMock()
-        tool_gateway.call_tool.side_effect = [
-            fake_tool_result({"joke": "First fetched joke."}),
-            fake_tool_result({"joke": "Second fetched joke."}),
-        ]
-
-        context = OrchestratorContext(
-            history=[{"role": "system", "content": "system prompt"}],
-            tool_names=["random_joke"],
-            model_name="demo-model",
-        )
-
-        first_result = await orchestrate_interaction(
-            tool_gateway=tool_gateway,
-            context=context,
-            user_prompt="Tell me a joke.",
-        )
-        second_result = await orchestrate_interaction(
-            tool_gateway=tool_gateway,
-            context=context,
-            user_prompt="Tell me another joke.",
-        )
-
-        self.assertFalse(first_result.used_step_limit_fallback)
-        self.assertFalse(second_result.used_step_limit_fallback)
-        self.assertIn("First fetched joke.", first_result.answer)
-        self.assertIn("Second fetched joke.", second_result.answer)
-        self.assertEqual(tool_gateway.call_tool.await_count, 2)
-        mock_llm_json.assert_not_called()
-
-    @patch("agent.orchestrator.llm_json")
-    async def test_open_ended_prompt_can_still_use_model_led_fallback_controller(
-        self,
-        mock_llm_json: Mock,
-    ) -> None:
-        mock_llm_json.side_effect = [
-            {"action": "random_joke", "args": {}},
-            {"action": "final", "answer": "placeholder"},
-        ]
-
-        tool_gateway = AsyncMock()
-        tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
-
-        context = OrchestratorContext(
-            history=[{"role": "system", "content": "system prompt"}],
-            tool_names=["random_joke"],
-            model_name="demo-model",
-        )
-
-        result = await orchestrate_interaction(
-            tool_gateway=tool_gateway,
-            context=context,
-            user_prompt="Surprise me with something fun for tonight.",
-        )
-
-        self.assertFalse(result.used_step_limit_fallback)
-        self.assertIn("A fetched joke.", result.answer)
-        self.assertEqual(tool_gateway.call_tool.await_count, 1)
-        self.assertEqual(mock_llm_json.call_count, 2)
-
-    @patch("agent.orchestrator.llm_json")
-    async def test_step_limit_fallback_still_works_for_non_deterministic_controller_path(
-        self,
-        mock_llm_json: Mock,
-    ) -> None:
-        get_settings.cache_clear()
-        mock_llm_json.side_effect = [
-            {"action": "random_joke", "args": {}},
-            {"action": "random_joke", "args": {}},
-        ]
+        mock_plan.return_value = {
+            "goal": "weekend_plan",
+            "location": {"latitude": 40.7128, "longitude": -74.0060},
+            "requested_tools": ["get_weather", "random_joke"],
+            "execution_steps": [
+                {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
+                {"tool": "random_joke", "args": {}},
+            ],
+        }
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
+            ToolInvocationError("weather request failed"),
             fake_tool_result({"joke": "A fetched joke."}),
-            fake_tool_result({"joke": "A second fetched joke."}),
         ]
 
         context = OrchestratorContext(
-            history=[{"role": "system", "content": "system prompt"}],
-            tool_names=["random_joke"],
+            history=[],
+            tool_names=["get_weather", "random_joke"],
             model_name="demo-model",
         )
 
-        try:
-            with patch.dict(os.environ, {"WEEKEND_WIZARD_MAX_STEPS": "2"}, clear=False):
-                get_settings.cache_clear()
-                result = await orchestrate_interaction(
-                    tool_gateway=tool_gateway,
-                    context=context,
-                    user_prompt="Keep riffing until you hit the limit.",
-                )
-        finally:
-            get_settings.cache_clear()
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Give me the weather and a joke for 40.7128, -74.0060.",
+        )
 
-        self.assertTrue(result.used_step_limit_fallback)
-        self.assertIn("A second fetched joke.", result.answer)
+        self.assertFalse(result.used_step_limit_fallback)
+        self.assertEqual(len(result.tool_observations), 2)
+        self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
 
 

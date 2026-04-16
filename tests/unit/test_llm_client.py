@@ -16,29 +16,37 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(parsed["action"], "final")
         self.assertEqual(parsed["answer"], "hi")
 
-    @patch("llm_client.call_model", return_value='{"action":"final","answer":"done"}')
-    def test_llm_json_returns_model_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+    @patch(
+        "llm_client.call_model",
+        return_value='{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
+    )
+    def test_llm_plan_json_returns_model_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["answer"], "done")
+        self.assertEqual(result["goal"], "joke")
+
+    @patch("llm_client.call_model", return_value='{"answer":"tightened"}')
+    def test_llm_reflection_json_returns_model_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
+
+        self.assertEqual(result["answer"], "tightened")
 
     @patch(
         "llm_client.call_model",
         side_effect=[
             '{"unexpected":"shape"}',
-            '{"action":"final","answer":"done"}',
+            '{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
         ],
     )
-    def test_llm_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+    def test_llm_plan_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["action"], "final")
-        self.assertEqual(result["answer"], "done")
+        self.assertEqual(result["goal"], "joke")
 
     @patch("llm_client.call_model", side_effect=requests.RequestException("offline"))
-    def test_llm_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
+    def test_llm_plan_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch(
         "llm_client.call_model",
@@ -47,9 +55,9 @@ class LlmClientTests(unittest.TestCase):
             requests.RequestException("repair failed"),
         ],
     )
-    def test_llm_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
+    def test_llm_plan_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch(
         "llm_client.call_model",
@@ -58,9 +66,21 @@ class LlmClientTests(unittest.TestCase):
             '{"still":"wrong"}',
         ],
     )
-    def test_llm_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
-        with self.assertRaisesRegex(ValueError, "invalid agent decision JSON"):
-            llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+    def test_llm_plan_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid execution plan JSON"):
+            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+
+    @patch(
+        "llm_client.call_model",
+        side_effect=[
+            '{"unexpected":"shape"}',
+            '{"answer":"tightened"}',
+        ],
+    )
+    def test_llm_reflection_json_repairs_invalid_shape(self, _call_model: Mock) -> None:
+        result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
+
+        self.assertEqual(result["answer"], "tightened")
 
     @patch.dict("os.environ", {"OLLAMA_MODEL": "custom-model"}, clear=False)
     def test_discover_model_prefers_environment_override(self) -> None:

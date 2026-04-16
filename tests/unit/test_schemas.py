@@ -3,39 +3,53 @@ from __future__ import annotations
 import unittest
 
 from schemas.agent import (
-    FinalAction,
+    ExecutionPlan,
     OrchestratorContext,
-    ToolAction,
-    validate_agent_decision,
+    PlanLocation,
+    PlanStep,
+    ReflectionResult,
+    validate_execution_plan,
+    validate_reflection_result,
 )
 from schemas.tools import BookResults, DogResult, GeoResult, ToolError, WeatherResult, parse_tool_payload
 
 
 class SchemaTests(unittest.TestCase):
-    def test_validate_agent_decision_parses_final_action(self) -> None:
-        decision = validate_agent_decision({"action": "final", "answer": "done"})
-
-        self.assertIsInstance(decision, FinalAction)
-        self.assertEqual(decision.answer, "done")
-
-    def test_validate_agent_decision_parses_tool_action(self) -> None:
-        decision = validate_agent_decision(
-            {"action": "get_weather", "args": {"latitude": 1.0, "longitude": 2.0}}
+    def test_validate_execution_plan_parses_plan(self) -> None:
+        plan = validate_execution_plan(
+            {
+                "goal": "joke",
+                "requested_tools": ["random_joke"],
+                "execution_steps": [{"tool": "random_joke", "args": {}}],
+            }
         )
 
-        self.assertIsInstance(decision, ToolAction)
-        self.assertEqual(decision.args["latitude"], 1.0)
+        self.assertIsInstance(plan, ExecutionPlan)
+        self.assertIsInstance(plan.execution_steps[0], PlanStep)
+        self.assertEqual(plan.execution_steps[0].tool, "random_joke")
+
+    def test_validate_reflection_result_parses_answer(self) -> None:
+        result = validate_reflection_result({"answer": "tightened"})
+
+        self.assertIsInstance(result, ReflectionResult)
+        self.assertEqual(result.answer, "tightened")
 
     def test_orchestrator_context_keeps_runtime_state(self) -> None:
         context = OrchestratorContext(
             tool_names=["get_weather", "random_joke"],
-            history=[{"role": "system", "content": "prompt"}],
+            history=[{"role": "user", "content": "prompt"}],
             model_name="demo-model",
         )
 
         self.assertEqual(context.tool_names, ["get_weather", "random_joke"])
-        self.assertEqual(context.history[0]["role"], "system")
+        self.assertEqual(context.history[0]["role"], "user")
         self.assertEqual(context.model_name, "demo-model")
+
+    def test_plan_location_supports_city_and_coordinates(self) -> None:
+        location = PlanLocation(city="New York", latitude=40.7128, longitude=-74.0060)
+
+        self.assertEqual(location.city, "New York")
+        self.assertEqual(location.latitude, 40.7128)
 
     def test_parse_tool_payload_returns_typed_weather(self) -> None:
         payload = parse_tool_payload(

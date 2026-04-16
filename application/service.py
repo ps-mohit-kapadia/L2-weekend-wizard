@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
-from agent.prompts import build_system_prompt
 from logger.logging import get_logger
 from mcp_runtime.client import McpService
 from schemas.agent import InteractionResult, OrchestratorContext
@@ -36,7 +35,6 @@ class WeekendWizardApp:
         self._mcp_service = McpService(server_path, server_args=self._server_args)
         self._tool_names: List[str] = []
         self._is_initialized = False
-        self._system_prompt = ""
 
     @property
     def model_name(self) -> str:
@@ -91,10 +89,8 @@ class WeekendWizardApp:
         )
         try:
             await self._mcp_service.__aenter__()
-            listed_tools = self._mcp_service.tools
             self._tool_names = self._mcp_service.tool_names
             self._validate_startup()
-            self._system_prompt = build_system_prompt(listed_tools)
             self._is_initialized = True
             logger.info("App session ready with model %s and %d tools", self._model_name, len(self._tool_names))
             return self
@@ -107,7 +103,6 @@ class WeekendWizardApp:
         """Release MCP resources held by the application service."""
         logger.info("Closing app session for model %s with %d tools", self._model_name, len(self._tool_names))
         self._is_initialized = False
-        self._system_prompt = ""
         self._tool_names = []
         await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
 
@@ -131,7 +126,7 @@ class WeekendWizardApp:
 
         return OrchestratorContext(
             tool_names=list(self._tool_names),
-            history=[{"role": "system", "content": self._system_prompt}],
+            history=[],
             model_name=model_name or self._model_name,
         )
 

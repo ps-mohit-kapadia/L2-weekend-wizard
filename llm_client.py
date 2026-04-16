@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Local Ollama client helpers for JSON-oriented agent decisions."""
+"""Local Ollama client helpers for planner and reflection JSON outputs."""
 
 import json
 import os
@@ -10,7 +10,7 @@ import requests
 
 from config.config import get_settings
 from logger.logging import get_logger
-from schemas.agent import validate_agent_decision
+from schemas.agent import validate_execution_plan, validate_reflection_result
 
 MODEL_REQUEST_TIMEOUT_SECONDS = 600
 logger = get_logger("llm_client")
@@ -145,29 +145,40 @@ def extract_json(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
-def _validate_decision_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Ensure a parsed JSON payload matches the agent decision contract."""
-    validate_agent_decision(payload)
+def _validate_plan_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a parsed JSON payload matches the execution plan contract."""
+    validate_execution_plan(payload)
     return payload
 
 
-def _extract_valid_decision_json(text: str) -> Dict[str, Any]:
-    """Extract and validate one agent decision payload from raw model output."""
-    return _validate_decision_payload(extract_json(text))
+def _extract_valid_plan_json(text: str) -> Dict[str, Any]:
+    """Extract and validate one execution plan payload from raw model output."""
+    return _validate_plan_payload(extract_json(text))
 
 
-def llm_json(
+def _validate_reflection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a parsed JSON payload matches the reflection contract."""
+    validate_reflection_result(payload)
+    return payload
+
+
+def _extract_valid_reflection_json(text: str) -> Dict[str, Any]:
+    """Extract and validate one reflection payload from raw model output."""
+    return _validate_reflection_payload(extract_json(text))
+
+
+def llm_plan_json(
     messages: List[Dict[str, str]],
     model: str,
 ) -> Dict[str, Any]:
-    """Return a JSON decision from Ollama.
+    """Return a JSON execution plan from Ollama.
 
     Args:
         messages: Chat history for the current decision request.
         model: Ollama model name to invoke.
 
     Returns:
-        A JSON decision payload for the agent loop.
+        A JSON execution plan for the agent loop.
 
     Raises:
         requests.RequestException: If the Ollama request fails in normal mode.
@@ -176,27 +187,57 @@ def llm_json(
     raw = call_model(messages, model, temperature=0.2, json_mode=True)
 
     try:
-        return _extract_valid_decision_json(raw)
+        return _extract_valid_plan_json(raw)
     except Exception:
-        logger.warning("Model returned invalid decision payload; attempting one repair pass")
+        logger.warning("Model returned invalid plan payload; attempting one repair pass")
         repair_messages = [
             {
                 "role": "system",
                 "content": (
-                    "Return only one valid JSON object for the next agent decision. "
-                    'Allowed shapes: {"action":"tool_name","args":{}} or '
-                    '{"action":"final","answer":"..."}. '
-                    "Preserve the user's intent."
+                    "Return only one valid execution plan JSON object. "
+                    "Preserve the user's intent and use only supported tools."
                 ),
             },
             {"role": "user", "content": raw},
         ]
         repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
         try:
-            return _extract_valid_decision_json(repaired)
+            return _extract_valid_plan_json(repaired)
         except Exception as exc:
-            logger.exception("Repair pass did not produce a valid agent decision")
+            logger.exception("Repair pass did not produce a valid execution plan")
             preview = raw.strip().replace("\n", " ")[:200]
             raise ValueError(
-                f"Model returned invalid agent decision JSON after one repair attempt. Raw output preview: {preview}"
+                f"Model returned invalid execution plan JSON after one repair attempt. Raw output preview: {preview}"
+            ) from exc
+
+
+def llm_reflection_json(
+    messages: List[Dict[str, str]],
+    model: str,
+) -> Dict[str, Any]:
+    """Return a JSON reflection payload from Ollama."""
+    raw = call_model(messages, model, temperature=0.0, json_mode=True)
+
+    try:
+        return _extract_valid_reflection_json(raw)
+    except Exception:
+        logger.warning("Model returned invalid reflection payload; attempting one repair pass")
+        repair_messages = [
+            {
+                "role": "system",
+                "content": (
+                    'Return only one valid JSON object in the shape {"answer":"..."} '
+                    "and keep it grounded in the provided observations."
+                ),
+            },
+            {"role": "user", "content": raw},
+        ]
+        repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
+        try:
+            return _extract_valid_reflection_json(repaired)
+        except Exception as exc:
+            logger.exception("Repair pass did not produce a valid reflection payload")
+            preview = raw.strip().replace("\n", " ")[:200]
+            raise ValueError(
+                f"Model returned invalid reflection JSON after one repair attempt. Raw output preview: {preview}"
             ) from exc

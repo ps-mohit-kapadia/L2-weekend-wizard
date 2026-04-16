@@ -1,51 +1,45 @@
 from __future__ import annotations
 
-"""Typed models for agent decisions, orchestration state, and interaction results."""
+"""Typed models for planning, orchestration state, and interaction results."""
 
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, Field, TypeAdapter
 
 
-class ToolAction(BaseModel):
-    """Model decision instructing the agent to invoke a tool.
+class PlanLocation(BaseModel):
+    """Location details inferred by the planner."""
 
-    Attributes:
-        action: MCP tool name selected by the model.
-        args: JSON-compatible arguments for the tool invocation.
-    """
+    city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
-    action: str
+
+class PlanStep(BaseModel):
+    """One executable tool step produced by the planner."""
+
+    tool: str
     args: Dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("action")
-    @classmethod
-    def action_must_not_be_final(cls, value: str) -> str:
-        if value == "final":
-            raise ValueError("tool action cannot be 'final'")
-        return value
+
+class ExecutionPlan(BaseModel):
+    """Planner output for one Weekend Wizard interaction."""
+
+    goal: Literal["weekend_plan", "weather_lookup", "book_suggestions", "joke", "dog_photo", "trivia"]
+    location: Optional[PlanLocation] = None
+    book_topic: Optional[str] = None
+    requested_tools: List[str] = Field(default_factory=list)
+    execution_steps: List[PlanStep] = Field(default_factory=list)
 
 
-class FinalAction(BaseModel):
-    """Model decision instructing the agent to finish the interaction.
+class ReflectionResult(BaseModel):
+    """One-shot reflection payload used to revise the final grounded answer."""
 
-    Attributes:
-        action: Literal marker indicating final-answer completion.
-        answer: Draft answer proposed by the model.
-    """
-
-    action: Literal["final"]
     answer: str
 
 
 class ToolObservation(BaseModel):
-    """Structured record of one tool invocation and its payload.
-
-    Attributes:
-        tool_name: Name of the MCP tool that was invoked.
-        args: Tool arguments used for the invocation.
-        payload: Serialized payload returned by the tool.
-    """
+    """Structured record of one tool invocation and its payload."""
 
     tool_name: str
     args: Dict[str, Any] = Field(default_factory=dict)
@@ -53,13 +47,7 @@ class ToolObservation(BaseModel):
 
 
 class OrchestratorContext(BaseModel):
-    """Runtime state required to process one user interaction.
-
-    Attributes:
-        tool_names: Tool names available through the active MCP session.
-        history: Conversation history used by the agent loop.
-        model_name: Active Ollama model name for the current application session.
-    """
+    """Runtime state required to process one user interaction."""
 
     tool_names: List[str] = Field(default_factory=list)
     history: List[Dict[str, str]] = Field(default_factory=list)
@@ -67,31 +55,22 @@ class OrchestratorContext(BaseModel):
 
 
 class InteractionResult(BaseModel):
-    """Structured result returned by the orchestrator for one interaction.
-
-    Attributes:
-        answer: Final user-facing answer.
-        tool_observations: Structured tool observations collected during the interaction.
-        used_step_limit_fallback: Whether the answer came from the step-limit fallback path.
-    """
+    """Structured result returned by the orchestrator for one interaction."""
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
     used_step_limit_fallback: bool = False
 
 
-AgentDecision = Union[FinalAction, ToolAction]
+_execution_plan_adapter = TypeAdapter(ExecutionPlan)
+_reflection_result_adapter = TypeAdapter(ReflectionResult)
 
-_agent_decision_adapter = TypeAdapter(AgentDecision)
+
+def validate_execution_plan(payload: Dict[str, Any]) -> ExecutionPlan:
+    """Validate raw model JSON into a typed execution plan."""
+    return _execution_plan_adapter.validate_python(payload)
 
 
-def validate_agent_decision(payload: Dict[str, Any]) -> AgentDecision:
-    """Validate raw model JSON into a typed agent decision.
-
-    Args:
-        payload: Raw JSON payload returned by the model.
-
-    Returns:
-        A typed tool decision or final-answer decision.
-    """
-    return _agent_decision_adapter.validate_python(payload)
+def validate_reflection_result(payload: Dict[str, Any]) -> ReflectionResult:
+    """Validate raw model JSON into a typed reflection payload."""
+    return _reflection_result_adapter.validate_python(payload)

@@ -1,39 +1,40 @@
 from __future__ import annotations
 
-"""Workflow orchestration for one Weekend Wizard interaction."""
+"""Planner/executor orchestration for one Weekend Wizard interaction."""
 
 import json
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from config.config import get_settings
-from agent.policies.guardrails import RequestAnalysis, analyze_request, missing_requested_tools
 from agent.grounding import (
     compose_grounded_answer_from_observations,
     parse_tool_payload_text,
-    parse_tool_observations,
 )
+from agent.prompts import build_planner_messages, build_reflection_messages
+from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_logger
-from llm_client import llm_json
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
-    FinalAction,
+    ExecutionPlan,
     InteractionResult,
     OrchestratorContext,
     ToolObservation,
-    validate_agent_decision,
+    validate_execution_plan,
 )
 from schemas.tools import GeoResult, ToolError
 
 
 logger = get_logger("agent.orchestrator")
 
-_TOOL_LABELS = {
-    "get_weather": "weather",
-    "book_recs": "book ideas",
-    "random_joke": "a joke",
-    "random_dog": "a dog photo",
-    "trivia": "trivia",
-}
+
+@dataclass
+class ExecutionState:
+    """Explicit execution state for one Weekend Wizard interaction."""
+
+    user_prompt: str
+    plan: ExecutionPlan
+    tool_observations: List[ToolObservation]
+    resolved_coords: Optional[Tuple[float, float]]
 
 
 def render_tool_result(result: Any) -> str:
@@ -72,74 +73,6 @@ def geo_payload_to_coords(payload: str) -> Optional[Tuple[float, float]]:
     return None
 
 
-def has_pending_requested_tools(
-    user_prompt: str,
-    tool_observations: List[ToolObservation],
-) -> bool:
-    """Check whether the user's requested tool categories are still incomplete.
-
-    Args:
-        user_prompt: The active user request being processed.
-        tool_observations: Structured tool observations collected during the current interaction.
-
-    Returns:
-        True when one or more requested tool categories have not been satisfied yet.
-    """
-    known_payloads = parse_tool_observations(tool_observations)
-    pending_tools = missing_requested_tools(user_prompt, known_payloads)
-    return bool(pending_tools)
-
-
-def append_missing_tool_guidance(
-    user_prompt: str,
-    history: List[Dict[str, str]],
-    tool_observations: List[ToolObservation],
-) -> List[str]:
-    """Append an LLM-facing reminder when the model tries to finish too early.
-
-    Args:
-        user_prompt: The active user request being processed.
-        history: Conversation history including prior tool observations.
-        tool_observations: Structured tool observations collected during the current interaction.
-
-    Returns:
-        The requested tool names that are still missing from the interaction.
-    """
-    missing_tools = missing_requested_tools(user_prompt, parse_tool_observations(tool_observations))
-    if not missing_tools:
-        return []
-
-    history.append(
-        {
-            "role": "system",
-            "content": (
-                "You have not yet satisfied all requested tool categories. "
-                f"Missing tools: {', '.join(missing_tools)}. "
-                "Return valid JSON and either call exactly one missing tool next or finish only if the user no longer needs it."
-            ),
-        }
-    )
-    return missing_tools
-
-
-def build_final_answer(
-    user_prompt: str,
-    draft_answer: str,
-    tool_observations: List[ToolObservation],
-) -> str:
-    """Build the final user-facing answer from the model draft and tool results.
-
-    Args:
-        user_prompt: The active user request being answered.
-        draft_answer: The model-produced draft answer before grounding.
-        tool_observations: Structured tool observations collected during the interaction.
-
-    Returns:
-        The grounded final answer.
-    """
-    return compose_grounded_answer_from_observations(user_prompt, draft_answer, tool_observations)
-
-
 def build_interaction_result(
     history: List[Dict[str, str]],
     answer: str,
@@ -147,17 +80,7 @@ def build_interaction_result(
     *,
     used_step_limit_fallback: bool,
 ) -> InteractionResult:
-    """Persist the final assistant answer and create the interaction result.
-
-    Args:
-        history: Conversation history that should receive the final assistant message.
-        answer: The final assistant answer to persist.
-        tool_observations: Structured tool observations collected during the interaction.
-        used_step_limit_fallback: Whether the answer came from the step-limit fallback path.
-
-    Returns:
-        The structured result for the completed interaction.
-    """
+    """Persist the final assistant answer and create the interaction result."""
     history.append({"role": "assistant", "content": answer})
     return InteractionResult(
         answer=answer,
@@ -166,32 +89,8 @@ def build_interaction_result(
     )
 
 
-async def execute_tool_call(
-    tool_gateway: ToolGateway,
-    tool_name: str,
-    args: Dict[str, Any],
-) -> str:
-    """Invoke one MCP tool and serialize its response payload.
-
-    Args:
-        tool_gateway: Tool invocation gateway backed by the MCP service layer.
-        tool_name: Name of the MCP tool to invoke.
-        args: JSON-serializable tool arguments.
-
-    Returns:
-        The serialized tool payload text, including an error payload on operational tool-call failure.
-    """
-    try:
-        logger.info("Invoking tool %s with args=%s", tool_name, args)
-        result = await tool_gateway.call_tool(tool_name, args)
-        payload = render_tool_result(result)
-        logger.info("Tool %s completed", tool_name)
-        return payload
-    except ToolInvocationError as exc:
-        logger.exception("Tool %s failed: %s", tool_name, exc)
-        return json.dumps(
-            {"error": f"tool call failed for {tool_name}", "details": str(exc)}
-        )
+def _tool_error_payload(tool_name: str, details: str) -> str:
+    return json.dumps({"error": f"{tool_name} failed", "details": details})
 
 
 def record_tool_observation(
@@ -201,214 +100,161 @@ def record_tool_observation(
     args: Dict[str, Any],
     payload: str,
 ) -> None:
-    """Record a tool observation in both free-form and structured interaction state.
-
-    Args:
-        history: Conversation history used by the agent loop.
-        tool_observations: Structured tool observations used by the app surfaces and tests.
-        tool_name: Name of the tool that was invoked.
-        args: Tool arguments used for the invocation.
-        payload: Serialized payload returned by the tool.
-    """
-    tool_observations.append(
-        ToolObservation(
-            tool_name=tool_name,
-            args=args,
-            payload=payload,
-        )
-    )
+    """Record a tool observation in both free-form and structured interaction state."""
+    tool_observations.append(ToolObservation(tool_name=tool_name, args=args, payload=payload))
     history.append({"role": "assistant", "content": f"[tool:{tool_name}] {payload}"})
 
 
-def append_missing_tool_note(
-    answer: str,
-    missing_tools: List[str],
-) -> str:
-    """Append a short note describing any requested tool categories that remain missing."""
-    if not missing_tools:
-        return answer
-    missing_labels = ", ".join(_TOOL_LABELS.get(tool_name, tool_name) for tool_name in missing_tools)
-    return (
-        f"{answer}\n\n"
-        "I fetched the information above, but I still could not get "
-        f"{missing_labels}."
-    )
-
-
-async def execute_planned_tool(
+async def execute_tool_call(
     tool_gateway: ToolGateway,
-    context: OrchestratorContext,
-    tool_observations: List[ToolObservation],
     tool_name: str,
     args: Dict[str, Any],
 ) -> str:
-    """Execute a planned deterministic tool step and record its observation."""
-    payload = await execute_tool_call(tool_gateway, tool_name, args)
-    record_tool_observation(
-        context.history,
-        tool_observations,
-        tool_name,
-        args,
-        payload,
-    )
-    return payload
+    """Invoke one MCP tool and serialize its response payload."""
+    try:
+        logger.info("Invoking tool %s with args=%s", tool_name, args)
+        result = await tool_gateway.call_tool(tool_name, args)
+        payload = render_tool_result(result)
+        logger.info("Tool %s completed", tool_name)
+        return payload
+    except ToolInvocationError as exc:
+        logger.exception("Tool %s failed: %s", tool_name, exc)
+        return _tool_error_payload(tool_name, str(exc))
 
 
-async def run_deterministic_flow(
-    tool_gateway: ToolGateway,
-    context: OrchestratorContext,
-    user_prompt: str,
-    analysis: RequestAnalysis,
-) -> InteractionResult:
-    """Execute the bounded Weekend Wizard flow without model-led step selection."""
-    logger.info("Using deterministic orchestration for requested tools=%s", list(analysis.requested_tools))
-    context.history.append({"role": "user", "content": user_prompt})
-    tool_observations: List[ToolObservation] = []
+def normalize_tool_args(
+    tool_name: str,
+    args: Dict[str, Any],
+    state: ExecutionState,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Normalize and repair planned tool args before execution."""
+    args = dict(args or {})
 
-    resolved_coords = analysis.coords
-    if "get_weather" in analysis.requested_tools and analysis.needs_city_lookup:
-        payload = await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "city_to_coords",
-            {"city": analysis.city},
-        )
-        resolved_coords = geo_payload_to_coords(payload)
-        if resolved_coords is None:
-            logger.warning("City lookup did not return usable coordinates for %s", analysis.city)
+    if tool_name == "city_to_coords":
+        city = args.get("city") or (state.plan.location.city if state.plan.location else None)
+        if not city:
+            return None, "city is required"
+        return {"city": str(city)}, None
 
-    if "get_weather" in analysis.requested_tools and resolved_coords is not None:
-        latitude, longitude = resolved_coords
-        await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "get_weather",
-            {"latitude": latitude, "longitude": longitude},
-        )
+    if tool_name == "get_weather":
+        latitude = args.get("latitude")
+        longitude = args.get("longitude")
+        if latitude is None or longitude is None:
+            coords = state.resolved_coords
+            if coords is not None:
+                latitude, longitude = coords
+            elif state.plan.location and state.plan.location.latitude is not None and state.plan.location.longitude is not None:
+                latitude, longitude = state.plan.location.latitude, state.plan.location.longitude
+        if latitude is None or longitude is None:
+            return None, "latitude and longitude are required"
+        try:
+            return {"latitude": float(latitude), "longitude": float(longitude)}, None
+        except (TypeError, ValueError):
+            return None, "latitude and longitude must be numeric"
 
-    if "book_recs" in analysis.requested_tools:
-        await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "book_recs",
-            {"topic": analysis.book_topic, "limit": analysis.book_limit},
-        )
+    if tool_name == "book_recs":
+        topic = args.get("topic") or args.get("param") or state.plan.book_topic
+        limit = args.get("limit") or 3
+        if not topic:
+            return None, "topic is required"
+        try:
+            safe_limit = max(1, min(int(limit), 10))
+        except (TypeError, ValueError):
+            safe_limit = 3
+        return {"topic": str(topic), "limit": safe_limit}, None
 
-    if "random_joke" in analysis.requested_tools:
-        await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "random_joke",
-            {},
-        )
+    if tool_name in {"random_joke", "random_dog", "trivia"}:
+        return {}, None
 
-    if "random_dog" in analysis.requested_tools:
-        await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "random_dog",
-            {},
-        )
-
-    if "trivia" in analysis.requested_tools:
-        await execute_planned_tool(
-            tool_gateway,
-            context,
-            tool_observations,
-            "trivia",
-            {},
-        )
-
-    answer = compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
-    missing_tools = missing_requested_tools(
-        user_prompt,
-        parse_tool_observations(tool_observations),
-    )
-    answer = append_missing_tool_note(answer, missing_tools)
-    logger.info(
-        "Deterministic orchestration completed with %d observations and answer length %d",
-        len(tool_observations),
-        len(answer),
-    )
-    return build_interaction_result(
-        context.history,
-        answer=answer,
-        tool_observations=tool_observations,
-        used_step_limit_fallback=False,
-    )
+    return args, None
 
 
-def finalize_after_step_limit(
+def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str]) -> None:
+    """Validate planner output against supported runtime constraints."""
+    available = set(available_tools)
+    requested = set(plan.requested_tools)
+    if not requested:
+        raise ValueError("Execution plan must request at least one tool.")
+    if not requested.issubset(available):
+        unknown = sorted(requested.difference(available))
+        raise ValueError(f"Execution plan requested unsupported tools: {', '.join(unknown)}")
+
+    seen_requested = set()
+    saw_city_lookup = False
+    for step in plan.execution_steps:
+        if step.tool not in available:
+            raise ValueError(f"Execution step uses unsupported tool: {step.tool}")
+        seen_requested.add(step.tool)
+        if step.tool == "city_to_coords":
+            saw_city_lookup = True
+        if step.tool == "get_weather":
+            has_coords = (
+                plan.location is not None
+                and plan.location.latitude is not None
+                and plan.location.longitude is not None
+            )
+            if not has_coords and not saw_city_lookup:
+                raise ValueError("Weather execution requires coordinates or a prior city_to_coords step.")
+
+    missing_steps = requested.difference(seen_requested)
+    if missing_steps:
+        raise ValueError(f"Execution plan omitted requested tools: {', '.join(sorted(missing_steps))}")
+
+
+def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str) -> None:
+    """Update execution state from a tool result."""
+    if tool_name == "city_to_coords":
+        state.resolved_coords = geo_payload_to_coords(payload)
+        if state.plan.location is not None and state.resolved_coords is not None:
+            state.plan.location.latitude = state.resolved_coords[0]
+            state.plan.location.longitude = state.resolved_coords[1]
+
+
+def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservation]) -> str:
+    """Build the grounded draft answer before reflection."""
+    return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
+
+
+def run_reflection(
     context: OrchestratorContext,
     user_prompt: str,
     tool_observations: List[ToolObservation],
+    draft_answer: str,
+) -> str:
+    """Run one reflection pass and fall back to the grounded draft on failure."""
+    messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
+    try:
+        reflected = llm_reflection_json(messages, context.model_name)
+        return reflected["answer"].strip()
+    except Exception as exc:
+        logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
+        return draft_answer
+
+
+def build_planner_failure_answer() -> str:
+    """Return a bounded failure message when planning is not reliable."""
+    return (
+        "I couldn't build a reliable weekend plan for that yet. "
+        "Try asking more directly for weather, book ideas, a joke, a dog photo, or trivia."
+    )
+
+
+def finalize_after_execution(
+    context: OrchestratorContext,
+    user_prompt: str,
+    tool_observations: List[ToolObservation],
+    *,
+    used_fallback: bool = False,
 ) -> InteractionResult:
-    """Finalize an interaction after the decision loop exhausts its step budget.
-
-    Args:
-        context: Runtime orchestration context for the current interaction.
-        user_prompt: The active user request being processed.
-        tool_observations: Structured tool observations collected so far.
-
-    Returns:
-        The best available interaction result, either grounded from tool results or a fallback message.
-    """
-    missing_tools = missing_requested_tools(
-        user_prompt,
-        parse_tool_observations(tool_observations),
-    )
-
-    if tool_observations and not missing_tools:
-        logger.warning(
-            "Step limit reached after prompt length %d with %d observations; returning grounded fallback",
-            len(user_prompt),
-            len(tool_observations),
-        )
-        answer = compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
-        return build_interaction_result(
-            context.history,
-            answer=answer,
-            tool_observations=tool_observations,
-            used_step_limit_fallback=True,
-        )
-
-    if tool_observations:
-        logger.warning(
-            "Step limit reached after prompt length %d with %d observations; returning partial grounded fallback with missing tools=%s",
-            len(user_prompt),
-            len(tool_observations),
-            missing_tools,
-        )
-        answer = compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
-        missing_labels = ", ".join(_TOOL_LABELS.get(tool_name, tool_name) for tool_name in missing_tools)
-        answer = (
-            f"{answer}\n\n"
-            "I fetched the information above, but I ran out of steps before I could also get "
-            f"{missing_labels}."
-        )
-        return build_interaction_result(
-            context.history,
-            answer=answer,
-            tool_observations=tool_observations,
-            used_step_limit_fallback=True,
-        )
-
-    fallback = "I hit my step limit, but I can try again if you want a simpler request."
-    logger.warning(
-        "Step limit reached after prompt length %d with %d observations; returning generic fallback",
-        len(user_prompt),
-        len(tool_observations),
-    )
+    """Build, reflect, and persist the final answer after deterministic execution."""
+    grounded = build_grounded_draft(user_prompt, tool_observations)
+    final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
+    final_answer = compose_grounded_answer_from_observations(user_prompt, final_answer, tool_observations)
     return build_interaction_result(
         context.history,
-        answer=fallback,
+        answer=final_answer,
         tool_observations=tool_observations,
-        used_step_limit_fallback=True,
+        used_step_limit_fallback=used_fallback,
     )
 
 
@@ -417,81 +263,65 @@ async def orchestrate_interaction(
     context: OrchestratorContext,
     user_prompt: str,
 ) -> InteractionResult:
-    """Run one full agent interaction from prompt to structured result.
-
-    Args:
-        tool_gateway: Tool invocation gateway backed by the MCP service layer.
-        context: Runtime orchestration context shared across the active session.
-        user_prompt: The current user request to process.
-
-    Returns:
-        The structured result for the completed interaction.
-    """
+    """Run one planner/executor interaction from prompt to grounded result."""
     logger.info("Starting interaction for prompt length %d", len(user_prompt))
-    deterministic_request = analyze_request(user_prompt, context.tool_names)
-    if deterministic_request is not None:
-        return await run_deterministic_flow(
-            tool_gateway,
-            context,
-            user_prompt,
-            deterministic_request,
+    context.history.append({"role": "user", "content": user_prompt})
+
+    planner_messages = build_planner_messages(user_prompt, context.tool_names)
+    try:
+        raw_plan = llm_plan_json(planner_messages, context.model_name)
+        plan = validate_execution_plan(raw_plan)
+        validate_plan_semantics(plan, context.tool_names)
+    except Exception as exc:
+        logger.exception("Planning failed: %s", exc)
+        return build_interaction_result(
+            context.history,
+            answer=build_planner_failure_answer(),
+            tool_observations=[],
+            used_step_limit_fallback=False,
         )
 
-    settings = get_settings()
-    context.history.append({"role": "user", "content": user_prompt})
-    tool_observations: List[ToolObservation] = []
-    for step_number in range(1, settings.max_steps + 1):
-        logger.info("Starting controller step %d of %d", step_number, settings.max_steps)
-        raw_decision = llm_json(context.history, context.model_name)
-        decision = validate_agent_decision(raw_decision)
-        action = decision.action
-        logger.info("Controller step %d selected action %s", step_number, action)
+    logger.info(
+        "Planner produced goal=%s with %d steps and requested_tools=%s",
+        plan.goal,
+        len(plan.execution_steps),
+        plan.requested_tools,
+    )
 
-        if action == "final" and has_pending_requested_tools(user_prompt, tool_observations):
-            missing_tools = append_missing_tool_guidance(user_prompt, context.history, tool_observations)
-            logger.info("Final answer was rejected because these tools are still missing: %s", missing_tools)
-            continue
+    initial_coords = None
+    if plan.location and plan.location.latitude is not None and plan.location.longitude is not None:
+        initial_coords = (plan.location.latitude, plan.location.longitude)
+    state = ExecutionState(
+        user_prompt=user_prompt,
+        plan=plan,
+        tool_observations=[],
+        resolved_coords=initial_coords,
+    )
 
-        if action == "final":
-            draft_answer = decision.answer.strip() if isinstance(decision, FinalAction) else ""
-            answer = build_final_answer(user_prompt, draft_answer, tool_observations)
-            logger.info(
-                "Interaction completed normally with %d observations and answer length %d",
-                len(tool_observations),
-                len(answer),
-            )
-            return build_interaction_result(
-                context.history,
-                answer=answer,
-                tool_observations=tool_observations,
-                used_step_limit_fallback=False,
-            )
-
-        tool_name = action
-        args = getattr(decision, "args", {}) or {}
-        if tool_name not in context.tool_names:
-            logger.warning("Model requested unknown tool %s", tool_name)
-            context.history.append(
-                {
-                    "role": "assistant",
-                    "content": f"[tool-error] Unknown tool requested: {tool_name}",
-                }
-            )
-            continue
-
-        payload = await execute_tool_call(tool_gateway, tool_name, args)
+    for index, step in enumerate(plan.execution_steps, start=1):
+        logger.info("Executing planned step %d of %d: %s", index, len(plan.execution_steps), step.tool)
+        normalized_args, error = normalize_tool_args(step.tool, step.args, state)
+        if normalized_args is None:
+            payload = _tool_error_payload(step.tool, error or "invalid args")
+        else:
+            payload = await execute_tool_call(tool_gateway, step.tool, normalized_args)
         record_tool_observation(
             context.history,
-            tool_observations,
-            tool_name,
-            args,
+            state.tool_observations,
+            step.tool,
+            normalized_args or step.args,
             payload,
         )
+        update_state_after_tool(state, step.tool, payload)
 
-    result = finalize_after_step_limit(context, user_prompt, tool_observations)
+    result = finalize_after_execution(
+        context,
+        user_prompt,
+        state.tool_observations,
+        used_fallback=False,
+    )
     logger.info(
-        "Interaction completed with fallback=%s, %d observations, and answer length %d",
-        result.used_step_limit_fallback,
+        "Interaction completed with %d observations and answer length %d",
         len(result.tool_observations),
         len(result.answer),
     )

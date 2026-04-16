@@ -28,10 +28,7 @@ class _NoToolsMcpService(_FakeMcpService):
 
 class AppServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_app_service_initializes_context_and_tools(self) -> None:
-        with (
-            patch("application.service.McpService", _FakeMcpService),
-            patch("application.service.build_system_prompt", return_value="system"),
-        ):
+        with patch("application.service.McpService", _FakeMcpService):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
 
@@ -42,10 +39,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
         await app.__aexit__(None, None, None)
 
     async def test_app_service_resets_initialization_state_on_close(self) -> None:
-        with (
-            patch("application.service.McpService", _FakeMcpService),
-            patch("application.service.build_system_prompt", return_value="system"),
-        ):
+        with patch("application.service.McpService", _FakeMcpService):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
             await app.__aexit__(None, None, None)
@@ -64,7 +58,6 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("application.service.McpService", _FakeMcpService),
-            patch("application.service.build_system_prompt", return_value="system"),
             patch("application.service.orchestrate_interaction", new=AsyncMock(return_value=result)) as mock_orchestrate,
         ):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
@@ -84,7 +77,6 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("application.service.McpService", _FakeMcpService),
-            patch("application.service.build_system_prompt", return_value="system"),
             patch("application.service.orchestrate_interaction", new=AsyncMock(return_value=result)),
         ):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
@@ -99,10 +91,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Interaction completed", joined)
 
     async def test_run_interaction_requires_explicit_context(self) -> None:
-        with (
-            patch("application.service.McpService", _FakeMcpService),
-            patch("application.service.build_system_prompt", return_value="system"),
-        ):
+        with patch("application.service.McpService", _FakeMcpService):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
 
