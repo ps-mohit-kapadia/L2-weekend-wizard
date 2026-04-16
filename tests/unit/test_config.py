@@ -26,11 +26,11 @@ class ConfigTests(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
-        self.assertEqual(settings.http.max_retries, 4)
-        self.assertEqual(settings.http.retry_backoff_seconds, 0.25)
-        self.assertEqual(settings.agent.max_steps, 7)
-        self.assertEqual(settings.logging.level, "INFO")
-        self.assertEqual(settings.llm.ollama_url, "http://localhost:11434/api/chat")
+        self.assertEqual(settings.http_max_retries, 4)
+        self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
+        self.assertEqual(settings.max_steps, 7)
+        self.assertEqual(settings.log_level, "INFO")
+        self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
 
     def test_get_settings_reloads_when_environment_changes(self) -> None:
         with patch.dict(
@@ -43,7 +43,7 @@ class ConfigTests(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
-            self.assertEqual(settings.http.max_retries, 6)
+            self.assertEqual(settings.http_max_retries, 6)
 
 
 if __name__ == "__main__":

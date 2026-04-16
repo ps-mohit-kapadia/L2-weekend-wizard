@@ -115,10 +115,8 @@ class ApiTests(unittest.TestCase):
         self.assertIsNone(model_name)
         fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
         joined = "\n".join(captured.output)
-        self.assertIn("event=api_chat_requested", joined)
-        self.assertIn("event=api_chat_completed", joined)
-        self.assertIn('layer="api"', joined)
-        self.assertRegex(joined, r'request_id="api-[0-9a-f]{8}"')
+        self.assertIn("Received /chat request", joined)
+        self.assertIn("Completed /chat request", joined)
 
     def test_chat_endpoint_surfaces_server_errors(self) -> None:
         with (

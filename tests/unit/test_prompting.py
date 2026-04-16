@@ -23,6 +23,8 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("Weekend Wizard", prompt)
         self.assertIn("get_weather", prompt)
         self.assertIn("Fetches weather", prompt)
+        self.assertIn("keep calling missing tools one at a time", prompt)
+        self.assertIn("Never return any other JSON shape.", prompt)
 
     def test_compose_grounded_answer_returns_single_tool_fact(self) -> None:
         tool_observations = [

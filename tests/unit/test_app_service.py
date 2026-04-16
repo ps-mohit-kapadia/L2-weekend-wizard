@@ -36,10 +36,21 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
             await app.__aenter__()
 
         self.assertEqual(app.tool_names, ["get_weather"])
-        self.assertEqual(app.listed_tools, ["weather"])
         self.assertEqual(app.model_name, "llama3.2:latest")
+        self.assertTrue(app.is_initialized)
 
         await app.__aexit__(None, None, None)
+
+    async def test_app_service_resets_initialization_state_on_close(self) -> None:
+        with (
+            patch("application.service.McpService", _FakeMcpService),
+            patch("application.service.build_system_prompt", return_value="system"),
+        ):
+            app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
+            await app.__aenter__()
+            await app.__aexit__(None, None, None)
+
+        self.assertFalse(app.is_initialized)
 
     async def test_app_service_rejects_startup_without_tools(self) -> None:
         with patch("application.service.McpService", _NoToolsMcpService):
@@ -83,11 +94,9 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
                 await app.__aexit__(None, None, None)
 
         joined = "\n".join(captured.output)
-        self.assertIn("event=app_session_ready", joined)
-        self.assertIn("event=app_interaction_dispatch", joined)
-        self.assertIn("event=app_interaction_completed", joined)
-        self.assertIn('layer="application"', joined)
-        self.assertRegex(joined, r'request_id="app-[0-9a-f]{8}"')
+        self.assertIn("App session ready", joined)
+        self.assertIn("Dispatching interaction", joined)
+        self.assertIn("Interaction completed", joined)
 
     async def test_run_interaction_requires_explicit_context(self) -> None:
         with (

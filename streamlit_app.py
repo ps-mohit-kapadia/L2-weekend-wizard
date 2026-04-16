@@ -9,14 +9,14 @@ from typing import Any
 import requests
 import streamlit as st
 
-from logger.context import request_context
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
 
 
-logger = get_logger("agent.streamlit", layer="streamlit")
+logger = get_logger("agent.streamlit")
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+CHAT_REQUEST_TIMEOUT_SECONDS = 600
 
 
 @dataclass
@@ -59,7 +59,7 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": prompt},
-            timeout=120,
+            timeout=CHAT_REQUEST_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
         raise RuntimeError(
@@ -81,7 +81,7 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
 def reset_chat() -> None:
     """Reset the current Streamlit chat transcript."""
     st.session_state.chat_turns = []
-    logger.info("streamlit_chat_reset")
+    logger.info("Reset Streamlit chat history")
 
 
 def render_sidebar(readiness: ReadinessResponse) -> None:
@@ -137,7 +137,7 @@ def run_app() -> None:
     try:
         readiness = load_readiness()
     except Exception as exc:
-        logger.exception("streamlit_readiness_failed", details=str(exc))
+        logger.exception("Streamlit readiness check failed: %s", exc)
         st.error(str(exc))
         return
 
@@ -159,17 +159,16 @@ def run_app() -> None:
     with st.chat_message("assistant"):
         with st.spinner("Planning your weekend..."):
             try:
-                with request_context("streamlit"):
-                    logger.info("streamlit_prompt_received", prompt_length=len(prompt))
-                    result = send_chat_prompt(prompt)
-                    logger.info(
-                        "streamlit_prompt_completed",
-                        observation_count=len(result.tool_observations),
-                        used_fallback=result.used_step_limit_fallback,
-                        answer_length=len(result.answer),
-                    )
+                logger.info("Sending Streamlit prompt with length %d", len(prompt))
+                result = send_chat_prompt(prompt)
+                logger.info(
+                    "Streamlit prompt completed with %d observations, fallback=%s, answer length=%d",
+                    len(result.tool_observations),
+                    result.used_step_limit_fallback,
+                    len(result.answer),
+                )
             except Exception as exc:
-                logger.exception("streamlit_interaction_failed", details=str(exc))
+                logger.exception("Streamlit interaction failed: %s", exc)
                 st.error(str(exc))
                 return
 

@@ -11,7 +11,7 @@ from config.config import get_settings
 from logger.logging import get_logger
 
 
-logger = get_logger("tools.shared", layer="tools")
+logger = get_logger("tools.shared")
 
 
 def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -28,27 +28,27 @@ def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
         requests.RequestException: If all retry attempts fail.
     """
     settings = get_settings()
-    logger.info("request_start", url=url, params=params)
+    logger.info("Starting HTTP request to %s with params=%s", url, params)
 
     last_exception: Exception | None = None
-    for attempt in range(settings.http.max_retries + 1):
+    for attempt in range(settings.http_max_retries + 1):
         try:
-            response = requests.get(url, params=params, timeout=settings.http.request_timeout)
+            response = requests.get(url, params=params, timeout=settings.request_timeout)
             response.raise_for_status()
-            logger.info("request_success", url=url, status=response.status_code)
+            logger.info("HTTP request succeeded for %s with status %s", url, response.status_code)
             return response.json()
         except requests.RequestException as exc:
             last_exception = exc
-            if attempt >= settings.http.max_retries:
+            if attempt >= settings.http_max_retries:
                 break
 
-            delay = settings.http.retry_backoff_seconds * (2 ** attempt)
+            delay = settings.http_retry_backoff_seconds * (2 ** attempt)
             logger.warning(
-                "request_retry",
-                url=url,
-                attempt=attempt + 1,
-                delay=delay,
-                details=str(exc),
+                "Retrying HTTP request to %s (attempt %d, delay %.1fs): %s",
+                url,
+                attempt + 1,
+                delay,
+                exc,
             )
             time.sleep(delay)
 
@@ -66,5 +66,5 @@ def error_payload(source: str, exc: Exception) -> Dict[str, str]:
     Returns:
         A serializable error payload for tool responses.
     """
-    logger.warning("request_failure", source=source, details=str(exc))
+    logger.warning("%s request failed: %s", source, exc)
     return {"error": f"{source} request failed", "details": str(exc)}

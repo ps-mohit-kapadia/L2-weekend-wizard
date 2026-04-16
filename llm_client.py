@@ -9,6 +9,11 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config.config import get_settings
+from logger.logging import get_logger
+from schemas.agent import validate_agent_decision
+
+MODEL_REQUEST_TIMEOUT_SECONDS = 600
+logger = get_logger("llm_client")
 
 
 def list_available_models(timeout: int = 5) -> List[str]:
@@ -23,13 +28,16 @@ def list_available_models(timeout: int = 5) -> List[str]:
     Raises:
         requests.RequestException: If the Ollama tags endpoint cannot be reached.
     """
+    logger.info("Requesting available Ollama models with timeout %ss", timeout)
     response = requests.get(
-        get_settings().llm.ollama_url.replace("/api/chat", "/api/tags"),
+        get_settings().ollama_url.replace("/api/chat", "/api/tags"),
         timeout=timeout,
     )
     response.raise_for_status()
     models = response.json().get("models", [])
-    return [model.get("name") for model in models if model.get("name")]
+    names = [model.get("name") for model in models if model.get("name")]
+    logger.info("Discovered %d Ollama models", len(names))
+    return names
 
 
 def call_model(
@@ -62,13 +70,21 @@ def call_model(
     if json_mode:
         payload["format"] = "json"
 
+    logger.info(
+        "Calling Ollama model %s with %d messages (json_mode=%s, temperature=%s)",
+        model,
+        len(messages),
+        json_mode,
+        temperature,
+    )
     response = requests.post(
-        settings.llm.ollama_url,
+        settings.ollama_url,
         json=payload,
-        timeout=90,
+        timeout=MODEL_REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     data = response.json()
+    logger.info("Received Ollama response for model %s", model)
     return data["message"]["content"]
 
 
@@ -90,7 +106,7 @@ def discover_model(cli_model: Optional[str]) -> str:
 
     try:
         names = list_available_models(timeout=5)
-        for name in get_settings().llm.preferred_models:
+        for name in get_settings().preferred_models:
             if name in names:
                 return name
         if names:
@@ -129,6 +145,17 @@ def extract_json(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
+def _validate_decision_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a parsed JSON payload matches the agent decision contract."""
+    validate_agent_decision(payload)
+    return payload
+
+
+def _extract_valid_decision_json(text: str) -> Dict[str, Any]:
+    """Extract and validate one agent decision payload from raw model output."""
+    return _validate_decision_payload(extract_json(text))
+
+
 def llm_json(
     messages: List[Dict[str, str]],
     model: str,
@@ -144,16 +171,32 @@ def llm_json(
 
     Raises:
         requests.RequestException: If the Ollama request fails in normal mode.
-        json.JSONDecodeError: If model output cannot be repaired into valid JSON.
+        ValueError: If model output cannot be repaired into a valid agent decision.
     """
     raw = call_model(messages, model, temperature=0.2, json_mode=True)
 
     try:
-        return extract_json(raw)
-    except json.JSONDecodeError:
+        return _extract_valid_decision_json(raw)
+    except Exception:
+        logger.warning("Model returned invalid decision payload; attempting one repair pass")
         repair_messages = [
-            {"role": "system", "content": "Return only valid JSON that preserves the user's intent."},
+            {
+                "role": "system",
+                "content": (
+                    "Return only one valid JSON object for the next agent decision. "
+                    'Allowed shapes: {"action":"tool_name","args":{}} or '
+                    '{"action":"final","answer":"..."}. '
+                    "Preserve the user's intent."
+                ),
+            },
             {"role": "user", "content": raw},
         ]
         repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
-        return extract_json(repaired)
+        try:
+            return _extract_valid_decision_json(repaired)
+        except Exception as exc:
+            logger.exception("Repair pass did not produce a valid agent decision")
+            preview = raw.strip().replace("\n", " ")[:200]
+            raise ValueError(
+                f"Model returned invalid agent decision JSON after one repair attempt. Raw output preview: {preview}"
+            ) from exc

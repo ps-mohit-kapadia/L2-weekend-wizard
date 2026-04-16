@@ -14,12 +14,11 @@ import uvicorn
 from application.service import WeekendWizardApp
 from llm_client import discover_model
 from llm_client import list_available_models
-from logger.context import request_context
 from logger.logging import get_logger
 from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChecks, ReadinessResponse
 
 
-logger = get_logger("agent.api", layer="api")
+logger = get_logger("agent.api")
 
 
 def build_not_ready_response(
@@ -132,14 +131,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await wizard.__aenter__()
     except Exception as exc:
-        logger.exception("api_runtime_start_failed", details=str(exc))
+        logger.exception("API runtime startup failed: %s", exc)
         app.state.readiness = build_not_ready_response(server_path, model_name, str(exc))
         yield
         return
 
     readiness = evaluate_runtime_readiness(wizard)
     if readiness.status != "ready":
-        logger.warning("api_runtime_not_ready", details=readiness.details)
+        logger.warning("API runtime is not ready: %s", readiness.details)
         app.state.readiness = readiness
         await wizard.__aexit__(None, None, None)
         yield
@@ -147,19 +146,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.wizard = wizard
     app.state.readiness = readiness
-    logger.info(
-        "api_runtime_ready",
-        model=wizard.model_name,
-        tool_count=len(wizard.tool_names),
-    )
+    logger.info("API runtime ready with model %s and %d tools", wizard.model_name, len(wizard.tool_names))
     try:
         yield
     finally:
-        logger.info(
-            "api_runtime_closing",
-            model=wizard.model_name,
-            tool_count=len(wizard.tool_names),
-        )
+        logger.info("Closing API runtime for model %s with %d tools", wizard.model_name, len(wizard.tool_names))
         await wizard.__aexit__(None, None, None)
         app.state.wizard = None
 
@@ -180,10 +171,9 @@ def create_api() -> FastAPI:
     @app.get("/ready", response_model=ReadinessResponse)
     async def ready() -> JSONResponse:
         """Return a readiness signal for the Weekend Wizard application."""
-        with request_context("api"):
-            wizard = getattr(app.state, "wizard", None)
-            response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
-            app.state.readiness = response
+        wizard = getattr(app.state, "wizard", None)
+        response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
+        app.state.readiness = response
 
         status_code = 200 if response.status == "ready" else 503
         return JSONResponse(status_code=status_code, content=response.model_dump())
@@ -201,34 +191,33 @@ def create_api() -> FastAPI:
         Raises:
             HTTPException: If startup or interaction execution fails.
         """
-        with request_context("api"):
-            wizard = getattr(app.state, "wizard", None)
-            if wizard is None or not wizard.is_initialized:
-                readiness = app.state.readiness
-                logger.warning("api_chat_rejected", reason="runtime_not_ready", details=readiness.details)
-                raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
+        wizard = getattr(app.state, "wizard", None)
+        if wizard is None or not wizard.is_initialized:
+            readiness = app.state.readiness
+            logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
+            raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
 
-            logger.info(
-                "api_chat_requested",
-                prompt_length=len(request.prompt),
-                model_override=bool(request.model_name),
-            )
-            try:
-                validate_requested_model(request.model_name)
-                context = wizard.create_interaction_context(model_name=request.model_name)
-                result = await wizard.run_interaction(request.prompt, context=context)
-            except HTTPException:
-                raise
-            except Exception as exc:
-                logger.exception("api_chat_failed", details=str(exc))
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.info(
+            "Received /chat request with prompt length %d and model override %s",
+            len(request.prompt),
+            bool(request.model_name),
+        )
+        try:
+            validate_requested_model(request.model_name)
+            context = wizard.create_interaction_context(model_name=request.model_name)
+            result = await wizard.run_interaction(request.prompt, context=context)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Chat request failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-            logger.info(
-                "api_chat_completed",
-                observation_count=len(result.tool_observations),
-                used_fallback=result.used_step_limit_fallback,
-                answer_length=len(result.answer),
-            )
+        logger.info(
+            "Completed /chat request with %d observations, fallback=%s, answer length=%d",
+            len(result.tool_observations),
+            result.used_step_limit_fallback,
+            len(result.answer),
+        )
         return ChatResponse(
             answer=result.answer,
             tool_observations=result.tool_observations,

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-"""Shared application service for Weekend Wizard interfaces."""
+"""Backend runtime service for Weekend Wizard."""
 
 from pathlib import Path
 from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
 from agent.prompts import build_system_prompt
-from logger.context import ensure_request_context
 from logger.logging import get_logger
 from mcp_runtime.client import McpService
 from schemas.agent import InteractionResult, OrchestratorContext
 
 
-logger = get_logger("application.service", layer="application")
+logger = get_logger("application.service")
 
 
 class WeekendWizardApp:
@@ -35,9 +34,9 @@ class WeekendWizardApp:
         self._model_name = model_name
         self._server_args = list(server_args or [])
         self._mcp_service = McpService(server_path, server_args=self._server_args)
-        self._listed_tools: List[Any] = []
         self._tool_names: List[str] = []
-        self._system_history: List[dict[str, str]] = []
+        self._is_initialized = False
+        self._system_prompt = ""
 
     @property
     def model_name(self) -> str:
@@ -47,15 +46,6 @@ class WeekendWizardApp:
             The resolved model name used by the current app session.
         """
         return self._model_name
-
-    @property
-    def listed_tools(self) -> List[Any]:
-        """Return MCP tool descriptors discovered during startup.
-
-        Returns:
-            The discovered MCP tool descriptors.
-        """
-        return self._listed_tools
 
     @property
     def tool_names(self) -> List[str]:
@@ -82,7 +72,7 @@ class WeekendWizardApp:
         Returns:
             True when the application runtime is ready for interactions.
         """
-        return bool(self._system_history)
+        return self._is_initialized
 
     async def __aenter__(self) -> WeekendWizardApp:
         """Initialize MCP resources and prepare interaction context.
@@ -94,39 +84,30 @@ class WeekendWizardApp:
             RuntimeError: If startup validation fails.
         """
         logger.info(
-            "app_session_starting",
-            server=str(self._server_path),
-            model=self._model_name,
-            extra_args=self._server_args,
+            "Starting app session with server %s, model %s, args %s",
+            self._server_path,
+            self._model_name,
+            self._server_args,
         )
         try:
             await self._mcp_service.__aenter__()
-            self._listed_tools = self._mcp_service.tools
+            listed_tools = self._mcp_service.tools
             self._tool_names = self._mcp_service.tool_names
             self._validate_startup()
-            self._system_history = [
-                {"role": "system", "content": build_system_prompt(self._listed_tools)}
-            ]
-            logger.info(
-                "app_session_ready",
-                model=self._model_name,
-                tool_count=len(self._tool_names),
-            )
+            self._system_prompt = build_system_prompt(listed_tools)
+            self._is_initialized = True
+            logger.info("App session ready with model %s and %d tools", self._model_name, len(self._tool_names))
             return self
         except Exception as exc:
-            logger.exception("app_session_start_failed", details=str(exc))
+            logger.exception("App session startup failed: %s", exc)
             await self._mcp_service.__aexit__(None, None, None)
             raise
 
     async def __aexit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
         """Release MCP resources held by the application service."""
-        logger.info(
-            "app_session_closing",
-            model=self._model_name,
-            tool_count=len(self._tool_names),
-        )
-        self._system_history = []
-        self._listed_tools = []
+        logger.info("Closing app session for model %s with %d tools", self._model_name, len(self._tool_names))
+        self._is_initialized = False
+        self._system_prompt = ""
         self._tool_names = []
         await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
 
@@ -145,12 +126,12 @@ class WeekendWizardApp:
         Raises:
             RuntimeError: If the application runtime has not been initialized yet.
         """
-        if not self._system_history:
+        if not self._is_initialized:
             raise RuntimeError("Weekend Wizard app has not been initialized.")
 
         return OrchestratorContext(
             tool_names=list(self._tool_names),
-            history=[dict(message) for message in self._system_history],
+            history=[{"role": "system", "content": self._system_prompt}],
             model_name=model_name or self._model_name,
         )
 
@@ -172,25 +153,25 @@ class WeekendWizardApp:
         Raises:
             RuntimeError: If the application service has not been initialized yet.
         """
-        if not self._system_history:
+        if not self._is_initialized:
             raise RuntimeError("Weekend Wizard app has not been initialized.")
-        with ensure_request_context("app"):
-            logger.info(
-                "app_interaction_dispatch", model=context.model_name, prompt_length=len(user_prompt)
-            )
-            result = await orchestrate_interaction(
-                self._mcp_service,
-                context,
-                user_prompt,
-            )
-            logger.info(
-                "app_interaction_completed",
-                model=context.model_name,
-                observation_count=len(result.tool_observations),
-                used_fallback=result.used_step_limit_fallback,
-                answer_length=len(result.answer),
-            )
-            return result
+        logger.info(
+            "Dispatching interaction with model %s and prompt length %d",
+            context.model_name,
+            len(user_prompt),
+        )
+        result = await orchestrate_interaction(
+            self._mcp_service,
+            context,
+            user_prompt,
+        )
+        logger.info(
+            "Interaction completed with %d observations, fallback=%s, answer length=%d",
+            len(result.tool_observations),
+            result.used_step_limit_fallback,
+            len(result.answer),
+        )
+        return result
 
     def _validate_startup(self) -> None:
         """Validate session readiness after MCP startup.

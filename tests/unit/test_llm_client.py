@@ -22,6 +22,19 @@ class LlmClientTests(unittest.TestCase):
 
         self.assertEqual(result["answer"], "done")
 
+    @patch(
+        "llm_client.call_model",
+        side_effect=[
+            '{"unexpected":"shape"}',
+            '{"action":"final","answer":"done"}',
+        ],
+    )
+    def test_llm_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+
+        self.assertEqual(result["action"], "final")
+        self.assertEqual(result["answer"], "done")
+
     @patch("llm_client.call_model", side_effect=requests.RequestException("offline"))
     def test_llm_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
@@ -36,6 +49,17 @@ class LlmClientTests(unittest.TestCase):
     )
     def test_llm_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
+            llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
+
+    @patch(
+        "llm_client.call_model",
+        side_effect=[
+            '{"unexpected":"shape"}',
+            '{"still":"wrong"}',
+        ],
+    )
+    def test_llm_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid agent decision JSON"):
             llm_client.llm_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch.dict("os.environ", {"OLLAMA_MODEL": "custom-model"}, clear=False)
