@@ -21,7 +21,13 @@ CHAT_REQUEST_TIMEOUT_SECONDS = 600
 
 @dataclass
 class ChatTurn:
-    """Rendered chat turn stored in Streamlit session state."""
+    """Rendered chat turn stored in Streamlit session state.
+
+    Attributes:
+        role: Chat role rendered in the UI, such as ``user`` or ``assistant``.
+        content: Markdown content displayed for the chat turn.
+        tool_observations: Optional serialized tool observations shown in the UI.
+    """
 
     role: str
     content: str
@@ -29,12 +35,23 @@ class ChatTurn:
 
 
 def get_api_base_url() -> str:
-    """Return the FastAPI base URL used by the Streamlit demo."""
+    """Return the FastAPI base URL used by the Streamlit demo.
+
+    Returns:
+        The normalized backend base URL with any trailing slash removed.
+    """
     return os.getenv("WEEKEND_WIZARD_API_URL", DEFAULT_API_BASE_URL).rstrip("/")
 
 
 def load_readiness() -> ReadinessResponse:
-    """Fetch readiness from the FastAPI backend."""
+    """Fetch readiness from the FastAPI backend.
+
+    Returns:
+        The validated readiness response returned by the backend.
+
+    Raises:
+        RuntimeError: If the backend is unreachable or returns invalid JSON.
+    """
     base_url = get_api_base_url()
     try:
         response = requests.get(f"{base_url}/ready", timeout=10)
@@ -52,7 +69,18 @@ def load_readiness() -> ReadinessResponse:
 
 
 def send_chat_prompt(prompt: str) -> ChatResponse:
-    """Send one chat prompt to the FastAPI backend."""
+    """Send one chat prompt to the FastAPI backend.
+
+    Args:
+        prompt: User prompt to send to the backend.
+
+    Returns:
+        The validated structured chat response.
+
+    Raises:
+        RuntimeError: If the backend is unreachable, returns invalid JSON, or
+            responds with an error status.
+    """
     base_url = get_api_base_url()
     try:
         response = requests.post(

@@ -30,7 +30,14 @@ logger = get_logger("agent.orchestrator")
 
 @dataclass
 class ExecutionState:
-    """Explicit execution state for one Weekend Wizard interaction."""
+    """Mutable execution state for one Weekend Wizard interaction.
+
+    Attributes:
+        user_prompt: Original user prompt being processed.
+        plan: Validated execution plan produced by the planner.
+        tool_observations: Structured tool outputs collected so far.
+        resolved_coords: Coordinates resolved during execution, when available.
+    """
 
     user_prompt: str
     plan: ExecutionPlan
@@ -171,7 +178,17 @@ def normalize_tool_args(
 
 
 def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str], user_prompt: str) -> None:
-    """Validate planner output against supported runtime constraints."""
+    """Validate planner output against supported runtime constraints.
+
+    Args:
+        plan: Typed execution plan returned by the planner.
+        available_tools: Tool names exposed by the MCP runtime.
+        user_prompt: Original user prompt used to infer supported intent.
+
+    Raises:
+        ValueError: If the plan requests unsupported tools, omits requested tools,
+            or violates runtime dependency rules.
+    """
     available = set(available_tools)
     requested = set(plan.requested_tools)
     user_requested = infer_requested_tools(user_prompt)
@@ -232,7 +249,13 @@ def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str], use
 
 
 def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str) -> None:
-    """Update execution state from a tool result."""
+    """Update execution state from a completed tool call.
+
+    Args:
+        state: Mutable execution state for the active interaction.
+        tool_name: Name of the tool that just completed.
+        payload: Serialized payload returned by the tool.
+    """
     if tool_name == "city_to_coords":
         state.resolved_coords = geo_payload_to_coords(payload)
         if state.plan.location is not None and state.resolved_coords is not None:
@@ -241,7 +264,15 @@ def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str)
 
 
 def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservation]) -> str:
-    """Build the grounded draft answer before reflection."""
+    """Build the grounded draft answer before reflection.
+
+    Args:
+        user_prompt: Original user request.
+        tool_observations: Structured tool outputs collected during execution.
+
+    Returns:
+        A grounded draft answer derived from observed tool data.
+    """
     return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
 
 
@@ -251,7 +282,18 @@ def run_reflection(
     tool_observations: List[ToolObservation],
     draft_answer: str,
 ) -> str:
-    """Run one reflection pass and fall back to the grounded draft on failure."""
+    """Run one reflection pass and fall back to the grounded draft on failure.
+
+    Args:
+        context: Runtime interaction context carrying the active model name.
+        user_prompt: Original user request.
+        tool_observations: Structured tool outputs collected during execution.
+        draft_answer: Grounded draft answer to refine.
+
+    Returns:
+        The reflected answer when reflection succeeds, otherwise the original
+        grounded draft answer.
+    """
     messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name)
@@ -276,7 +318,17 @@ def finalize_after_execution(
     *,
     used_fallback: bool = False,
 ) -> InteractionResult:
-    """Build, reflect, and persist the final answer after deterministic execution."""
+    """Build, reflect, and persist the final answer after deterministic execution.
+
+    Args:
+        context: Runtime interaction context for the current request.
+        user_prompt: Original user request.
+        tool_observations: Structured tool outputs collected during execution.
+        used_fallback: Whether the interaction completed through a fallback path.
+
+    Returns:
+        The final structured interaction result.
+    """
     grounded = build_grounded_draft(user_prompt, tool_observations)
     final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
     final_answer = compose_grounded_answer_from_observations(user_prompt, final_answer, tool_observations)
@@ -293,7 +345,16 @@ async def orchestrate_interaction(
     context: OrchestratorContext,
     user_prompt: str,
 ) -> InteractionResult:
-    """Run one planner/executor interaction from prompt to grounded result."""
+    """Run one planner/executor interaction from prompt to grounded result.
+
+    Args:
+        tool_gateway: MCP-backed tool execution gateway.
+        context: Runtime interaction context for the current request.
+        user_prompt: Original user request to process.
+
+    Returns:
+        The structured interaction result for the request.
+    """
     logger.info("Starting interaction for prompt length %d", len(user_prompt))
     context.history.append({"role": "user", "content": user_prompt})
 

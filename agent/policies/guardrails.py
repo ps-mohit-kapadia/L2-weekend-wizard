@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Guardrails that prevent the live agent from finishing too early."""
+"""Request-analysis and planning helper functions for Weekend Wizard."""
 
 from dataclasses import dataclass
 import re
@@ -44,7 +44,15 @@ _BOOK_TOPIC_STOPWORDS = {
 
 @dataclass(frozen=True)
 class RequestAnalysis:
-    """Deterministic request analysis for the common Weekend Wizard flow."""
+    """Deterministic request analysis for a supported Weekend Wizard prompt.
+
+    Attributes:
+        requested_tools: Ordered tool categories inferred from the user request.
+        coords: Optional coordinates parsed directly from the prompt.
+        city: Optional city name inferred from the prompt.
+        book_topic: Normalized topic used for book recommendations.
+        book_limit: Requested number of book recommendations.
+    """
 
     requested_tools: Tuple[str, ...]
     coords: Optional[Tuple[float, float]] = None
