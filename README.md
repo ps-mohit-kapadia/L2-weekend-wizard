@@ -98,7 +98,6 @@ weekend-wizard/
 |- streamlit_app.py
 |- llm_client.py
 |- mcp_server.py
-|- smoke_test.py
 |- requirements.txt
 |- README.md
 |
@@ -135,6 +134,8 @@ weekend-wizard/
 |  |- weather.py
 |
 |- tests/
+|  |- smoke/
+|  |  |- smoke_test.py
    |- integration/
    |- unit/
 ```

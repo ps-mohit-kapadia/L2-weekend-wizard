@@ -91,7 +91,7 @@ def discover_model(cli_model: Optional[str]) -> str:
     """Resolve the Ollama model name for the current run.
 
     Args:
-        cli_model: Deprecated command-line override. Ignored in favor of config.
+        cli_model: Legacy parameter retained for compatibility. The configured model is used.
 
     Returns:
         The chosen Ollama model name.
