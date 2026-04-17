@@ -1,42 +1,34 @@
-# Weekend Wizard
+# Weekend Wizard (L2 Agent Project)
 
-A local MCP-powered weekend-planning agent that uses:
+A lightweight local AI agent that helps answer:
 
-- **Ollama** for planning and one-shot reflection
-- **FastAPI** as the backend runtime
-- **Streamlit** as the interactive UI
-- **MCP** as the tool execution boundary
+**"What should I do this weekend?"**
 
-The current architecture is:
+Weekend Wizard combines a local LLM, MCP-exposed tools, and a controlled orchestration layer to build short, grounded weekend suggestions using real public data.
+
+The system can pull:
+
+- current weather
+- book recommendations
+- a safe joke
+- a random dog photo
+- optional trivia
+
+Unlike a freestyle controller loop, this project uses a bounded agent design:
 
 **LLM plans once -> orchestrator validates -> tools execute deterministically -> grounding builds a draft -> LLM reflects once**
 
-That keeps the system agentic without falling back into a noisy step-by-step controller loop.
+This keeps the system agentic while preserving reliability, explainability, and a clean local runtime story.
 
 ---
 
-## What It Does
+## Architecture Overview
 
-Weekend Wizard helps answer prompts like:
+Weekend Wizard follows a planner/executor/reflection architecture:
 
-- "Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic."
-- "I'm at 40.7128, -74.0060. Give me the weather, one joke, and a dog photo."
-- "Give me one trivia question."
-
-Supported tool-backed capabilities:
-
-- weather via Open-Meteo
-- city-to-coordinates lookup via Open-Meteo geocoding
-- book recommendations via Open Library
-- a safe one-liner joke via JokeAPI
-- a random dog photo URL via Dog CEO
-- optional trivia via Open Trivia DB
-
-`trivia` is supported, but it should only appear when the user explicitly asks for it.
-
----
-
-## Architecture
+1. Prompt interpretation and planning
+2. Deterministic tool execution through MCP
+3. Grounded response generation with one reflection pass
 
 ```mermaid
 flowchart TD
@@ -63,18 +55,37 @@ flowchart TD
     T --> B
 ```
 
-### Execution flow
+### Execution Flow
 
-1. Streamlit sends the prompt to FastAPI.
+1. Streamlit sends the user prompt to FastAPI.
 2. The planner LLM produces one structured execution plan.
-3. The orchestrator validates that plan.
+3. The orchestrator validates the plan schema and semantics.
 4. The executor runs each planned MCP tool step in order.
 5. Tool outputs are stored as structured `ToolObservation`s.
 6. Grounding builds a draft answer from real observations.
-7. The reflection LLM does one lightweight correction pass.
+7. The reflection LLM performs one lightweight correction pass.
 8. The final grounded answer is returned to the UI.
 
-This is intentionally not a freestyle "LLM decides every micro-step forever" design.
+---
+
+## What It Does
+
+Weekend Wizard supports prompts like:
+
+- "Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic."
+- "I'm at 40.7128, -74.0060. Give me the weather, one joke, and a dog photo."
+- "Give me one trivia question."
+
+Supported tool-backed capabilities:
+
+- weather via Open-Meteo
+- city-to-coordinates lookup via Open-Meteo geocoding
+- book recommendations via Open Library
+- a safe one-liner joke via JokeAPI
+- a random dog photo URL via Dog CEO
+- optional trivia via Open Trivia DB
+
+`trivia` is intentionally supported as an explicit request, not as automatic enrichment for unrelated prompts.
 
 ---
 
@@ -130,40 +141,46 @@ weekend-wizard/
 
 ---
 
-## Core Components
+## Components
 
-### `streamlit_app.py`
+### 1. Streamlit UI (`streamlit_app.py`)
 
-Thin UI client for local interactive use.
+The Streamlit app provides the local interactive interface.
 
 Responsibilities:
 
 - collect prompts
-- send them to the backend
-- render final answer and tool observations
+- send requests to the backend
+- render the final answer and tool observations
 
-### `api.py`
+---
 
-Backend HTTP surface.
+### 2. FastAPI Backend (`api.py`)
+
+This module exposes the runtime over HTTP.
 
 Responsibilities:
 
 - expose `/chat`, `/health`, and `/ready`
-- own the shared runtime
-- return structured chat responses using the configured runtime model
+- own the shared runtime lifecycle
+- return structured responses using the configured runtime model
 
-### `application/service.py`
+---
 
-Runtime/session owner.
+### 3. Runtime Service (`application/service.py`)
+
+This layer owns shared runtime state for each application session.
 
 Responsibilities:
 
-- initialize the MCP-backed app session
-- resolve tools and model name
+- initialize the MCP-backed runtime
+- resolve the configured model and discovered tools
 - create per-request interaction context
-- dispatch one interaction through the orchestrator
+- dispatch interactions through the orchestrator
 
-### `agent/orchestrator.py`
+---
+
+### 4. Orchestrator (`agent/orchestrator.py`)
 
 This is the core runtime brain.
 
@@ -171,90 +188,60 @@ Responsibilities:
 
 - build planner messages
 - call the planner LLM once
-- validate the plan schema and semantics
-- normalize tool args
+- validate plan schema and semantics
+- normalize tool arguments before execution
 - execute MCP tools deterministically
 - record `ToolObservation`s
 - build grounded draft answers
 - run one reflection pass
-- fall back safely when planning or reflection fails
+- return bounded failure behavior when planning or reflection is unreliable
 
-### `agent/prompts.py`
+---
 
-Prompt construction for:
+### 5. Prompts (`agent/prompts.py`)
+
+This module builds prompt payloads for:
 
 - the planner step
 - the one-shot reflection step
 
-### `agent/grounding.py`
+---
 
-Grounds the response in actual fetched tool data.
+### 6. Grounding (`agent/grounding.py`)
+
+This module keeps the answer tied to observed tool output.
 
 Responsibilities:
 
 - parse serialized tool payloads
 - normalize tool outputs
-- compose the final answer from observations
+- compose grounded answers from observations
 
-### `mcp_runtime/client.py`
+---
 
-Tool execution boundary.
+### 7. MCP Runtime (`mcp_runtime/client.py`)
+
+This is the tool execution boundary.
 
 Responsibilities:
 
 - connect to the MCP server
 - discover tools
-- invoke tools with structured args
+- invoke tools with structured arguments
 - return results to the orchestrator
 
-### `llm_client.py`
+---
 
-Local LLM integration through Ollama.
+### 8. Ollama Integration (`llm_client.py`)
+
+This module manages local LLM interaction through Ollama.
 
 Responsibilities:
 
 - discover available local models
 - call the planner LLM
 - call the reflection LLM
-- do one repair attempt for invalid planner/reflection JSON
-
----
-
-## Current Agent Design
-
-The repo is now using a **planner/executor/reflection** design rather than the older step-by-step controller loop.
-
-### Planner
-
-The LLM returns a structured plan like:
-
-- goal
-- location
-- book topic
-- requested tools
-- ordered execution steps
-
-### Executor
-
-The orchestrator validates the plan, then runs the steps in order.
-
-Examples:
-
-- `city_to_coords -> get_weather`
-- `book_recs`
-- `random_joke`
-- `random_dog`
-- `trivia` only when requested
-
-### Reflection
-
-After deterministic execution, the system:
-
-- builds a grounded draft answer
-- runs one reflection pass
-- falls back to the grounded draft if reflection fails
-
-This keeps reflection useful without letting it re-plan the task.
+- perform one repair attempt for invalid planner/reflection JSON
 
 ---
 
@@ -268,6 +255,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r .\requirements.txt
 ```
+
+---
 
 ### 2. Ensure Ollama is running
 
@@ -283,11 +272,15 @@ If needed:
 ollama pull llama3.1:8b
 ```
 
+---
+
 ### 3. Start the API
 
 ```powershell
 python .\main.py api
 ```
+
+---
 
 ### 4. Start Streamlit
 
@@ -301,11 +294,15 @@ Useful URLs:
 - `http://127.0.0.1:8000/ready`
 - `http://127.0.0.1:8000/docs`
 
+---
+
 ### 5. Optional: run the MCP server directly
 
 ```powershell
 python .\main.py mcp-server
 ```
+
+---
 
 ### 6. Run tests
 
@@ -313,15 +310,19 @@ python .\main.py mcp-server
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
+---
+
 ### 7. Run the smoke test
 
 ```powershell
-.\.venv\Scripts\python.exe .\smoke_test.py --prompt "Tell me a joke."
+.\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
 ```
 
 ---
 
-## Environment Variables
+## Configuration
+
+Configuration is managed through environment variables and repo config.
 
 Example values:
 
@@ -339,25 +340,85 @@ WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 Notes:
 
 - the active runtime model is configured in [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
-- `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests.
-- `WEEKEND_WIZARD_REQUEST_TIMEOUT` matters for slower local Ollama runs.
+- `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
+- `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 
 ---
 
-## Health and Readiness
+## Health Check
 
 ### `/health`
 
-Confirms the API process is alive.
+Confirms that the API process is alive.
 
 ### `/ready`
 
 Checks whether the backend runtime is actually usable, including:
 
-- Ollama reachable
-- model resolved
-- MCP session initialized
-- tools discovered
+- Ollama reachability
+- configured model availability
+- MCP session readiness
+- discovered tools
+
+---
+
+## Design Decisions
+
+### Local-first runtime
+
+Weekend Wizard uses a local Ollama model rather than a hosted API.
+
+Advantages:
+
+- privacy-friendly local execution
+- no external LLM API cost
+- reproducible runtime environment
+- strong alignment with the training project goal
+
+---
+
+### Planner / executor / reflection split
+
+The system uses:
+
+**LLM plans -> system executes -> LLM reflects**
+
+instead of:
+
+- fully deterministic no-LLM orchestration
+- messy per-step LLM controller loops
+
+This gives the project:
+
+- agentic behavior
+- deterministic execution after planning
+- clearer debugging and testing boundaries
+- better control over tool usage
+
+---
+
+### MCP as the tool boundary
+
+Tools are exposed and invoked through MCP rather than embedded directly into prompt logic.
+
+Advantages:
+
+- clear system boundaries
+- structured tool invocation
+- easier observability
+- cleaner separation between agent logic and external APIs
+
+---
+
+### One reflection pass only
+
+Reflection is deliberately limited to a single pass.
+
+This keeps the final answer:
+
+- grounded
+- concise
+- less prone to looping or re-planning
 
 ---
 
@@ -377,46 +438,34 @@ Give me one trivia question.
 
 ---
 
-## Fallback Behavior
+## Known Limitations
 
-The runtime has explicit fallback rules:
+This implementation is a strong local L2 prototype, but a few practical tradeoffs remain.
 
-- if planning fails, return a clear bounded-scope failure message
-- if a tool fails, keep other steps running where possible and answer honestly
-- if reflection fails, return the grounded draft answer
+Limitations:
 
-This avoids hidden mode-switching and keeps failures explainable.
-
----
-
-## What Is Strong Right Now
-
-- planner/executor/reflection split
-- MCP as a clean tool boundary
-- grounded answer composition
-- local Ollama runtime
-- Streamlit over FastAPI with one backend-owned execution path
-- much cleaner logging and debuggability than the earlier controller-heavy version
-
----
-
-## Current Tradeoffs
-
-Weekend Wizard is in a strong demo-ready state, but a few practical tradeoffs remain:
-
-- local-model latency is still noticeable, especially during planning and reflection on larger local models
+- local-model latency is still noticeable, especially for planning and reflection on larger models
 - runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
-- planner and validation behavior are much healthier than before, but local inference quality still matters for the smoothest end-to-end experience
+- the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
+
+These tradeoffs prioritize:
+
+- clarity
+- reliability
+- grounded behavior
+- explainable execution
+
+over unrestricted flexibility.
 
 ---
 
 ## Summary
 
-Weekend Wizard is a local, MCP-backed planning agent that:
+Weekend Wizard demonstrates a local MCP-backed agent that:
 
 - uses Ollama to produce one execution plan
 - executes tool calls deterministically through MCP
 - grounds answers in real fetched data
 - runs one lightweight reflection pass before replying
 
-It is designed as a bounded, explainable local agent rather than a freestyle controller loop, which makes it much easier to reason about, test, and demo with confidence.
+The architecture is intentionally modular, bounded, and explainable, making it a solid L2-style agent project rather than a fragile controller loop demo.

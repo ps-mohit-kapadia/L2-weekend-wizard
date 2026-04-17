@@ -143,7 +143,7 @@ def stop_process(process: subprocess.Popen[str]) -> None:
 def main() -> None:
     """Run the end-to-end smoke test."""
     args = parse_args()
-    project_dir = Path(__file__).resolve().parent
+    project_dir = Path(__file__).resolve().parents[2]
     base_url = args.api_url.rstrip("/")
     process: subprocess.Popen[str] | None = None
 
