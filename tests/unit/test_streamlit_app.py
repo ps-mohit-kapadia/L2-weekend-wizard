@@ -53,7 +53,6 @@ class StreamlitAppTests(unittest.TestCase):
         response.json.return_value = {
             "answer": "Weekend plan ready.",
             "tool_observations": [],
-            "used_step_limit_fallback": False,
         }
         mock_post.return_value = response
 

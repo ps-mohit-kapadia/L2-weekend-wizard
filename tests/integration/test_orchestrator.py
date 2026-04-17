@@ -5,9 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from agent.orchestrator import orchestrate_interaction
+from agent.orchestrator import orchestrate_interaction, validate_plan_semantics
 from mcp_runtime.client import ToolInvocationError
-from schemas.agent import OrchestratorContext
+from schemas.agent import OrchestratorContext, validate_execution_plan
 
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
@@ -100,7 +100,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Plan a cozy Saturday in New York. Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.",
         )
 
-        self.assertFalse(result.used_step_limit_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertIn("Weekend Wizard Plan", result.answer)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
@@ -125,7 +125,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
-        self.assertFalse(result.used_step_limit_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
@@ -150,7 +150,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="What's the weather in New York?",
         )
 
-        self.assertFalse(result.used_step_limit_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(result.tool_observations, [])
         self.assertIn("couldn't build a reliable weekend plan", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 0)
@@ -199,11 +199,53 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Give me the weather and a joke for 40.7128, -74.0060.",
         )
 
-        self.assertFalse(result.used_step_limit_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
 
+    def test_validate_plan_semantics_rejects_unrequested_optional_tool(self) -> None:
+        plan = {
+            "goal": "weekend_plan",
+            "location": {"city": "New York"},
+            "book_topic": "mystery",
+            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
+            "execution_steps": [
+                {"tool": "city_to_coords", "args": {"city": "New York"}},
+                {"tool": "get_weather", "args": {}},
+                {"tool": "book_recs", "args": {"topic": "mystery", "limit": 3}},
+                {"tool": "random_joke", "args": {}},
+                {"tool": "random_dog", "args": {}},
+                {"tool": "trivia", "args": {}},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "unrequested tools"):
+            validate_plan_semantics(
+                plan=validate_execution_plan(plan),
+                available_tools=["city_to_coords", "get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
+                user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
+            )
+
+    def test_validate_plan_semantics_rejects_city_lookup_when_coords_already_exist(self) -> None:
+        plan = {
+            "goal": "weekend_plan",
+            "location": {"city": "New York", "latitude": 40.7128, "longitude": -74.0060},
+            "book_topic": "mystery",
+            "requested_tools": ["get_weather", "book_recs"],
+            "execution_steps": [
+                {"tool": "city_to_coords", "args": {"city": "New York"}},
+                {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
+                {"tool": "book_recs", "args": {"topic": "mystery", "limit": 3}},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "coordinates were already provided"):
+            validate_plan_semantics(
+                plan=validate_execution_plan(plan),
+                available_tools=["city_to_coords", "get_weather", "book_recs"],
+                user_prompt="Plan a cozy Saturday in New York at (40.7128, -74.0060) with weather and 3 mystery book ideas.",
+            )
 
 if __name__ == "__main__":
     unittest.main()

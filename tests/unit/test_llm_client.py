@@ -82,18 +82,18 @@ class LlmClientTests(unittest.TestCase):
 
         self.assertEqual(result["answer"], "tightened")
 
-    @patch.dict("os.environ", {"OLLAMA_MODEL": "custom-model"}, clear=False)
-    def test_discover_model_prefers_environment_override(self) -> None:
-        self.assertEqual(llm_client.discover_model(None), "custom-model")
-
-    @patch.dict("os.environ", {}, clear=True)
     @patch("llm_client.requests.get")
-    def test_discover_model_reads_available_models(self, mock_get: Mock) -> None:
+    @patch("llm_client.get_settings")
+    def test_discover_model_uses_configured_model(self, mock_settings: Mock, mock_get: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            ollama_url="http://127.0.0.1:11434/api/chat",
+            preferred_models=("gpt-oss:20b-cloud",),
+        )
         response = Mock()
         response.json.return_value = {
             "models": [
+                {"name": "gpt-oss:20b-cloud"},
                 {"name": "llama3.2:latest"},
-                {"name": "another-model"},
             ]
         }
         response.raise_for_status.return_value = None
@@ -101,7 +101,22 @@ class LlmClientTests(unittest.TestCase):
 
         result = llm_client.discover_model(None)
 
-        self.assertEqual(result, "llama3.2:latest")
+        self.assertEqual(result, "gpt-oss:20b-cloud")
+
+    @patch("llm_client.requests.get")
+    @patch("llm_client.get_settings")
+    def test_discover_model_fails_when_configured_model_is_missing(self, mock_settings: Mock, mock_get: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            ollama_url="http://127.0.0.1:11434/api/chat",
+            preferred_models=("gpt-oss:20b-cloud",),
+        )
+        response = Mock()
+        response.json.return_value = {"models": [{"name": "llama3.2:latest"}]}
+        response.raise_for_status.return_value = None
+        mock_get.return_value = response
+
+        with self.assertRaisesRegex(RuntimeError, "Configured Ollama model is not available"):
+            llm_client.discover_model(None)
 
 
 if __name__ == "__main__":

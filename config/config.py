@@ -33,7 +33,6 @@ class Settings:
     http_retry_backoff_seconds: float
     ollama_url: str
     preferred_models: Tuple[str, ...]
-    max_steps: int
     log_level: str
 
 
@@ -48,7 +47,6 @@ def get_settings() -> Settings:
             0.5,
         ),
         ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat"),
-        preferred_models=("mistral:7b", "llama3.2:latest", "llama3.2"),
-        max_steps=_env_int("WEEKEND_WIZARD_MAX_STEPS", 9),
+        preferred_models=("llama3.1:8b",),
         log_level=os.getenv("WEEKEND_WIZARD_LOG_LEVEL", "WARNING").upper(),
     )

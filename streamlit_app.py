@@ -26,7 +26,6 @@ class ChatTurn:
     role: str
     content: str
     tool_observations: list[dict[str, Any]] | None = None
-    used_step_limit_fallback: bool = False
 
 
 def get_api_base_url() -> str:
@@ -109,9 +108,6 @@ def render_chat_history() -> None:
                             f"{observation['tool_name']} args={observation['args']}\n{observation['payload']}",
                             language="json",
                         )
-            if turn.used_step_limit_fallback:
-                st.caption("Answered using step-limit fallback after collecting available tool results.")
-
 
 def append_result(result: ChatResponse) -> None:
     """Append one assistant result to the Streamlit transcript."""
@@ -120,7 +116,6 @@ def append_result(result: ChatResponse) -> None:
             role="assistant",
             content=result.answer,
             tool_observations=[observation.model_dump() for observation in result.tool_observations],
-            used_step_limit_fallback=result.used_step_limit_fallback,
         )
     )
 
@@ -162,9 +157,8 @@ def run_app() -> None:
                 logger.info("Sending Streamlit prompt with length %d", len(prompt))
                 result = send_chat_prompt(prompt)
                 logger.info(
-                    "Streamlit prompt completed with %d observations, fallback=%s, answer length=%d",
+                    "Streamlit prompt completed with %d observations and answer length=%d",
                     len(result.tool_observations),
-                    result.used_step_limit_fallback,
                     len(result.answer),
                 )
             except Exception as exc:
@@ -180,9 +174,6 @@ def run_app() -> None:
                             f"{observation.tool_name} args={observation.args}\n{observation.payload}",
                             language="json",
                         )
-            if result.used_step_limit_fallback:
-                st.caption("Answered using step-limit fallback after collecting available tool results.")
-
     append_result(result)
 
 

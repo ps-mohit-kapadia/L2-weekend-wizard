@@ -106,14 +106,8 @@ class WeekendWizardApp:
         self._tool_names = []
         await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
 
-    def create_interaction_context(
-        self,
-        model_name: str | None = None,
-    ) -> OrchestratorContext:
+    def create_interaction_context(self) -> OrchestratorContext:
         """Create a fresh orchestration context for one interaction flow.
-
-        Args:
-            model_name: Optional model override for the interaction context.
 
         Returns:
             A new orchestration context with isolated conversation history.
@@ -127,7 +121,7 @@ class WeekendWizardApp:
         return OrchestratorContext(
             tool_names=list(self._tool_names),
             history=[],
-            model_name=model_name or self._model_name,
+            model_name=self._model_name,
         )
 
     async def run_interaction(
@@ -163,7 +157,7 @@ class WeekendWizardApp:
         logger.info(
             "Interaction completed with %d observations, fallback=%s, answer length=%d",
             len(result.tool_observations),
-            result.used_step_limit_fallback,
+            result.used_fallback,
             len(result.answer),
         )
         return result

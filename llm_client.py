@@ -3,7 +3,6 @@ from __future__ import annotations
 """Local Ollama client helpers for planner and reflection JSON outputs."""
 
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -92,29 +91,29 @@ def discover_model(cli_model: Optional[str]) -> str:
     """Resolve the Ollama model name for the current run.
 
     Args:
-        cli_model: Optional model override provided on the command line.
+        cli_model: Deprecated command-line override. Ignored in favor of config.
 
     Returns:
         The chosen Ollama model name.
+
+    Raises:
+        RuntimeError: If no configured model exists or Ollama does not expose it.
     """
-    if cli_model:
-        return cli_model
+    settings = get_settings()
+    configured_models = settings.preferred_models
+    if not configured_models:
+        raise RuntimeError("No Ollama model is configured.")
 
-    env_model = os.getenv("OLLAMA_MODEL")
-    if env_model:
-        return env_model
-
+    configured_model = configured_models[0]
     try:
         names = list_available_models(timeout=5)
-        for name in get_settings().preferred_models:
-            if name in names:
-                return name
-        if names:
-            return names[0]
-    except requests.RequestException:
-        pass
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not reach Ollama to validate model '{configured_model}': {exc}") from exc
 
-    return "mistral:7b"
+    if configured_model not in names:
+        raise RuntimeError(f"Configured Ollama model is not available: {configured_model}")
+
+    return configured_model
 
 
 def extract_json(text: str) -> Dict[str, Any]:

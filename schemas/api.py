@@ -14,11 +14,9 @@ class ChatRequest(BaseModel):
 
     Attributes:
         prompt: User request to process.
-        model_name: Optional Ollama model override for the request.
     """
 
     prompt: str = Field(min_length=1)
-    model_name: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -27,12 +25,10 @@ class ChatResponse(BaseModel):
     Attributes:
         answer: Final grounded answer generated for the request.
         tool_observations: Structured tool observations collected during execution.
-        used_step_limit_fallback: Whether the answer came from the step-limit fallback path.
     """
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
-    used_step_limit_fallback: bool = False
 
 
 class HealthResponse(BaseModel):

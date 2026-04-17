@@ -10,6 +10,7 @@ from agent.grounding import (
     compose_grounded_answer_from_observations,
     parse_tool_payload_text,
 )
+from agent.policies.guardrails import parse_coords, requested_tools as infer_requested_tools
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_logger
@@ -78,14 +79,14 @@ def build_interaction_result(
     answer: str,
     tool_observations: List[ToolObservation],
     *,
-    used_step_limit_fallback: bool,
+    used_fallback: bool,
 ) -> InteractionResult:
     """Persist the final assistant answer and create the interaction result."""
     history.append({"role": "assistant", "content": answer})
     return InteractionResult(
         answer=answer,
         tool_observations=tool_observations,
-        used_step_limit_fallback=used_step_limit_fallback,
+        used_fallback=used_fallback,
     )
 
 
@@ -169,32 +170,61 @@ def normalize_tool_args(
     return args, None
 
 
-def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str]) -> None:
+def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str], user_prompt: str) -> None:
     """Validate planner output against supported runtime constraints."""
     available = set(available_tools)
     requested = set(plan.requested_tools)
+    user_requested = infer_requested_tools(user_prompt)
+    coords_in_prompt = parse_coords(user_prompt)
     if not requested:
         raise ValueError("Execution plan must request at least one tool.")
     if not requested.issubset(available):
         unknown = sorted(requested.difference(available))
         raise ValueError(f"Execution plan requested unsupported tools: {', '.join(unknown)}")
+    if "city_to_coords" in requested:
+        raise ValueError("Execution plan must not list city_to_coords as a requested tool.")
+    extra_requested = requested.difference(user_requested)
+    if extra_requested:
+        raise ValueError(f"Execution plan added unrequested tools: {', '.join(sorted(extra_requested))}")
 
     seen_requested = set()
     saw_city_lookup = False
+    weather_step_count = 0
+    city_lookup_count = 0
     for step in plan.execution_steps:
         if step.tool not in available:
             raise ValueError(f"Execution step uses unsupported tool: {step.tool}")
-        seen_requested.add(step.tool)
+        if step.tool != "city_to_coords":
+            seen_requested.add(step.tool)
         if step.tool == "city_to_coords":
             saw_city_lookup = True
+            city_lookup_count += 1
         if step.tool == "get_weather":
+            weather_step_count += 1
             has_coords = (
+                step.args.get("latitude") is not None
+                and step.args.get("longitude") is not None
+                or
                 plan.location is not None
                 and plan.location.latitude is not None
                 and plan.location.longitude is not None
             )
             if not has_coords and not saw_city_lookup:
                 raise ValueError("Weather execution requires coordinates or a prior city_to_coords step.")
+
+    if city_lookup_count and "get_weather" not in requested:
+        raise ValueError("city_to_coords is only valid as a dependency for weather requests.")
+    if city_lookup_count and (
+        coords_in_prompt is not None
+        or (
+            plan.location is not None
+            and plan.location.latitude is not None
+            and plan.location.longitude is not None
+        )
+    ):
+        raise ValueError("Execution plan added city_to_coords even though coordinates were already provided.")
+    if weather_step_count > 1 or city_lookup_count > 1:
+        raise ValueError("Execution plan contains duplicate weather dependency steps.")
 
     missing_steps = requested.difference(seen_requested)
     if missing_steps:
@@ -254,7 +284,7 @@ def finalize_after_execution(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_step_limit_fallback=used_fallback,
+        used_fallback=used_fallback,
     )
 
 
@@ -271,14 +301,14 @@ async def orchestrate_interaction(
     try:
         raw_plan = llm_plan_json(planner_messages, context.model_name)
         plan = validate_execution_plan(raw_plan)
-        validate_plan_semantics(plan, context.tool_names)
+        validate_plan_semantics(plan, context.tool_names, user_prompt)
     except Exception as exc:
         logger.exception("Planning failed: %s", exc)
         return build_interaction_result(
             context.history,
             answer=build_planner_failure_answer(),
             tool_observations=[],
-            used_step_limit_fallback=False,
+            used_fallback=False,
         )
 
     logger.info(

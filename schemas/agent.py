@@ -59,7 +59,7 @@ class InteractionResult(BaseModel):
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
-    used_step_limit_fallback: bool = False
+    used_fallback: bool = False
 
 
 _execution_plan_adapter = TypeAdapter(ExecutionPlan)

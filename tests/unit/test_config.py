@@ -17,7 +17,6 @@ class ConfigTests(unittest.TestCase):
             {
                 "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "4",
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
-                "WEEKEND_WIZARD_MAX_STEPS": "7",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
             },
@@ -28,7 +27,6 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
-        self.assertEqual(settings.max_steps, 7)
         self.assertEqual(settings.log_level, "INFO")
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
 

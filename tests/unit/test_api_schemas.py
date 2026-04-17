@@ -16,7 +16,6 @@ class ApiSchemaTests(unittest.TestCase):
 
         self.assertEqual(response.answer, "done")
         self.assertEqual(response.tool_observations, [])
-        self.assertFalse(response.used_step_limit_fallback)
 
     def test_health_response_defaults_are_explicit(self) -> None:
         response = HealthResponse(status="ok")

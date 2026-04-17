@@ -54,7 +54,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
                 await app.__aenter__()
 
     async def test_run_interaction_uses_orchestrator(self) -> None:
-        result = InteractionResult(answer="Ready", tool_observations=[], used_step_limit_fallback=False)
+        result = InteractionResult(answer="Ready", tool_observations=[], used_fallback=False)
 
         with (
             patch("application.service.McpService", _FakeMcpService),
@@ -73,7 +73,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
         await app.__aexit__(None, None, None)
 
     async def test_run_interaction_emits_application_logs(self) -> None:
-        result = InteractionResult(answer="Ready", tool_observations=[], used_step_limit_fallback=False)
+        result = InteractionResult(answer="Ready", tool_observations=[], used_fallback=False)
 
         with (
             patch("application.service.McpService", _FakeMcpService),

@@ -33,11 +33,6 @@ def parse_args() -> argparse.Namespace:
         help=f"Prompt sent to /chat. Default: {DEFAULT_PROMPT!r}",
     )
     parser.add_argument(
-        "--model-name",
-        default=None,
-        help="Optional model override sent with the chat request.",
-    )
-    parser.add_argument(
         "--startup-timeout",
         type=int,
         default=90,
@@ -114,16 +109,11 @@ def validate_chat_payload(payload: dict[str, Any]) -> None:
     """Validate the shape of the /chat response payload."""
     answer = payload.get("answer")
     tool_observations = payload.get("tool_observations")
-    used_step_limit_fallback = payload.get("used_step_limit_fallback")
 
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("Smoke test failed: /chat response did not include a non-empty answer.")
     if not isinstance(tool_observations, list):
         raise RuntimeError("Smoke test failed: /chat response did not include a tool_observations list.")
-    if not isinstance(used_step_limit_fallback, bool):
-        raise RuntimeError(
-            "Smoke test failed: /chat response did not include a boolean used_step_limit_fallback."
-        )
 
 
 def start_local_api(project_dir: Path) -> subprocess.Popen[str]:
@@ -179,11 +169,7 @@ def main() -> None:
             f" model={readiness.get('model_name')} tool_count={readiness.get('tool_count')}"
         )
 
-        request_payload: dict[str, Any] = {"prompt": args.prompt}
-        if args.model_name:
-            request_payload["model_name"] = args.model_name
-
-        response = requests.post(f"{base_url}/chat", json=request_payload, timeout=120)
+        response = requests.post(f"{base_url}/chat", json={"prompt": args.prompt}, timeout=120)
         try:
             payload = response.json()
         except ValueError as exc:
@@ -202,7 +188,6 @@ def main() -> None:
         print(f"Prompt: {args.prompt}")
         print(f"Answer: {payload['answer'][:300]}")
         print(f"Tool observations: {len(payload['tool_observations'])}")
-        print(f"Used step-limit fallback: {payload['used_step_limit_fallback']}")
     finally:
         if process is not None:
             stop_process(process)

@@ -27,7 +27,6 @@ class _FakeWizardApp:
                         payload='{"summary": "clear sky"}',
                     )
                 ],
-                used_step_limit_fallback=False,
             )
         )
         self.created_contexts = []
@@ -40,9 +39,9 @@ class _FakeWizardApp:
         self.is_initialized = False
         return None
 
-    def create_interaction_context(self, model_name: str | None = None) -> object:
+    def create_interaction_context(self) -> object:
         context = object()
-        self.created_contexts.append((context, model_name))
+        self.created_contexts.append(context)
         return context
 
 
@@ -111,8 +110,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["answer"], "Weekend plan ready.")
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(len(fake_app.created_contexts), 1)
-        created_context, model_name = fake_app.created_contexts[0]
-        self.assertIsNone(model_name)
+        created_context = fake_app.created_contexts[0]
         fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
@@ -129,22 +127,6 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "startup boom")
-
-    def test_chat_endpoint_uses_request_model_override_for_fresh_context(self) -> None:
-        fake_app = _FakeWizardApp()
-
-        with (
-            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
-            patch("api.discover_model", return_value="llama3.2:latest"),
-            patch("api.WeekendWizardApp", return_value=fake_app),
-            patch("api.list_available_models", return_value=["llama3.2:latest", "custom-model"]),
-            TestClient(api.create_api()) as client,
-        ):
-            response = client.post("/chat", json={"prompt": "hello", "model_name": "custom-model"})
-
-        self.assertEqual(response.status_code, 200)
-        _created_context, model_name = fake_app.created_contexts[0]
-        self.assertEqual(model_name, "custom-model")
 
     def test_chat_endpoint_does_not_recompute_full_readiness_per_request(self) -> None:
         fake_app = _FakeWizardApp()
@@ -173,21 +155,6 @@ class ApiTests(unittest.TestCase):
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 200)
-
-    def test_chat_endpoint_rejects_unavailable_model_override(self) -> None:
-        fake_app = _FakeWizardApp()
-
-        with (
-            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
-            patch("api.discover_model", return_value="llama3.2:latest"),
-            patch("api.WeekendWizardApp", return_value=fake_app),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]),
-            TestClient(api.create_api()) as client,
-        ):
-            response = client.post("/chat", json={"prompt": "hello", "model_name": "missing-model"})
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Requested model is not available", response.json()["detail"])
 
 
 if __name__ == "__main__":

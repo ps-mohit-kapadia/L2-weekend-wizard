@@ -150,7 +150,7 @@ Responsibilities:
 
 - expose `/chat`, `/health`, and `/ready`
 - own the shared runtime
-- return structured chat responses
+- return structured chat responses using the configured runtime model
 
 ### `application/service.py`
 
@@ -280,7 +280,7 @@ ollama list
 If needed:
 
 ```powershell
-ollama pull mistral:7b
+ollama pull llama3.1:8b
 ```
 
 ### 3. Start the API
@@ -327,23 +327,20 @@ Example values:
 
 ```env
 OLLAMA_URL=http://127.0.0.1:11434/api/chat
-OLLAMA_MODEL=mistral:7b
 
 WEEKEND_WIZARD_REQUEST_TIMEOUT=600
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 
-WEEKEND_WIZARD_MAX_STEPS=9
 WEEKEND_WIZARD_LOG_LEVEL=INFO
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 ```
 
 Notes:
 
-- `OLLAMA_MODEL` can override model selection.
+- the active runtime model is configured in [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests.
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` matters for slower local Ollama runs.
-- `WEEKEND_WIZARD_MAX_STEPS` is now mostly legacy from the earlier controller design and is not the main interaction control path anymore.
 
 ---
 
@@ -403,51 +400,13 @@ This avoids hidden mode-switching and keeps failures explainable.
 
 ---
 
-## What Still Needs Tightening
+## Current Tradeoffs
 
-The architecture is now in the right family, but a few things still need work to feel production-grade for this scope.
+Weekend Wizard is in a strong demo-ready state, but a few practical tradeoffs remain:
 
-### 1. Planner precision
-
-The planner should:
-
-- include only tools the user asked for
-- avoid optional extras unless explicitly requested
-- avoid unnecessary dependency steps
-
-Example: `trivia` should stay supported, but should not be auto-added to unrelated prompts.
-
-### 2. Stronger semantic plan validation
-
-The orchestrator should reject plans that:
-
-- add unrequested optional tools
-- include unnecessary steps
-- overreach beyond what the prompt justifies
-
-### 3. Latency tightening
-
-Planning and reflection are still slower than they should be for a bounded task, especially on smaller local models.
-
----
-
-## Big-Picture Design Choice
-
-This repo is intentionally moving toward a more disciplined local-agent design:
-
-**LLM plans -> system executes -> LLM reflects**
-
-instead of either:
-
-- fully deterministic no-LLM orchestration, or
-- messy per-step LLM controller loops
-
-For this problem size, that is the right balance between:
-
-- agentic behavior
-- reliability
-- observability
-- bounded scope
+- local-model latency is still noticeable, especially during planning and reflection on larger local models
+- runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
+- planner and validation behavior are much healthier than before, but local inference quality still matters for the smoothest end-to-end experience
 
 ---
 
@@ -460,4 +419,4 @@ Weekend Wizard is a local, MCP-backed planning agent that:
 - grounds answers in real fetched data
 - runs one lightweight reflection pass before replying
 
-The current repo is no longer in the old sloppy-controller shape. The remaining work is mostly about planner discipline and validation precision, not another architecture rewrite.
+It is designed as a bounded, explainable local agent rather than a freestyle controller loop, which makes it much easier to reason about, test, and demo with confidence.

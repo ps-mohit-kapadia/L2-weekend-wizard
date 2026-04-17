@@ -84,30 +84,6 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
     )
 
 
-def validate_requested_model(model_name: str | None) -> None:
-    """Validate a per-request model override against the current Ollama runtime.
-
-    Args:
-        model_name: Optional explicit model override for a single API request.
-
-    Raises:
-        HTTPException: If the override is invalid or Ollama cannot be checked.
-    """
-    if not model_name:
-        return
-
-    try:
-        available_models = list_available_models(timeout=5)
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=503, detail=f"Ollama is not reachable: {exc}") from exc
-
-    if model_name not in available_models:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Requested model is not available in Ollama: {model_name}",
-        )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage the shared Weekend Wizard runtime for the API process.
@@ -183,7 +159,7 @@ def create_api() -> FastAPI:
         """Run one Weekend Wizard interaction through the shared app service.
 
         Args:
-            request: API request payload describing the user prompt and optional model override.
+            request: API request payload describing the user prompt.
 
         Returns:
             The final structured chat response.
@@ -198,13 +174,11 @@ def create_api() -> FastAPI:
             raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
 
         logger.info(
-            "Received /chat request with prompt length %d and model override %s",
+            "Received /chat request with prompt length %d",
             len(request.prompt),
-            bool(request.model_name),
         )
         try:
-            validate_requested_model(request.model_name)
-            context = wizard.create_interaction_context(model_name=request.model_name)
+            context = wizard.create_interaction_context()
             result = await wizard.run_interaction(request.prompt, context=context)
         except HTTPException:
             raise
@@ -215,13 +189,12 @@ def create_api() -> FastAPI:
         logger.info(
             "Completed /chat request with %d observations, fallback=%s, answer length=%d",
             len(result.tool_observations),
-            result.used_step_limit_fallback,
+            result.used_fallback,
             len(result.answer),
         )
         return ChatResponse(
             answer=result.answer,
             tool_observations=result.tool_observations,
-            used_step_limit_fallback=result.used_step_limit_fallback,
         )
 
     return app
