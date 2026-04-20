@@ -48,5 +48,6 @@ def get_settings() -> Settings:
         ),
         ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat"),
         preferred_models=("llama3.1:8b",),
+        # preferred_models=("qwen3.5:4b",),
         log_level=os.getenv("WEEKEND_WIZARD_LOG_LEVEL", "WARNING").upper(),
     )
