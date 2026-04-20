@@ -343,6 +343,12 @@ This runs a small supported-prompt evaluation set and scores the API against sim
 - minimum observations are returned
 - the final answer is non-empty
 
+For latency-focused analysis, use:
+
+```powershell
+.\.venv\Scripts\python.exe .\evaluations\run_evaluations.py --timing
+```
+
 ---
 
 ## Configuration

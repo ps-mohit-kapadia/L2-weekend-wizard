@@ -106,6 +106,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Stop evaluation after the first failing case.",
     )
+    parser.add_argument(
+        "--timing",
+        action="store_true",
+        help="Include per-case and aggregate timing details in the evaluation summary.",
+    )
     return parser.parse_args()
 
 
@@ -333,7 +338,7 @@ def evaluate_case(base_url: str, case: EvaluationCase, request_timeout: int) -> 
     return result
 
 
-def print_summary(results: list[EvaluationResult]) -> None:
+def print_summary(results: list[EvaluationResult], *, show_timing: bool) -> None:
     """Print a concise evaluation summary for operators."""
     passed_count = sum(1 for result in results if result.passed)
     total = len(results)
@@ -341,14 +346,24 @@ def print_summary(results: list[EvaluationResult]) -> None:
     print("Weekend Wizard evaluation summary")
     print(f"- passed: {passed_count}/{total}")
     print(f"- failed: {total - passed_count}/{total}")
+    if show_timing and results:
+        total_duration = sum(result.duration_seconds for result in results)
+        slowest = max(results, key=lambda result: result.duration_seconds)
+        average_duration = total_duration / len(results)
+        print(f"- total_duration: {total_duration:.1f}s")
+        print(f"- average_case_duration: {average_duration:.1f}s")
+        print(f"- slowest_case: {slowest.case_id} ({slowest.duration_seconds:.1f}s)")
 
     for result in results:
         status = "PASS" if result.passed else "FAIL"
-        print(
+        line = (
             f"[{status}] {result.case_id}: observations={result.observation_count} "
             f"tools={', '.join(result.tool_names) if result.tool_names else 'none'} "
-            f"answer_length={result.answer_length} duration={result.duration_seconds:.1f}s"
+            f"answer_length={result.answer_length}"
         )
+        if show_timing:
+            line += f" duration={result.duration_seconds:.1f}s"
+        print(line)
         for reason in result.reasons:
             print(f"  - {reason}")
 
@@ -391,7 +406,7 @@ def main() -> None:
             if args.fail_fast and not result.passed:
                 break
 
-        print_summary(results)
+        print_summary(results, show_timing=args.timing)
         if not all(result.passed for result in results):
             raise SystemExit(1)
     finally:

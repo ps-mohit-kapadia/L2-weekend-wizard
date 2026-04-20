@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
-from evaluations.run_evaluations import EvaluationCase, load_cases, score_case
+from evaluations.run_evaluations import EvaluationCase, EvaluationResult, load_cases, print_summary, score_case
 
 
 class EvaluationTests(unittest.TestCase):
@@ -118,6 +119,57 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.tool_names, [])
         self.assertTrue(any("timed out" in reason for reason in result.reasons))
+
+    def test_print_summary_hides_timing_by_default(self) -> None:
+        results = [
+            EvaluationResult(
+                case_id="joke-only",
+                passed=True,
+                reasons=[],
+                tool_names=["random_joke"],
+                observation_count=1,
+                answer_length=42,
+                duration_seconds=12.3,
+            )
+        ]
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            print_summary(results, show_timing=False)
+
+        output = captured.getvalue()
+        self.assertIn("passed: 1/1", output)
+        self.assertNotIn("duration=", output)
+        self.assertNotIn("total_duration", output)
+
+    def test_print_summary_shows_timing_when_enabled(self) -> None:
+        results = [
+            EvaluationResult(
+                case_id="joke-only",
+                passed=True,
+                reasons=[],
+                tool_names=["random_joke"],
+                observation_count=1,
+                answer_length=42,
+                duration_seconds=12.3,
+            ),
+            EvaluationResult(
+                case_id="dog-only",
+                passed=False,
+                reasons=["Request timed out after 180s."],
+                tool_names=[],
+                observation_count=0,
+                answer_length=0,
+                duration_seconds=180.0,
+            ),
+        ]
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            print_summary(results, show_timing=True)
+
+        output = captured.getvalue()
+        self.assertIn("total_duration", output)
+        self.assertIn("slowest_case: dog-only", output)
+        self.assertIn("duration=12.3s", output)
 
 
 if __name__ == "__main__":
