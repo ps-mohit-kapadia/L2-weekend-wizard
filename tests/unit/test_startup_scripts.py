@@ -6,10 +6,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from scripts import check_env, start_api, start_streamlit
+from scripts import dev_up
 
 
-class CheckEnvScriptTests(unittest.IsolatedAsyncioTestCase):
+class DevUpScriptTests(unittest.IsolatedAsyncioTestCase):
     async def test_preflight_reports_readiness_summary_when_runtime_is_ready(self) -> None:
         readiness = Mock(
             status="ready",
@@ -29,12 +29,12 @@ class CheckEnvScriptTests(unittest.IsolatedAsyncioTestCase):
         wizard.__aexit__ = AsyncMock()
 
         with (
-            patch("scripts.check_env.discover_model", return_value="llama3.1:8b"),
-            patch("scripts.check_env.WeekendWizardApp", return_value=wizard),
-            patch("scripts.check_env.evaluate_runtime_readiness", return_value=readiness),
+            patch("scripts.dev_up.discover_model", return_value="llama3.1:8b"),
+            patch("scripts.dev_up.WeekendWizardApp", return_value=wizard),
+            patch("scripts.dev_up.evaluate_runtime_readiness", return_value=readiness),
             redirect_stdout(io.StringIO()) as captured,
         ):
-            exit_code = await check_env._run_preflight()
+            exit_code = await dev_up._run_preflight()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS] Weekend Wizard is ready to run.", captured.getvalue())
@@ -47,43 +47,67 @@ class CheckEnvScriptTests(unittest.IsolatedAsyncioTestCase):
         wizard.__aexit__ = AsyncMock()
 
         with (
-            patch("scripts.check_env.discover_model", return_value="llama3.1:8b"),
-            patch("scripts.check_env.WeekendWizardApp", return_value=wizard),
+            patch("scripts.dev_up.discover_model", return_value="llama3.1:8b"),
+            patch("scripts.dev_up.WeekendWizardApp", return_value=wizard),
             redirect_stdout(io.StringIO()) as captured,
         ):
-            exit_code = await check_env._run_preflight()
+            exit_code = await dev_up._run_preflight()
 
         self.assertEqual(exit_code, 1)
         self.assertIn("access was denied while starting the MCP runtime", captured.getvalue())
         wizard.__aexit__.assert_not_called()
 
 
-class StartupScriptTests(unittest.TestCase):
-    @patch("scripts.start_api.subprocess.run")
-    @patch("scripts.start_api.sys.executable", "python")
-    def test_start_api_runs_preflight_from_project_root(self, mock_run: Mock) -> None:
+class DevUpEntrypointTests(unittest.TestCase):
+    @patch("scripts.dev_up.subprocess.run")
+    @patch("scripts.dev_up.sys.executable", "python")
+    @patch("scripts.dev_up._run_preflight_sync", return_value=0)
+    def test_dev_up_runs_check_target(self, mock_preflight: Mock, mock_run: Mock) -> None:
         mock_run.return_value.returncode = 0
 
-        start_api._run_preflight(Path("C:/repo"))
+        dev_up.main(["check"])
 
+        mock_preflight.assert_called_once()
+        mock_run.assert_not_called()
+
+    @patch("scripts.dev_up.subprocess.run")
+    @patch("scripts.dev_up.sys.executable", "python")
+    @patch("scripts.dev_up._run_preflight_sync", return_value=0)
+    def test_dev_up_runs_api_target(self, mock_preflight: Mock, mock_run: Mock) -> None:
+        mock_run.return_value.returncode = 0
+
+        dev_up.main(["api"])
+
+        mock_preflight.assert_called_once()
         mock_run.assert_called_once_with(
-            ["python", str(Path("C:/repo") / "scripts" / "check_env.py")],
-            cwd=Path("C:/repo"),
+            ["python", "main.py", "api"],
+            cwd=dev_up._project_dir(),
             check=False,
         )
 
-    @patch("scripts.start_streamlit.subprocess.run")
-    @patch("scripts.start_streamlit.sys.executable", "python")
-    def test_start_streamlit_runs_preflight_from_project_root(self, mock_run: Mock) -> None:
+    @patch("scripts.dev_up.subprocess.run")
+    @patch("scripts.dev_up.sys.executable", "python")
+    @patch("scripts.dev_up._run_preflight_sync", return_value=0)
+    def test_dev_up_runs_streamlit_target(self, mock_preflight: Mock, mock_run: Mock) -> None:
         mock_run.return_value.returncode = 0
 
-        start_streamlit._run_preflight(Path("C:/repo"))
+        dev_up.main(["streamlit"])
 
+        mock_preflight.assert_called_once()
         mock_run.assert_called_once_with(
-            ["python", str(Path("C:/repo") / "scripts" / "check_env.py")],
-            cwd=Path("C:/repo"),
+            ["python", "main.py", "streamlit"],
+            cwd=dev_up._project_dir(),
             check=False,
         )
+
+    @patch("scripts.dev_up._run_preflight_sync", return_value=1)
+    @patch("scripts.dev_up.subprocess.run")
+    def test_dev_up_exits_when_preflight_fails(self, mock_run: Mock, _mock_preflight: Mock) -> None:
+        with self.assertRaises(SystemExit) as captured:
+            dev_up.main(["api"])
+
+        self.assertEqual(captured.exception.code, 1)
+        mock_run.assert_not_called()
 
 
 if __name__ == "__main__":

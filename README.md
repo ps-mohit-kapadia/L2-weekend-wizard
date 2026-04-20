@@ -101,9 +101,7 @@ weekend-wizard/
 |- requirements.txt
 |- README.md
 |- scripts/
-|  |- check_env.py
-|  |- start_api.py
-|  |- start_streamlit.py
+|  |- dev_up.py
 |
 |- application/
 |  |- service.py
@@ -279,13 +277,15 @@ ollama pull llama3.1:8b
 
 ---
 
-### 3. Run local preflight
+### 3. Use the local operator runner
 
 ```powershell
-python .\scripts\check_env.py
+python .\scripts\dev_up.py check
+python .\scripts\dev_up.py api
+python .\scripts\dev_up.py streamlit
 ```
 
-This verifies:
+This is the single operator-facing entrypoint for local bring-up. The `check` subcommand verifies:
 
 - the configured Ollama model is resolvable
 - Ollama is reachable
@@ -294,21 +294,7 @@ This verifies:
 
 ---
 
-### 4. Start the API
-
-```powershell
-python .\scripts\start_api.py
-```
-
----
-
-### 5. Start Streamlit
-
-```powershell
-python .\scripts\start_streamlit.py
-```
-
-Useful URLs:
+### 4. Useful URLs
 
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/ready`
@@ -316,7 +302,7 @@ Useful URLs:
 
 ---
 
-### 6. Optional: run the MCP server directly
+### 5. Optional: run the MCP server directly
 
 ```powershell
 python .\main.py mcp-server
@@ -324,7 +310,7 @@ python .\main.py mcp-server
 
 ---
 
-### 7. Run tests
+### 6. Run tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
@@ -332,7 +318,7 @@ python .\main.py mcp-server
 
 ---
 
-### 8. Run the smoke test
+### 7. Run the smoke test
 
 ```powershell
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
