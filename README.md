@@ -100,6 +100,10 @@ weekend-wizard/
 |- mcp_server.py
 |- requirements.txt
 |- README.md
+|- scripts/
+|  |- check_env.py
+|  |- start_api.py
+|  |- start_streamlit.py
 |
 |- application/
 |  |- service.py
@@ -275,18 +279,33 @@ ollama pull llama3.1:8b
 
 ---
 
-### 3. Start the API
+### 3. Run local preflight
 
 ```powershell
-python .\main.py api
+python .\scripts\check_env.py
+```
+
+This verifies:
+
+- the configured Ollama model is resolvable
+- Ollama is reachable
+- the MCP runtime can initialize
+- tools can be discovered successfully
+
+---
+
+### 4. Start the API
+
+```powershell
+python .\scripts\start_api.py
 ```
 
 ---
 
-### 4. Start Streamlit
+### 5. Start Streamlit
 
 ```powershell
-python .\main.py streamlit
+python .\scripts\start_streamlit.py
 ```
 
 Useful URLs:
@@ -297,7 +316,7 @@ Useful URLs:
 
 ---
 
-### 5. Optional: run the MCP server directly
+### 6. Optional: run the MCP server directly
 
 ```powershell
 python .\main.py mcp-server
@@ -305,7 +324,7 @@ python .\main.py mcp-server
 
 ---
 
-### 6. Run tests
+### 7. Run tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
@@ -313,7 +332,7 @@ python .\main.py mcp-server
 
 ---
 
-### 7. Run the smoke test
+### 8. Run the smoke test
 
 ```powershell
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
