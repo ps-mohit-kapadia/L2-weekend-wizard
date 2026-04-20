@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import requests
+from evaluations.run_evaluations import EvaluationCase, load_cases, score_case
+
+
+class EvaluationTests(unittest.TestCase):
+    def test_load_cases_reads_json_dataset(self) -> None:
+        path = Path("C:/repo/evaluations/cases.json")
+        with patch.object(
+            Path,
+            "read_text",
+            return_value="""
+            [
+              {
+                "id": "joke-only",
+                "category": "single_tool",
+                "prompt": "Tell me a joke.",
+                "required_tools": ["random_joke"],
+                "forbidden_tools": ["trivia"],
+                "min_observations": 1,
+                "expect_answer": true
+              }
+            ]
+            """.strip(),
+        ):
+            cases = load_cases(path)
+
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(cases[0].case_id, "joke-only")
+        self.assertEqual(cases[0].required_tools, ["random_joke"])
+
+    def test_score_case_passes_when_contract_is_satisfied(self) -> None:
+        case = EvaluationCase(
+            case_id="joke-only",
+            category="single_tool",
+            prompt="Tell me a joke.",
+            required_tools=["random_joke"],
+            forbidden_tools=["trivia"],
+            min_observations=1,
+        )
+        payload = {
+            "answer": "Here's a joke.",
+            "tool_observations": [
+                {
+                    "tool_name": "random_joke",
+                    "args": {},
+                    "payload": '{"joke": "hello"}',
+                }
+            ],
+        }
+
+        result = score_case(case, payload)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.reasons, [])
+        self.assertEqual(result.tool_names, ["random_joke"])
+
+    def test_score_case_reports_missing_and_forbidden_tools(self) -> None:
+        case = EvaluationCase(
+            case_id="weather-dog",
+            category="multi_tool",
+            prompt="Weather and dog please.",
+            required_tools=["get_weather", "random_dog"],
+            forbidden_tools=["trivia"],
+            min_observations=2,
+        )
+        payload = {
+            "answer": "Done.",
+            "tool_observations": [
+                {"tool_name": "get_weather", "args": {}, "payload": "{}"},
+                {"tool_name": "trivia", "args": {}, "payload": "{}"},
+            ],
+        }
+
+        result = score_case(case, payload)
+
+        self.assertFalse(result.passed)
+        self.assertTrue(any("Missing required tools: random_dog." == reason for reason in result.reasons))
+        self.assertTrue(any("Observed forbidden tools: trivia." == reason for reason in result.reasons))
+
+    def test_score_case_reports_empty_answer_and_missing_observations(self) -> None:
+        case = EvaluationCase(
+            case_id="weather-city",
+            category="weather",
+            prompt="What's the weather?",
+            required_tools=["get_weather"],
+            min_observations=1,
+            expect_answer=True,
+        )
+        payload = {
+            "answer": "   ",
+            "tool_observations": [],
+        }
+
+        result = score_case(case, payload)
+
+        self.assertFalse(result.passed)
+        self.assertTrue(any("non-empty answer" in reason for reason in result.reasons))
+        self.assertTrue(any("Expected at least 1 observations" in reason for reason in result.reasons))
+
+    @patch("evaluations.run_evaluations.requests.post", side_effect=requests.Timeout("too slow"))
+    def test_evaluate_case_returns_failed_result_on_timeout(self, _mock_post: Mock) -> None:
+        from evaluations.run_evaluations import evaluate_case
+
+        case = EvaluationCase(
+            case_id="weekend-plan",
+            category="weekend_plan",
+            prompt="Plan me a weekend.",
+        )
+
+        result = evaluate_case("http://127.0.0.1:8000", case, request_timeout=180)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.tool_names, [])
+        self.assertTrue(any("timed out" in reason for reason in result.reasons))
+
+
+if __name__ == "__main__":
+    unittest.main()

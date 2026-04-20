@@ -100,6 +100,10 @@ weekend-wizard/
 |- mcp_server.py
 |- requirements.txt
 |- README.md
+|- evaluations/
+|  |- cases.json
+|  |- run_evaluations.py
+|
 |- scripts/
 |  |- dev_up.py
 |
@@ -323,6 +327,21 @@ python .\main.py mcp-server
 ```powershell
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
 ```
+
+---
+
+### 8. Run contract evaluations
+
+```powershell
+.\.venv\Scripts\python.exe .\evaluations\run_evaluations.py
+```
+
+This runs a small supported-prompt evaluation set and scores the API against simple contract checks such as:
+
+- required tools are present
+- forbidden tools are absent
+- minimum observations are returned
+- the final answer is non-empty
 
 ---
 

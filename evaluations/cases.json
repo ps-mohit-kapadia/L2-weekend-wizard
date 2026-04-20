@@ -1,0 +1,56 @@
+[
+  {
+    "id": "weather-city",
+    "category": "weather",
+    "prompt": "What's the weather in New York today?",
+    "required_tools": ["get_weather"],
+    "forbidden_tools": ["trivia"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
+    "id": "weather-coords-joke-dog",
+    "category": "multi_tool",
+    "prompt": "I'm at (40.7128, -74.0060). Give me the current weather, one joke, and a dog photo.",
+    "required_tools": ["get_weather", "random_joke", "random_dog"],
+    "forbidden_tools": ["trivia"],
+    "min_observations": 3,
+    "expect_answer": true
+  },
+  {
+    "id": "trivia-only",
+    "category": "single_tool",
+    "prompt": "Give me one trivia question.",
+    "required_tools": ["trivia"],
+    "forbidden_tools": ["get_weather", "book_recs", "random_joke", "random_dog"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
+    "id": "joke-only",
+    "category": "single_tool",
+    "prompt": "Tell me a joke.",
+    "required_tools": ["random_joke"],
+    "forbidden_tools": ["trivia", "get_weather", "book_recs", "random_dog"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
+    "id": "dog-only",
+    "category": "single_tool",
+    "prompt": "Give me a dog photo.",
+    "required_tools": ["random_dog"],
+    "forbidden_tools": ["trivia", "get_weather", "book_recs", "random_joke"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
+    "id": "weekend-plan",
+    "category": "weekend_plan",
+    "prompt": "Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
+    "required_tools": ["get_weather", "book_recs", "random_joke", "random_dog"],
+    "forbidden_tools": ["trivia"],
+    "min_observations": 4,
+    "expect_answer": true
+  }
+]
