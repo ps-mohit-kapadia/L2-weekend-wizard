@@ -1,10 +1,10 @@
-# Weekend Wizard (L2 Agent Project)
+# Weekend Wizard (L2 ReAct Agent Project)
 
 A lightweight local AI agent that helps answer:
 
 **"What should I do this weekend?"**
 
-Weekend Wizard combines a local LLM, MCP-exposed tools, and a controlled orchestration layer to build short, grounded weekend suggestions using real public data.
+Weekend Wizard combines a local LLM, MCP-exposed tools, and a bounded ReAct loop to build short, grounded weekend suggestions using real public data.
 
 The system can pull:
 
@@ -14,21 +14,24 @@ The system can pull:
 - a random dog photo
 - optional trivia
 
-Unlike a freestyle controller loop, this project uses a bounded agent design:
+This branch is intentionally aligned to the original L2 assignment:
 
-**LLM plans once -> orchestrator validates -> tools execute deterministically -> grounding builds a draft -> LLM reflects once**
+**perceive -> decide -> act -> observe -> repeat -> reflect once**
 
-This keeps the system agentic while preserving reliability, explainability, and a clean local runtime story.
+The agent decides one next step at a time, calls MCP tools when needed, observes the result, and stops when it has enough information to answer.
 
 ---
 
 ## Architecture Overview
 
-Weekend Wizard follows a planner/executor/reflection architecture:
+Weekend Wizard follows a bounded ReAct-style architecture:
 
-1. Prompt interpretation and planning
-2. Deterministic tool execution through MCP
-3. Grounded response generation with one reflection pass
+1. the user prompt enters the runtime
+2. the LLM decides the next action
+3. the orchestrator either executes one tool or finishes
+4. tool observations are appended to history
+5. the loop repeats until the model finishes or the step budget is reached
+6. one reflection pass lightly corrects the final answer
 
 ```mermaid
 flowchart TD
@@ -36,32 +39,31 @@ flowchart TD
     B --> C["FastAPI /chat"]
     C --> D["application/service.py"]
     D --> E["agent/orchestrator.py"]
-    E --> F["Planner Prompt"]
-    F --> G["Ollama Planner"]
-    G --> H["Execution Plan"]
-    H --> I["Plan Validation"]
-    I --> J["Deterministic Tool Execution"]
-    J --> K["MCP Runtime Client"]
-    K --> L["MCP Server"]
-    L --> M["Tool Modules"]
-    M --> N["External APIs"]
-    J --> O["Tool Observations"]
-    O --> P["agent/grounding.py"]
-    P --> Q["Grounded Draft"]
-    Q --> R["Reflection Prompt"]
-    R --> S["Ollama Reflection"]
-    S --> T["Final Grounded Answer"]
-    T --> C
-    T --> B
+    E --> F["ReAct Prompt"]
+    F --> G["Ollama ReAct Decision"]
+    G --> H{"Action?"}
+    H -->|tool| I["Normalize Tool Args"]
+    I --> J["MCP Runtime Client"]
+    J --> K["MCP Server"]
+    K --> L["Tool Modules"]
+    L --> M["External APIs"]
+    M --> N["Tool Observation"]
+    N --> E
+    H -->|finish| O["Grounded Draft"]
+    O --> P["Reflection Prompt"]
+    P --> Q["Ollama Reflection"]
+    Q --> R["Final Grounded Answer"]
+    R --> C
+    R --> B
 ```
 
 ### Execution Flow
 
 1. Streamlit sends the user prompt to FastAPI.
-2. The planner LLM produces one structured execution plan.
-3. The orchestrator validates the plan schema and semantics.
-4. The executor runs each planned MCP tool step in order.
-5. Tool outputs are stored as structured `ToolObservation`s.
+2. The ReAct LLM produces one bounded JSON decision.
+3. If the decision is a tool call, the orchestrator validates and executes it through MCP.
+4. The tool observation is added to conversation history.
+5. Steps 2 to 4 repeat until the model chooses `finish` or the max step budget is reached.
 6. Grounding builds a draft answer from real observations.
 7. The reflection LLM performs one lightweight correction pass.
 8. The final grounded answer is returned to the UI.
@@ -136,8 +138,8 @@ weekend-wizard/
 |- tests/
 |  |- smoke/
 |  |  |- smoke_test.py
-   |- integration/
-   |- unit/
+|  |- integration/
+|  |- unit/
 ```
 
 ---
@@ -187,15 +189,15 @@ This is the core runtime brain.
 
 Responsibilities:
 
-- build planner messages
-- call the planner LLM once
-- validate plan schema and semantics
+- build one bounded ReAct prompt per step
+- call the ReAct LLM for the next decision
+- validate the decision and supported tool use
 - normalize tool arguments before execution
-- execute MCP tools deterministically
+- execute MCP tools one step at a time
 - record `ToolObservation`s
 - build grounded draft answers
 - run one reflection pass
-- return bounded failure behavior when planning or reflection is unreliable
+- return bounded failure behavior if the loop becomes unreliable
 
 ---
 
@@ -203,7 +205,7 @@ Responsibilities:
 
 This module builds prompt payloads for:
 
-- the planner step
+- each bounded ReAct decision
 - the one-shot reflection step
 
 ---
@@ -240,9 +242,9 @@ This module manages local LLM interaction through Ollama.
 Responsibilities:
 
 - discover available local models
-- call the planner LLM
+- call the bounded ReAct LLM
 - call the reflection LLM
-- perform one repair attempt for invalid planner/reflection JSON
+- perform one repair attempt for invalid ReAct or reflection JSON
 
 ---
 
@@ -378,23 +380,25 @@ Advantages:
 
 ---
 
-### Planner / executor / reflection split
+### Minimal bounded ReAct loop
 
 The system uses:
 
-**LLM plans -> system executes -> LLM reflects**
+**LLM decides one next action -> system executes -> LLM decides again**
 
-instead of:
+with:
 
-- fully deterministic no-LLM orchestration
-- messy per-step LLM controller loops
+- a strict JSON decision schema
+- a max step budget
+- deterministic tool execution
+- one reflection pass at the end
 
 This gives the project:
 
-- agentic behavior
-- deterministic execution after planning
-- clearer debugging and testing boundaries
-- better control over tool usage
+- clear ReAct-style behavior for the assignment
+- bounded runtime behavior
+- easy-to-follow tool traces
+- cleaner debugging than an unrestricted free-form loop
 
 ---
 
@@ -406,7 +410,7 @@ Advantages:
 
 - clear system boundaries
 - structured tool invocation
-- easier observability
+- easier testing
 - cleaner separation between agent logic and external APIs
 
 ---
@@ -445,14 +449,14 @@ This implementation is a strong local L2 prototype, but a few practical tradeoff
 
 Limitations:
 
-- local-model latency is still noticeable, especially for planning and reflection on larger models
-- runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
+- local-model latency is still noticeable, especially across multiple ReAct steps and reflection
+- runtime quality is model-sensitive, with stronger local models producing better step decisions at the cost of slower responses
 - the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
 
 These tradeoffs prioritize:
 
 - clarity
-- reliability
+- assignment alignment
 - grounded behavior
 - explainable execution
 
@@ -462,11 +466,11 @@ over unrestricted flexibility.
 
 ## Summary
 
-Weekend Wizard demonstrates a local MCP-backed agent that:
+Weekend Wizard demonstrates a local MCP-backed ReAct-style agent that:
 
-- uses Ollama to produce one execution plan
+- uses Ollama to decide one next action at a time
 - executes tool calls deterministically through MCP
-- grounds answers in real fetched data
+- observes real tool output before deciding what to do next
 - runs one lightweight reflection pass before replying
 
-The architecture is intentionally modular, bounded, and explainable, making it a solid L2-style agent project rather than a fragile controller loop demo.
+The architecture is intentionally modular, bounded, and teachable, making it a strong L2-style capstone implementation for the original assignment.

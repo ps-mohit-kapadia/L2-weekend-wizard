@@ -3,26 +3,24 @@ from __future__ import annotations
 import unittest
 
 from agent.grounding import compose_grounded_answer_from_observations
-from agent.prompts import build_planner_messages, build_reflection_messages
+from agent.prompts import build_react_messages, build_reflection_messages
 from schemas.agent import ToolObservation
 
 
 class PromptingTests(unittest.TestCase):
-    def test_build_planner_messages_include_schema_and_tools(self) -> None:
-        messages = build_planner_messages(
-            "Plan a cozy Saturday in New York with weather and books.",
+    def test_build_react_messages_include_decision_schema_and_tools(self) -> None:
+        messages = build_react_messages(
+            [{"role": "user", "content": "Plan a cozy Saturday in New York with weather and books."}],
             ["city_to_coords", "get_weather", "book_recs", "random_joke"],
+            step_number=1,
+            max_steps=6,
         )
 
         self.assertEqual(len(messages), 2)
-        self.assertIn("structured execution plan", messages[0]["content"])
-        self.assertIn("execution_steps", messages[0]["content"])
-        self.assertIn("Choose exactly one goal value", messages[0]["content"])
-        self.assertIn('"goal":"weekend_plan"', messages[0]["content"])
-        self.assertIn('"goal":"trivia"', messages[0]["content"])
-        self.assertIn('{"tool":"trivia","args":{}}', messages[0]["content"])
-        self.assertIn("If the user asks only for trivia, plan only trivia.", messages[0]["content"])
-        self.assertIn("Do not include trivia unless the user explicitly asked for trivia.", messages[0]["content"])
+        self.assertIn("ReAct-style weekend helper", messages[0]["content"])
+        self.assertIn('"action":"tool"', messages[0]["content"])
+        self.assertIn('"action":"finish"', messages[0]["content"])
+        self.assertIn("step 1 of at most 6", messages[0]["content"])
         self.assertIn("city_to_coords args", messages[0]["content"])
         self.assertIn("book_recs args", messages[0]["content"])
         self.assertIn("Plan a cozy Saturday", messages[1]["content"])

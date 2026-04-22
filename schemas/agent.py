@@ -1,74 +1,30 @@
 from __future__ import annotations
 
-"""Typed models for planning, orchestration state, and interaction results."""
+"""Typed models for ReAct decisions, orchestration state, and interaction results."""
 
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 
-class PlanLocation(BaseModel):
-    """Location details inferred by the planner.
+class ReactDecision(BaseModel):
+    """One bounded ReAct decision produced by the local model."""
 
-    Attributes:
-        city: Optional city name inferred from the prompt.
-        latitude: Optional latitude associated with the request.
-        longitude: Optional longitude associated with the request.
-    """
-
-    city: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-
-
-class PlanStep(BaseModel):
-    """One executable tool step produced by the planner.
-
-    Attributes:
-        tool: Tool name to invoke during deterministic execution.
-        args: JSON-compatible arguments for the tool call.
-    """
-
-    tool: str
+    thought: str
+    action: Literal["tool", "finish"]
+    tool: Optional[str] = None
     args: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ExecutionPlan(BaseModel):
-    """Planner output for one Weekend Wizard interaction.
-
-    Attributes:
-        goal: High-level interaction goal selected by the planner.
-        location: Optional location details inferred during planning.
-        book_topic: Optional book topic used for recommendation requests.
-        requested_tools: User-requested tool categories inferred by the planner.
-        execution_steps: Ordered tool steps to execute deterministically.
-    """
-
-    goal: Literal["weekend_plan", "weather_lookup", "book_suggestions", "joke", "dog_photo", "trivia"]
-    location: Optional[PlanLocation] = None
-    book_topic: Optional[str] = None
-    requested_tools: List[str] = Field(default_factory=list)
-    execution_steps: List[PlanStep] = Field(default_factory=list)
+    final_answer: Optional[str] = None
 
 
 class ReflectionResult(BaseModel):
-    """One-shot reflection payload used to revise the final grounded answer.
-
-    Attributes:
-        answer: Refined final answer returned by the reflection step.
-    """
+    """One-shot reflection payload used to revise the final grounded answer."""
 
     answer: str
 
 
 class ToolObservation(BaseModel):
-    """Structured record of one tool invocation and its payload.
-
-    Attributes:
-        tool_name: Name of the tool that was invoked.
-        args: JSON-compatible arguments used for the tool call.
-        payload: Serialized payload returned by the tool.
-    """
+    """Structured record of one tool invocation and its payload."""
 
     tool_name: str
     args: Dict[str, Any] = Field(default_factory=dict)
@@ -76,13 +32,7 @@ class ToolObservation(BaseModel):
 
 
 class OrchestratorContext(BaseModel):
-    """Runtime state required to process one user interaction.
-
-    Attributes:
-        tool_names: Tool names available to the active runtime.
-        history: Conversation history accumulated for the interaction.
-        model_name: Active Ollama model name used for planner and reflection calls.
-    """
+    """Runtime state required to process one user interaction."""
 
     tool_names: List[str] = Field(default_factory=list)
     history: List[Dict[str, str]] = Field(default_factory=list)
@@ -90,42 +40,27 @@ class OrchestratorContext(BaseModel):
 
 
 class InteractionResult(BaseModel):
-    """Structured result returned by the orchestrator for one interaction.
-
-    Attributes:
-        answer: Final answer returned to the caller.
-        tool_observations: Structured tool outputs collected during execution.
-        used_fallback: Whether the interaction completed through a fallback path.
-    """
+    """Structured result returned by the orchestrator for one interaction."""
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
     used_fallback: bool = False
 
 
-_execution_plan_adapter = TypeAdapter(ExecutionPlan)
+_react_decision_adapter = TypeAdapter(ReactDecision)
 _reflection_result_adapter = TypeAdapter(ReflectionResult)
 
 
-def validate_execution_plan(payload: Dict[str, Any]) -> ExecutionPlan:
-    """Validate raw model JSON into a typed execution plan.
-
-    Args:
-        payload: Raw JSON payload returned by the planner model.
-
-    Returns:
-        A validated execution plan.
-    """
-    return _execution_plan_adapter.validate_python(payload)
+def validate_react_decision(payload: Dict[str, Any]) -> ReactDecision:
+    """Validate raw model JSON into a typed ReAct decision."""
+    decision = _react_decision_adapter.validate_python(payload)
+    if decision.action == "tool" and not decision.tool:
+        raise ValueError("Tool actions must include a tool name.")
+    if decision.action == "finish" and not decision.final_answer:
+        raise ValueError("Finish actions must include a final_answer.")
+    return decision
 
 
 def validate_reflection_result(payload: Dict[str, Any]) -> ReflectionResult:
-    """Validate raw model JSON into a typed reflection payload.
-
-    Args:
-        payload: Raw JSON payload returned by the reflection model.
-
-    Returns:
-        A validated reflection payload.
-    """
+    """Validate raw model JSON into a typed reflection payload."""
     return _reflection_result_adapter.validate_python(payload)

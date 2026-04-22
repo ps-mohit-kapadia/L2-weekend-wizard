@@ -11,19 +11,20 @@ import llm_client
 
 class LlmClientTests(unittest.TestCase):
     def test_extract_json_handles_wrapped_text(self) -> None:
-        parsed = llm_client.extract_json('Result: {"action":"final","answer":"hi"} thanks')
+        parsed = llm_client.extract_json('Result: {"action":"finish","final_answer":"hi"} thanks')
 
-        self.assertEqual(parsed["action"], "final")
-        self.assertEqual(parsed["answer"], "hi")
+        self.assertEqual(parsed["action"], "finish")
+        self.assertEqual(parsed["final_answer"], "hi")
 
     @patch(
         "llm_client.call_model",
-        return_value='{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
+        return_value='{"thought":"Need a joke.","action":"tool","tool":"random_joke","args":{}}',
     )
-    def test_llm_plan_json_returns_model_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+    def test_llm_react_json_returns_model_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["goal"], "joke")
+        self.assertEqual(result["action"], "tool")
+        self.assertEqual(result["tool"], "random_joke")
 
     @patch("llm_client.call_model", return_value='{"answer":"tightened"}')
     def test_llm_reflection_json_returns_model_json(self, _call_model: Mock) -> None:
@@ -35,29 +36,29 @@ class LlmClientTests(unittest.TestCase):
         "llm_client.call_model",
         side_effect=[
             '{"unexpected":"shape"}',
-            '{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
+            '{"thought":"I can answer now.","action":"finish","final_answer":"Here is the answer."}',
         ],
     )
-    def test_llm_plan_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+    def test_llm_react_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
+        result = llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["goal"], "joke")
+        self.assertEqual(result["action"], "finish")
 
     @patch("llm_client.call_model", side_effect=requests.RequestException("offline"))
-    def test_llm_plan_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
+    def test_llm_react_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch(
         "llm_client.call_model",
         side_effect=[
-            'not-json',
+            "not-json",
             requests.RequestException("repair failed"),
         ],
     )
-    def test_llm_plan_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
+    def test_llm_react_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch(
         "llm_client.call_model",
@@ -66,9 +67,9 @@ class LlmClientTests(unittest.TestCase):
             '{"still":"wrong"}',
         ],
     )
-    def test_llm_plan_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
-        with self.assertRaisesRegex(ValueError, "invalid execution plan JSON"):
-            llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
+    def test_llm_react_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid ReAct decision JSON"):
+            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
 
     @patch(
         "llm_client.call_model",

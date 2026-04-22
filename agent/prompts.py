@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Prompt construction helpers for the Weekend Wizard planner and reflection steps."""
+"""Prompt construction helpers for the Weekend Wizard ReAct and reflection steps."""
 
 from typing import Iterable, List
 
@@ -23,74 +23,43 @@ def _tool_lines(tool_names: Iterable[str]) -> str:
     return "\n".join(f"- {_TOOL_SPECS[tool_name]}" for tool_name in ordered)
 
 
-def build_planner_messages(
-    user_prompt: str,
+def build_react_messages(
+    history: List[dict[str, str]],
     tool_names: List[str],
+    step_number: int,
+    max_steps: int,
 ) -> List[dict[str, str]]:
-    """Build the one-shot planning prompt for the LLM."""
+    """Build one bounded ReAct decision prompt for the LLM."""
     return [
         {
             "role": "system",
             "content": (
-                "You are Weekend Wizard's planning model.\n"
-                "Your only job is to convert the user request into one structured execution plan.\n"
-                "Do not answer the user.\n"
-                "Do not explain your reasoning.\n"
+                "You are Weekend Wizard, a small local ReAct-style weekend helper.\n"
+                "You think one step at a time.\n"
                 "Return ONLY valid JSON.\n"
-                "Choose exactly one goal value from this list:\n"
-                "- weekend_plan\n"
-                "- weather_lookup\n"
-                "- book_suggestions\n"
-                "- joke\n"
-                "- dog_photo\n"
-                "- trivia\n"
-                "JSON fields:\n"
-                '- goal: one of the allowed values above\n'
-                '- location: optional object with city, latitude, longitude\n'
-                '- book_topic: optional string\n'
-                '- requested_tools: only the user-facing tools explicitly requested by the user\n'
-                '- execution_steps: ordered executable tool steps\n'
-                "Rules:\n"
-                "- requested_tools must not include city_to_coords because it is a dependency step, not a user-facing requested tool\n"
-                "Use only the supported tools listed below.\n"
-                "Include only the minimum steps needed to satisfy the request.\n"
-                "Do not include tools the user did not ask for.\n"
-                "Do not include trivia unless the user explicitly asked for trivia.\n"
-                "If weather is requested and coordinates are already provided, use get_weather directly.\n"
-                "If weather is requested and only a city is provided, add city_to_coords before get_weather.\n"
-                "Do not add city_to_coords when valid coordinates are already provided.\n"
-                "If books are requested, infer a concise topic and a reasonable limit.\n"
-                "Single-tool requests should be the simplest case.\n"
-                "If the user asks only for a joke, plan only random_joke.\n"
-                "If the user asks only for a dog photo, plan only random_dog.\n"
-                "If the user asks only for trivia, plan only trivia.\n"
-                "If the user asks only for books, plan only book_recs.\n"
-                "If the user asks only for weather and coordinates are already present, plan only get_weather.\n"
+                "JSON shape:\n"
+                '- thought: short reasoning for the next step\n'
+                '- action: "tool" or "finish"\n'
+                '- tool: required only when action is "tool"\n'
+                '- args: object, required only when action is "tool"\n'
+                '- final_answer: required only when action is "finish"\n'
+                f"You are on step {step_number} of at most {max_steps}.\n"
+                "Use the minimum number of tool calls needed.\n"
+                "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
+                "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
+                "Do not repeat a tool call if a prior observation already satisfies that need.\n"
                 "Never invent tools.\n"
-                "Valid example:\n"
-                '{'
-                '"goal":"weekend_plan",'
-                '"location":{"city":"New York","latitude":40.7128,"longitude":-74.0060},'
-                '"book_topic":"mystery",'
-                '"requested_tools":["get_weather","book_recs","random_joke","random_dog"],'
-                '"execution_steps":['
-                '{"tool":"get_weather","args":{"latitude":40.7128,"longitude":-74.0060}},'
-                '{"tool":"book_recs","args":{"topic":"mystery","limit":3}},'
-                '{"tool":"random_joke","args":{}},'
-                '{"tool":"random_dog","args":{}}'
-                ']'
-                '}\n'
-                "Single-tool example for trivia:\n"
-                '{'
-                '"goal":"trivia",'
-                '"requested_tools":["trivia"],'
-                '"execution_steps":[{"tool":"trivia","args":{}}]'
-                '}\n'
+                "Tool example:\n"
+                '{"thought":"I need a joke first.","action":"tool","tool":"random_joke","args":{}}\n'
+                "Finish example:\n"
+                '{"thought":"I have enough information.","action":"finish","final_answer":"Here is a cozy weekend plan for you..."}\n'
+                "Any assistant message in the form [tool:name] payload is a previous tool observation.\n"
+                "Use those observations before deciding the next step.\n"
                 "Supported tools:\n"
                 f"{_tool_lines(tool_names)}"
             ),
         },
-        {"role": "user", "content": user_prompt},
+        *history,
     ]
 
 
@@ -114,7 +83,6 @@ def build_reflection_messages(
                 'Return ONLY valid JSON in the shape {"answer":"..."}.\n'
                 "Do one light reflection pass:\n"
                 "- remove unsupported claims\n"
-                "- make sure requested fetched items are reflected\n"
                 "- keep the answer short, upbeat, and grounded in observations\n"
                 "- do not introduce new facts or suggest new tool calls"
             ),

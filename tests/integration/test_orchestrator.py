@@ -5,9 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from agent.orchestrator import orchestrate_interaction, validate_plan_semantics
+from agent.orchestrator import orchestrate_interaction, validate_react_decision_semantics
 from mcp_runtime.client import ToolInvocationError
-from schemas.agent import OrchestratorContext, validate_execution_plan
+from schemas.agent import OrchestratorContext, validate_react_decision
 
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
@@ -27,25 +27,20 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             )
         },
     )
-    @patch("agent.orchestrator.llm_plan_json")
+    @patch("agent.orchestrator.llm_react_json")
     async def test_city_prompt_flows_to_reflected_grounded_final_answer(
         self,
-        mock_plan: Mock,
+        mock_react: Mock,
         mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "location": {"city": "New York"},
-            "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog"],
-            "execution_steps": [
-                {"tool": "city_to_coords", "args": {"city": "New York"}},
-                {"tool": "get_weather", "args": {}},
-                {"tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
-                {"tool": "random_joke", "args": {}},
-                {"tool": "random_dog", "args": {}},
-            ],
-        }
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Need books.", "action": "tool", "tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
+            {"thought": "Need one joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "Need one dog photo.", "action": "tool", "tool": "random_dog", "args": {}},
+            {"thought": "I have enough information.", "action": "finish", "final_answer": "Here is your cozy Saturday plan."},
+        ]
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
@@ -104,20 +99,20 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Weekend Wizard Plan", result.answer)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
+        self.assertEqual(mock_react.call_count, 6)
         mock_reflection.assert_called_once()
 
     @patch("agent.orchestrator.llm_reflection_json", side_effect=ValueError("reflection boom"))
-    @patch("agent.orchestrator.llm_plan_json")
+    @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_failure_falls_back_to_grounded_draft(
         self,
-        mock_plan: Mock,
+        mock_react: Mock,
         _mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "joke",
-            "requested_tools": ["random_joke"],
-            "execution_steps": [{"tool": "random_joke", "args": {}}],
-        }
+        mock_react.side_effect = [
+            {"thought": "I should fetch a joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is a joke for you."},
+        ]
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
@@ -129,12 +124,12 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
-    @patch("agent.orchestrator.llm_plan_json")
-    async def test_invalid_plan_returns_planner_failure_message(self, mock_plan: Mock) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "requested_tools": ["get_weather"],
-            "execution_steps": [{"tool": "get_weather", "args": {}}],
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_invalid_decision_returns_failure_message(self, mock_react: Mock) -> None:
+        mock_react.return_value = {
+            "thought": "I should use a tool.",
+            "action": "tool",
+            "args": {},
         }
 
         tool_gateway = AsyncMock()
@@ -152,7 +147,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.used_fallback)
         self.assertEqual(result.tool_observations, [])
-        self.assertIn("couldn't build a reliable weekend plan", result.answer)
+        self.assertIn("couldn't complete a reliable weekend wizard turn", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 0)
 
     @patch(
@@ -165,21 +160,17 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             )
         },
     )
-    @patch("agent.orchestrator.llm_plan_json")
+    @patch("agent.orchestrator.llm_react_json")
     async def test_tool_failures_are_recorded_and_remaining_steps_continue(
         self,
-        mock_plan: Mock,
+        mock_react: Mock,
         _mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "location": {"latitude": 40.7128, "longitude": -74.0060},
-            "requested_tools": ["get_weather", "random_joke"],
-            "execution_steps": [
-                {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
-                {"tool": "random_joke", "args": {}},
-            ],
-        }
+        mock_react.side_effect = [
+            {"thought": "Fetch weather first.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
+            {"thought": "Now fetch a joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the latest weather and a joke."},
+        ]
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
@@ -204,48 +195,29 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
 
-    def test_validate_plan_semantics_rejects_unrequested_optional_tool(self) -> None:
-        plan = {
-            "goal": "weekend_plan",
-            "location": {"city": "New York"},
-            "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
-            "execution_steps": [
-                {"tool": "city_to_coords", "args": {"city": "New York"}},
-                {"tool": "get_weather", "args": {}},
-                {"tool": "book_recs", "args": {"topic": "mystery", "limit": 3}},
-                {"tool": "random_joke", "args": {}},
-                {"tool": "random_dog", "args": {}},
-                {"tool": "trivia", "args": {}},
-            ],
+    def test_validate_react_decision_semantics_rejects_unknown_tool(self) -> None:
+        decision = {
+            "thought": "I should use a tool.",
+            "action": "tool",
+            "tool": "not_a_tool",
+            "args": {},
         }
 
-        with self.assertRaisesRegex(ValueError, "unrequested tools"):
-            validate_plan_semantics(
-                plan=validate_execution_plan(plan),
-                available_tools=["city_to_coords", "get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
-                user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
-            )
-
-    def test_validate_plan_semantics_rejects_city_lookup_when_coords_already_exist(self) -> None:
-        plan = {
-            "goal": "weekend_plan",
-            "location": {"city": "New York", "latitude": 40.7128, "longitude": -74.0060},
-            "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs"],
-            "execution_steps": [
-                {"tool": "city_to_coords", "args": {"city": "New York"}},
-                {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
-                {"tool": "book_recs", "args": {"topic": "mystery", "limit": 3}},
-            ],
-        }
-
-        with self.assertRaisesRegex(ValueError, "coordinates were already provided"):
-            validate_plan_semantics(
-                plan=validate_execution_plan(plan),
+        with self.assertRaisesRegex(ValueError, "unsupported tool"):
+            validate_react_decision_semantics(
+                decision=validate_react_decision(decision),
                 available_tools=["city_to_coords", "get_weather", "book_recs"],
-                user_prompt="Plan a cozy Saturday in New York at (40.7128, -74.0060) with weather and 3 mystery book ideas.",
             )
+
+    def test_validate_react_decision_rejects_finish_without_answer(self) -> None:
+        decision = {
+            "thought": "I am done.",
+            "action": "finish",
+        }
+
+        with self.assertRaisesRegex(ValueError, "final_answer"):
+            validate_react_decision(decision)
+
 
 if __name__ == "__main__":
     unittest.main()

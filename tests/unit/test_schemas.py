@@ -2,31 +2,35 @@ from __future__ import annotations
 
 import unittest
 
-from schemas.agent import (
-    ExecutionPlan,
-    OrchestratorContext,
-    PlanLocation,
-    PlanStep,
-    ReflectionResult,
-    validate_execution_plan,
-    validate_reflection_result,
-)
+from schemas.agent import OrchestratorContext, ReactDecision, ReflectionResult, validate_react_decision, validate_reflection_result
 from schemas.tools import BookResults, DogResult, GeoResult, ToolError, WeatherResult, parse_tool_payload
 
 
 class SchemaTests(unittest.TestCase):
-    def test_validate_execution_plan_parses_plan(self) -> None:
-        plan = validate_execution_plan(
+    def test_validate_react_decision_parses_tool_action(self) -> None:
+        decision = validate_react_decision(
             {
-                "goal": "joke",
-                "requested_tools": ["random_joke"],
-                "execution_steps": [{"tool": "random_joke", "args": {}}],
+                "thought": "I should fetch a joke.",
+                "action": "tool",
+                "tool": "random_joke",
+                "args": {},
             }
         )
 
-        self.assertIsInstance(plan, ExecutionPlan)
-        self.assertIsInstance(plan.execution_steps[0], PlanStep)
-        self.assertEqual(plan.execution_steps[0].tool, "random_joke")
+        self.assertIsInstance(decision, ReactDecision)
+        self.assertEqual(decision.tool, "random_joke")
+
+    def test_validate_react_decision_parses_finish_action(self) -> None:
+        decision = validate_react_decision(
+            {
+                "thought": "I can answer now.",
+                "action": "finish",
+                "final_answer": "Here is your answer.",
+            }
+        )
+
+        self.assertEqual(decision.action, "finish")
+        self.assertEqual(decision.final_answer, "Here is your answer.")
 
     def test_validate_reflection_result_parses_answer(self) -> None:
         result = validate_reflection_result({"answer": "tightened"})
@@ -44,12 +48,6 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(context.tool_names, ["get_weather", "random_joke"])
         self.assertEqual(context.history[0]["role"], "user")
         self.assertEqual(context.model_name, "demo-model")
-
-    def test_plan_location_supports_city_and_coordinates(self) -> None:
-        location = PlanLocation(city="New York", latitude=40.7128, longitude=-74.0060)
-
-        self.assertEqual(location.city, "New York")
-        self.assertEqual(location.latitude, 40.7128)
 
     def test_parse_tool_payload_returns_typed_weather(self) -> None:
         payload = parse_tool_payload(
