@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-"""Compatibility exports for policy helpers used by the agent loop."""
+"""Guardrail package for deterministic request-analysis helpers."""
 
 from agent.guardrails.guardrails import (
+    RequestAnalysis,
+    analyze_request,
+    infer_book_limit,
+    infer_book_topic,
     infer_city,
     missing_requested_tools,
     parse_coords,
@@ -10,6 +14,10 @@ from agent.guardrails.guardrails import (
 )
 
 __all__ = [
+    "RequestAnalysis",
+    "analyze_request",
+    "infer_book_limit",
+    "infer_book_topic",
     "infer_city",
     "missing_requested_tools",
     "parse_coords",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from agent.policies.guardrails import (
+from agent.guardrails.guardrails import (
     analyze_request,
     infer_city,
     missing_requested_tools,
