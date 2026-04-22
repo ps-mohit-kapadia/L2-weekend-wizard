@@ -45,12 +45,26 @@ def build_react_messages(
                 '- final_answer: required only when action is "finish"\n'
                 f"You are on step {step_number} of at most {max_steps}.\n"
                 "Use the minimum number of tool calls needed.\n"
+                "Only call tools that are necessary to satisfy the user's explicit request.\n"
+                "Do not add extra enrichment, extra fun, or extra helpful information unless the user clearly asked for it.\n"
+                "If the request is already satisfied by prior observations, choose finish immediately.\n"
+                "Continuing to call tools after the request is satisfied is incorrect.\n"
+                "Every tool call must be justified by the user's explicit request or a required dependency.\n"
                 "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
                 "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
                 "Do not repeat a tool call if a prior observation already satisfies that need.\n"
+                "Use weather only if the user asked for weather or a plan that depends on weather.\n"
+                "Use books only if the user asked for books or a reading-themed plan.\n"
+                "Use random_joke only if the user asked for a joke.\n"
+                "Use random_dog only if the user asked for a dog photo or dog picture.\n"
+                "Use trivia only if the user explicitly asked for trivia.\n"
                 "Never invent tools.\n"
                 "Tool example:\n"
                 '{"thought":"I need a joke first.","action":"tool","tool":"random_joke","args":{}}\n'
+                "Early stop examples:\n"
+                '- For "Tell me a joke.": call random_joke, then finish.\n'
+                '- For "Give me weather and a joke.": get_weather, random_joke, then finish.\n'
+                '- For "Plan a cozy Saturday in New York with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is a cozy weekend plan for you..."}\n'
                 "Any assistant message in the form [tool:name] payload is a previous tool observation.\n"
