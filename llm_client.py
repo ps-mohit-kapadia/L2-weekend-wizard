@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config.config import get_settings
-from logger.logging import get_logger
+from logger.logging import get_logger, staging_mode
 from schemas.agent import validate_execution_plan, validate_reflection_result
 
 MODEL_REQUEST_TIMEOUT_SECONDS = 600
@@ -27,7 +27,8 @@ def list_available_models(timeout: int = 5) -> List[str]:
     Raises:
         requests.RequestException: If the Ollama tags endpoint cannot be reached.
     """
-    logger.info("Requesting available Ollama models with timeout %ss", timeout)
+    if staging_mode():
+        logger.info("Requesting available Ollama models with timeout %ss", timeout)
     response = requests.get(
         get_settings().ollama_url.replace("/api/chat", "/api/tags"),
         timeout=timeout,
@@ -35,7 +36,8 @@ def list_available_models(timeout: int = 5) -> List[str]:
     response.raise_for_status()
     models = response.json().get("models", [])
     names = [model.get("name") for model in models if model.get("name")]
-    logger.info("Discovered %d Ollama models", len(names))
+    if staging_mode():
+        logger.info("Discovered %d Ollama models", len(names))
     return names
 
 
@@ -69,13 +71,14 @@ def call_model(
     if json_mode:
         payload["format"] = "json"
 
-    logger.info(
-        "Calling Ollama model %s with %d messages (json_mode=%s, temperature=%s)",
-        model,
-        len(messages),
-        json_mode,
-        temperature,
-    )
+    if staging_mode():
+        logger.info(
+            "Calling Ollama model %s with %d messages (json_mode=%s, temperature=%s)",
+            model,
+            len(messages),
+            json_mode,
+            temperature,
+        )
     response = requests.post(
         settings.ollama_url,
         json=payload,
@@ -83,7 +86,8 @@ def call_model(
     )
     response.raise_for_status()
     data = response.json()
-    logger.info("Received Ollama response for model %s", model)
+    if staging_mode():
+        logger.info("Received Ollama response for model %s", model)
     return data["message"]["content"]
 
 

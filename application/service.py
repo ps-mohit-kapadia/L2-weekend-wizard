@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
-from logger.logging import get_logger
+from logger.logging import get_logger, staging_mode
 from mcp_runtime.client import McpService
 from schemas.agent import InteractionResult, OrchestratorContext
 
@@ -145,11 +145,12 @@ class WeekendWizardApp:
         """
         if not self._is_initialized:
             raise RuntimeError("Weekend Wizard app has not been initialized.")
-        logger.info(
-            "Dispatching interaction with model %s and prompt length %d",
-            context.model_name,
-            len(user_prompt),
-        )
+        if staging_mode():
+            logger.info(
+                "Dispatching interaction with model %s and prompt length %d",
+                context.model_name,
+                len(user_prompt),
+            )
         result = await orchestrate_interaction(
             self._mcp_service,
             context,

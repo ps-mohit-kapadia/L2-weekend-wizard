@@ -396,8 +396,8 @@ Notes:
 - `WEEKEND_WIZARD_API_KEY` is required by the protected `/ready` and `/chat` endpoints and must be shared by the backend, Streamlit client, smoke test, and evaluation runner
 - `WEEKEND_WIZARD_OBSERVABILITY_MODE` controls the logging profile:
   - `local` keeps readable developer-focused logs
-  - `staging` keeps readable logs and appends request correlation plus phase telemetry
-  - `production` enables the same richer telemetry model for customer-facing operation
+  - `staging` keeps readable logs and appends request correlation plus richer engineer-friendly telemetry
+  - `production` keeps the key request, auth, failure, and timing telemetry with lower-noise operational logging
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 

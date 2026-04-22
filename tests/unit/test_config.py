@@ -19,6 +19,7 @@ class ConfigTests(unittest.TestCase):
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
                 "WEEKEND_WIZARD_API_KEY": "secret-key",
+                "WEEKEND_WIZARD_OBSERVABILITY_MODE": "local",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
             },
             clear=False,

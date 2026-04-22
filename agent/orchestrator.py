@@ -14,7 +14,7 @@ from agent.grounding import (
 from agent.guardrails.guardrails import parse_coords, requested_tools as infer_requested_tools
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
-from logger.logging import get_log_extra, get_logger, telemetry_enabled
+from logger.logging import get_log_extra, get_logger, staging_mode, telemetry_enabled
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
     ExecutionPlan,
@@ -121,10 +121,12 @@ async def execute_tool_call(
 ) -> str:
     """Invoke one MCP tool and serialize its response payload."""
     try:
-        logger.info("Invoking tool %s with args=%s", tool_name, args)
+        if staging_mode():
+            logger.info("Invoking tool %s with args=%s", tool_name, args)
         result = await tool_gateway.call_tool(tool_name, args)
         payload = render_tool_result(result)
-        logger.info("Tool %s completed", tool_name)
+        if staging_mode():
+            logger.info("Tool %s completed", tool_name)
         return payload
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
@@ -438,7 +440,8 @@ async def orchestrate_interaction(
 
     tool_phase_started_at = time.perf_counter()
     for index, step in enumerate(plan.execution_steps, start=1):
-        logger.info("Executing planned step %d of %d: %s", index, len(plan.execution_steps), step.tool)
+        if staging_mode():
+            logger.info("Executing planned step %d of %d: %s", index, len(plan.execution_steps), step.tool)
         tool_started_at = time.perf_counter()
         normalized_args, error = normalize_tool_args(step.tool, step.args, state)
         if normalized_args is None:

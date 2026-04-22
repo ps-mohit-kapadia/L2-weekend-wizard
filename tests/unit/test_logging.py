@@ -81,6 +81,17 @@ class LoggingTests(unittest.TestCase):
         self.assertIn("outcome=success", formatted)
         self.assertIn("duration_ms=125", formatted)
 
+    def test_mode_helpers_distinguish_staging_and_production(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_OBSERVABILITY_MODE": "staging"}, clear=False):
+            logging_module.get_settings.cache_clear()
+            self.assertTrue(logging_module.staging_mode())
+            self.assertFalse(logging_module.production_mode())
+
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_OBSERVABILITY_MODE": "production"}, clear=False):
+            logging_module.get_settings.cache_clear()
+            self.assertFalse(logging_module.staging_mode())
+            self.assertTrue(logging_module.production_mode())
+
 
 if __name__ == "__main__":
     unittest.main()

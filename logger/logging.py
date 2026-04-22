@@ -42,6 +42,16 @@ def telemetry_enabled() -> bool:
     return observability_mode() in {"staging", "production"}
 
 
+def staging_mode() -> bool:
+    """Return whether the app is running with staging observability."""
+    return observability_mode() == "staging"
+
+
+def production_mode() -> bool:
+    """Return whether the app is running with production observability."""
+    return observability_mode() == "production"
+
+
 class _RequestContextFilter(logging.Filter):
     """Attach request-scoped observability context to each record."""
 
