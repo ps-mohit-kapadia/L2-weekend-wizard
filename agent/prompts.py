@@ -50,6 +50,10 @@ def build_react_messages(
                 "If the request is already satisfied by prior observations, choose finish immediately.\n"
                 "Continuing to call tools after the request is satisfied is incorrect.\n"
                 "Every tool call must be justified by the user's explicit request or a required dependency.\n"
+                "For single-shot requests, one successful result is usually enough.\n"
+                "Single-shot tools are random_joke, random_dog, and trivia.\n"
+                "If the user asks for one joke, one dog photo, or one trivia question, call the tool once and then finish.\n"
+                "Do not call the same single-shot tool again unless the user explicitly asked for multiple results or a retry.\n"
                 "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
                 "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
                 "Do not repeat a tool call if a prior observation already satisfies that need.\n"
@@ -62,7 +66,8 @@ def build_react_messages(
                 "Tool example:\n"
                 '{"thought":"I need a joke first.","action":"tool","tool":"random_joke","args":{}}\n'
                 "Early stop examples:\n"
-                '- For "Tell me a joke.": call random_joke, then finish.\n'
+                '- For "Tell me a joke.": call random_joke once, then finish.\n'
+                '- For "Give me a trivia question.": call trivia once, then finish.\n'
                 '- For "Give me weather and a joke.": get_weather, random_joke, then finish.\n'
                 '- For "Plan a cozy Saturday in New York with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.\n'
                 "Finish example:\n"
