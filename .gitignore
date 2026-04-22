@@ -1,32 +1,20 @@
+# Python artifacts
 __pycache__/
 *.py[cod]
-.tmp/
-
-venv
-__pycache__/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
 *$py.class
 
-### venv ###
-# Virtualenv
-# http://iamzed.com/2009/05/07/a-primer-on-virtualenv/
+# Local virtual environments
+.venv/
+venv/
 .Python
-[Bb]in
-[Ii]nclude
-[Ll]ib
-[Ll]ib64
-[Ll]ocal
-[Ss]cripts
-pyvenv.cfg
-.venv
-pip-selfcheck.json
-share
-etc
 
-.vscode
+# Local environment config
 .env
+
+# Editor/workspace files
+.vscode/
+
+# Project-local scratch files
+.tmp/
 jira.md
-/review
+/review/
