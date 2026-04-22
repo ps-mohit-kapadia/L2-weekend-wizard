@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -15,6 +16,7 @@ import requests
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
+API_KEY_HEADER = "X-API-Key"
 
 
 @dataclass(slots=True)
@@ -138,10 +140,18 @@ def load_cases(path: Path) -> list[EvaluationCase]:
     ]
 
 
-def api_is_reachable(base_url: str, timeout: int = 3) -> bool:
+def get_api_headers() -> dict[str, str]:
+    """Return required headers for protected API requests."""
+    api_key = os.getenv("WEEKEND_WIZARD_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("WEEKEND_WIZARD_API_KEY is not configured for evaluations.")
+    return {API_KEY_HEADER: api_key}
+
+
+def api_is_reachable(base_url: str, headers: dict[str, str], timeout: int = 3) -> bool:
     """Return whether the API health endpoint is reachable."""
     try:
-        response = requests.get(f"{base_url}/health", timeout=timeout)
+        response = requests.get(f"{base_url}/health", headers=headers, timeout=timeout)
         return response.status_code == 200
     except requests.RequestException:
         return False
@@ -156,6 +166,7 @@ def read_process_output(process: subprocess.Popen[str]) -> str:
 
 def wait_for_ready(
     base_url: str,
+    headers: dict[str, str],
     timeout_seconds: int,
     poll_interval: float,
     process: subprocess.Popen[str] | None = None,
@@ -173,7 +184,7 @@ def wait_for_ready(
             )
 
         try:
-            response = requests.get(f"{base_url}/ready", timeout=10)
+            response = requests.get(f"{base_url}/ready", headers=headers, timeout=10)
             payload = response.json()
         except requests.RequestException as exc:
             last_details = str(exc)
@@ -266,7 +277,12 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     )
 
 
-def evaluate_case(base_url: str, case: EvaluationCase, request_timeout: int) -> EvaluationResult:
+def evaluate_case(
+    base_url: str,
+    headers: dict[str, str],
+    case: EvaluationCase,
+    request_timeout: int,
+) -> EvaluationResult:
     """Send one evaluation prompt through the API and score the response."""
     started_at = time.monotonic()
 
@@ -274,6 +290,7 @@ def evaluate_case(base_url: str, case: EvaluationCase, request_timeout: int) -> 
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": case.prompt},
+            headers=headers,
             timeout=request_timeout,
         )
     except requests.Timeout:
@@ -373,12 +390,13 @@ def main() -> None:
     args = parse_args()
     project_dir = Path(__file__).resolve().parents[1]
     base_url = args.api_url.rstrip("/")
+    headers = get_api_headers()
     cases = load_cases(Path(args.cases_path))
     process: subprocess.Popen[str] | None = None
     results: list[EvaluationResult] = []
 
     try:
-        if api_is_reachable(base_url):
+        if api_is_reachable(base_url, headers):
             print(f"Using existing Weekend Wizard API at {base_url}")
         else:
             if args.no_start_api:
@@ -390,6 +408,7 @@ def main() -> None:
 
         readiness = wait_for_ready(
             base_url=base_url,
+            headers=headers,
             timeout_seconds=args.startup_timeout,
             poll_interval=args.poll_interval,
             process=process,
@@ -401,7 +420,7 @@ def main() -> None:
 
         for case in cases:
             print(f"Evaluating: {case.case_id} ({case.category})")
-            result = evaluate_case(base_url, case, args.request_timeout)
+            result = evaluate_case(base_url, headers, case, args.request_timeout)
             results.append(result)
             if args.fail_fast and not result.passed:
                 break

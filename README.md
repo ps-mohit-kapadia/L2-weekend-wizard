@@ -265,7 +265,27 @@ python -m pip install -r .\requirements.txt
 
 ---
 
-### 2. Ensure Ollama is running
+### 2. Configure local environment
+
+The repo now supports loading settings from a local `.env` file.
+
+Use `.env.example` as the template and keep your real `.env` local-only:
+
+```powershell
+Copy-Item .\.env.example .\.env
+```
+
+At minimum, make sure `WEEKEND_WIZARD_API_KEY` is set in `.env`.
+
+You can also control observability behavior with:
+
+- `WEEKEND_WIZARD_OBSERVABILITY_MODE=local`
+- `WEEKEND_WIZARD_OBSERVABILITY_MODE=staging`
+- `WEEKEND_WIZARD_OBSERVABILITY_MODE=production`
+
+---
+
+### 3. Ensure Ollama is running
 
 Make sure a local chat model is available:
 
@@ -281,7 +301,7 @@ ollama pull llama3.1:8b
 
 ---
 
-### 3. Use the local operator runner
+### 4. Use the local operator runner
 
 ```powershell
 python .\scripts\dev_up.py check
@@ -298,7 +318,7 @@ This is the single operator-facing entrypoint for local bring-up. The `check` su
 
 ---
 
-### 4. Useful URLs
+### 5. Useful URLs
 
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/ready`
@@ -306,7 +326,7 @@ This is the single operator-facing entrypoint for local bring-up. The `check` su
 
 ---
 
-### 5. Optional: run the MCP server directly
+### 6. Optional: run the MCP server directly
 
 ```powershell
 python .\main.py mcp-server
@@ -314,7 +334,7 @@ python .\main.py mcp-server
 
 ---
 
-### 6. Run tests
+### 7. Run tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
@@ -322,7 +342,7 @@ python .\main.py mcp-server
 
 ---
 
-### 7. Run the smoke test
+### 8. Run the smoke test
 
 ```powershell
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
@@ -330,7 +350,7 @@ python .\main.py mcp-server
 
 ---
 
-### 8. Run contract evaluations
+### 9. Run contract evaluations
 
 ```powershell
 .\.venv\Scripts\python.exe .\evaluations\run_evaluations.py
@@ -363,7 +383,9 @@ OLLAMA_URL=http://127.0.0.1:11434/api/chat
 WEEKEND_WIZARD_REQUEST_TIMEOUT=600
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
+WEEKEND_WIZARD_API_KEY=replace-with-a-shared-secret
 
+WEEKEND_WIZARD_OBSERVABILITY_MODE=local
 WEEKEND_WIZARD_LOG_LEVEL=INFO
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 ```
@@ -371,6 +393,11 @@ WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 Notes:
 
 - the active runtime model is configured in [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
+- `WEEKEND_WIZARD_API_KEY` is required by the protected `/ready` and `/chat` endpoints and must be shared by the backend, Streamlit client, smoke test, and evaluation runner
+- `WEEKEND_WIZARD_OBSERVABILITY_MODE` controls the logging profile:
+  - `local` keeps readable developer-focused logs
+  - `staging` keeps readable logs and appends request correlation plus phase telemetry
+  - `production` enables the same richer telemetry model for customer-facing operation
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 

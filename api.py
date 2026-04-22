@@ -4,21 +4,25 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import time
 from typing import AsyncIterator
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 import requests
 import uvicorn
 
 from application.service import WeekendWizardApp
+from config.config import get_settings
 from llm_client import discover_model
 from llm_client import list_available_models
-from logger.logging import get_logger
+from logger.logging import get_log_extra, get_logger, reset_request_context, set_request_context, telemetry_enabled
 from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChecks, ReadinessResponse
 
 
 logger = get_logger("agent.api")
+API_KEY_HEADER = "X-API-Key"
 
 
 def build_not_ready_response(
@@ -84,6 +88,31 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
     )
 
 
+def require_api_key(x_api_key: str | None) -> None:
+    """Validate the configured API key for protected endpoints."""
+    configured_api_key = get_settings().api_key
+    if not configured_api_key:
+        logger.error(
+            "Protected request rejected because server API key is missing",
+            extra=get_log_extra(event="auth_missing", outcome="server_key_missing"),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Weekend Wizard API key is not configured on the server.",
+        )
+    if x_api_key != configured_api_key:
+        logger.warning(
+            "Protected request rejected due to invalid API key",
+            extra=get_log_extra(event="auth_invalid", outcome="unauthorized", status_code=401),
+        )
+        raise HTTPException(status_code=401, detail="Unauthorized.")
+    if telemetry_enabled():
+        logger.info(
+            "Protected request accepted",
+            extra=get_log_extra(event="auth_accepted", outcome="authorized"),
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage the shared Weekend Wizard runtime for the API process.
@@ -145,17 +174,26 @@ def create_api() -> FastAPI:
         return HealthResponse(status="ok")
 
     @app.get("/ready", response_model=ReadinessResponse)
-    async def ready() -> JSONResponse:
+    async def ready(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> JSONResponse:
         """Return a readiness signal for the Weekend Wizard application."""
-        wizard = getattr(app.state, "wizard", None)
-        response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
-        app.state.readiness = response
+        request_id = str(uuid4())
+        token = set_request_context(request_id)
+        try:
+            require_api_key(x_api_key)
+            wizard = getattr(app.state, "wizard", None)
+            response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
+            app.state.readiness = response
 
-        status_code = 200 if response.status == "ready" else 503
-        return JSONResponse(status_code=status_code, content=response.model_dump())
+            status_code = 200 if response.status == "ready" else 503
+            return JSONResponse(status_code=status_code, content=response.model_dump())
+        finally:
+            reset_request_context(token)
 
     @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
+    async def chat(
+        request: ChatRequest,
+        x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
+    ) -> ChatResponse:
         """Run one Weekend Wizard interaction through the shared app service.
 
         Args:
@@ -167,35 +205,59 @@ def create_api() -> FastAPI:
         Raises:
             HTTPException: If startup or interaction execution fails.
         """
-        wizard = getattr(app.state, "wizard", None)
-        if wizard is None or not wizard.is_initialized:
-            readiness = app.state.readiness
-            logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
-            raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
-
-        logger.info(
-            "Received /chat request with prompt length %d",
-            len(request.prompt),
-        )
+        request_id = str(uuid4())
+        token = set_request_context(request_id)
+        request_started_at = time.perf_counter()
         try:
-            context = wizard.create_interaction_context()
-            result = await wizard.run_interaction(request.prompt, context=context)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.exception("Chat request failed: %s", exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            require_api_key(x_api_key)
+            wizard = getattr(app.state, "wizard", None)
+            if wizard is None or not wizard.is_initialized:
+                readiness = app.state.readiness
+                logger.warning(
+                    "Rejecting chat request because runtime is not ready: %s",
+                    readiness.details,
+                    extra=get_log_extra(event="request_failed", phase="api", outcome="not_ready", status_code=503),
+                )
+                raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
 
-        logger.info(
-            "Completed /chat request with %d observations, fallback=%s, answer length=%d",
-            len(result.tool_observations),
-            result.used_fallback,
-            len(result.answer),
-        )
-        return ChatResponse(
-            answer=result.answer,
-            tool_observations=result.tool_observations,
-        )
+            logger.info(
+                "Received /chat request with prompt length %d",
+                len(request.prompt),
+                extra=get_log_extra(event="request_received", phase="api", model_name=wizard.model_name),
+            )
+            try:
+                context = wizard.create_interaction_context(request_id=request_id)
+                result = await wizard.run_interaction(request.prompt, context=context)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception(
+                    "Chat request failed: %s",
+                    exc,
+                    extra=get_log_extra(event="request_failed", phase="api", outcome="server_error"),
+                )
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 1)
+            logger.info(
+                "Completed /chat request with %d observations, fallback=%s, answer length=%d",
+                len(result.tool_observations),
+                result.used_fallback,
+                len(result.answer),
+                extra=get_log_extra(
+                    event="request_completed",
+                    phase="api",
+                    outcome="success",
+                    duration_ms=total_duration_ms,
+                    model_name=wizard.model_name,
+                ),
+            )
+            return ChatResponse(
+                answer=result.answer,
+                tool_observations=result.tool_observations,
+            )
+        finally:
+            reset_request_context(token)
 
     return app
 

@@ -18,6 +18,7 @@ class ConfigTests(unittest.TestCase):
                 "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "4",
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
+                "WEEKEND_WIZARD_API_KEY": "secret-key",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
             },
             clear=False,
@@ -28,7 +29,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
+        self.assertEqual(settings.api_key, "secret-key")
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
+        self.assertEqual(settings.observability_mode, "local")
 
     def test_get_settings_reloads_when_environment_changes(self) -> None:
         with patch.dict(
@@ -42,6 +45,48 @@ class ConfigTests(unittest.TestCase):
             settings = get_settings()
 
             self.assertEqual(settings.http_max_retries, 6)
+
+    def test_get_settings_loads_local_dotenv_values_when_not_present_in_environment(self) -> None:
+        dotenv_content = "\n".join(
+            [
+                "WEEKEND_WIZARD_API_KEY=dotenv-secret",
+                "WEEKEND_WIZARD_LOG_LEVEL=debug",
+            ]
+        )
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("config.config.Path.exists", return_value=True),
+            patch("config.config.Path.read_text", return_value=dotenv_content),
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.api_key, "dotenv-secret")
+        self.assertEqual(settings.log_level, "DEBUG")
+
+    def test_get_settings_normalizes_observability_mode(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "WEEKEND_WIZARD_OBSERVABILITY_MODE": "Staging",
+            },
+            clear=False,
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.observability_mode, "staging")
+
+    def test_environment_values_override_local_dotenv(self) -> None:
+        with (
+            patch.dict(os.environ, {"WEEKEND_WIZARD_API_KEY": "env-secret"}, clear=True),
+            patch("config.config.Path.exists", return_value=True),
+            patch("config.config.Path.read_text", return_value="WEEKEND_WIZARD_API_KEY=dotenv-secret"),
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.api_key, "env-secret")
 
 
 if __name__ == "__main__":

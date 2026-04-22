@@ -3,6 +3,7 @@ from __future__ import annotations
 """Planner/executor orchestration for one Weekend Wizard interaction."""
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,7 +14,7 @@ from agent.grounding import (
 from agent.policies.guardrails import parse_coords, requested_tools as infer_requested_tools
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
-from logger.logging import get_logger
+from logger.logging import get_log_extra, get_logger, telemetry_enabled
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
     ExecutionPlan,
@@ -295,11 +296,34 @@ def run_reflection(
         grounded draft answer.
     """
     messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
+    started_at = time.perf_counter()
     try:
         reflected = llm_reflection_json(messages, context.model_name)
+        if telemetry_enabled():
+            logger.info(
+                "Reflection completed",
+                extra=get_log_extra(
+                    event="reflection_completed",
+                    phase="reflection",
+                    outcome="success",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 1),
+                    model_name=context.model_name,
+                ),
+            )
         return reflected["answer"].strip()
     except Exception as exc:
-        logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        logger.warning(
+            "Reflection failed; returning grounded draft instead: %s",
+            exc,
+            extra=get_log_extra(
+                event="reflection_failed",
+                phase="reflection",
+                outcome="fallback",
+                duration_ms=duration_ms,
+                model_name=context.model_name,
+            ),
+        )
         return draft_answer
 
 
@@ -355,16 +379,32 @@ async def orchestrate_interaction(
     Returns:
         The structured interaction result for the request.
     """
-    logger.info("Starting interaction for prompt length %d", len(user_prompt))
+    interaction_started_at = time.perf_counter()
+    logger.info(
+        "Starting interaction for prompt length %d",
+        len(user_prompt),
+        extra=get_log_extra(event="interaction_started", phase="orchestrator", model_name=context.model_name),
+    )
     context.history.append({"role": "user", "content": user_prompt})
 
     planner_messages = build_planner_messages(user_prompt, context.tool_names)
+    planner_started_at = time.perf_counter()
     try:
         raw_plan = llm_plan_json(planner_messages, context.model_name)
         plan = validate_execution_plan(raw_plan)
         validate_plan_semantics(plan, context.tool_names, user_prompt)
     except Exception as exc:
-        logger.exception("Planning failed: %s", exc)
+        logger.exception(
+            "Planning failed: %s",
+            exc,
+            extra=get_log_extra(
+                event="planner_failed",
+                phase="planner",
+                outcome="failure",
+                duration_ms=round((time.perf_counter() - planner_started_at) * 1000, 1),
+                model_name=context.model_name,
+            ),
+        )
         return build_interaction_result(
             context.history,
             answer=build_planner_failure_answer(),
@@ -377,6 +417,13 @@ async def orchestrate_interaction(
         plan.goal,
         len(plan.execution_steps),
         plan.requested_tools,
+        extra=get_log_extra(
+            event="planner_completed",
+            phase="planner",
+            outcome="success",
+            duration_ms=round((time.perf_counter() - planner_started_at) * 1000, 1),
+            model_name=context.model_name,
+        ),
     )
 
     initial_coords = None
@@ -389,13 +436,39 @@ async def orchestrate_interaction(
         resolved_coords=initial_coords,
     )
 
+    tool_phase_started_at = time.perf_counter()
     for index, step in enumerate(plan.execution_steps, start=1):
         logger.info("Executing planned step %d of %d: %s", index, len(plan.execution_steps), step.tool)
+        tool_started_at = time.perf_counter()
         normalized_args, error = normalize_tool_args(step.tool, step.args, state)
         if normalized_args is None:
             payload = _tool_error_payload(step.tool, error or "invalid args")
+            logger.warning(
+                "Tool step %s skipped due to invalid args",
+                step.tool,
+                extra=get_log_extra(
+                    event="tool_failed",
+                    phase="tool_execution",
+                    outcome="invalid_args",
+                    duration_ms=round((time.perf_counter() - tool_started_at) * 1000, 1),
+                    tool_name=step.tool,
+                ),
+            )
         else:
             payload = await execute_tool_call(tool_gateway, step.tool, normalized_args)
+            if telemetry_enabled():
+                tool_outcome = "failure" if "\"error\"" in payload else "success"
+                logger.info(
+                    "Tool step completed: %s",
+                    step.tool,
+                    extra=get_log_extra(
+                        event="tool_completed" if tool_outcome == "success" else "tool_failed",
+                        phase="tool_execution",
+                        outcome=tool_outcome,
+                        duration_ms=round((time.perf_counter() - tool_started_at) * 1000, 1),
+                        tool_name=step.tool,
+                    ),
+                )
         record_tool_observation(
             context.history,
             state.tool_observations,
@@ -404,6 +477,17 @@ async def orchestrate_interaction(
             payload,
         )
         update_state_after_tool(state, step.tool, payload)
+
+    if telemetry_enabled():
+        logger.info(
+            "Tool execution phase completed",
+            extra=get_log_extra(
+                event="tool_phase_completed",
+                phase="tool_execution",
+                outcome="success",
+                duration_ms=round((time.perf_counter() - tool_phase_started_at) * 1000, 1),
+            ),
+        )
 
     result = finalize_after_execution(
         context,
@@ -415,5 +499,12 @@ async def orchestrate_interaction(
         "Interaction completed with %d observations and answer length %d",
         len(result.tool_observations),
         len(result.answer),
+        extra=get_log_extra(
+            event="interaction_completed",
+            phase="orchestrator",
+            outcome="success",
+            duration_ms=round((time.perf_counter() - interaction_started_at) * 1000, 1),
+            model_name=context.model_name,
+        ),
     )
     return result

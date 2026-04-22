@@ -114,7 +114,12 @@ class EvaluationTests(unittest.TestCase):
             prompt="Plan me a weekend.",
         )
 
-        result = evaluate_case("http://127.0.0.1:8000", case, request_timeout=180)
+        result = evaluate_case(
+            "http://127.0.0.1:8000",
+            {"X-API-Key": "secret-key"},
+            case,
+            request_timeout=180,
+        )
 
         self.assertFalse(result.passed)
         self.assertEqual(result.tool_names, [])

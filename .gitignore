@@ -27,5 +27,6 @@ share
 etc
 
 .vscode
+.env
 jira.md
 /review

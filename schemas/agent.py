@@ -82,11 +82,13 @@ class OrchestratorContext(BaseModel):
         tool_names: Tool names available to the active runtime.
         history: Conversation history accumulated for the interaction.
         model_name: Active Ollama model name used for planner and reflection calls.
+        request_id: Correlation identifier for one end-to-end request.
     """
 
     tool_names: List[str] = Field(default_factory=list)
     history: List[Dict[str, str]] = Field(default_factory=list)
     model_name: str
+    request_id: str
 
 
 class InteractionResult(BaseModel):

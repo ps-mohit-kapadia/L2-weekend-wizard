@@ -17,6 +17,16 @@ class StreamlitAppTests(unittest.TestCase):
     def test_get_api_base_url_strips_trailing_slash(self) -> None:
         self.assertEqual(streamlit_app.get_api_base_url(), "http://example.com")
 
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
+    def test_get_api_headers_returns_configured_api_key(self) -> None:
+        self.assertEqual(streamlit_app.get_api_headers(), {"X-API-Key": "secret-key"})
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_get_api_headers_raises_when_api_key_is_missing(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "WEEKEND_WIZARD_API_KEY"):
+            streamlit_app.get_api_headers()
+
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.get")
     def test_load_readiness_returns_structured_response(self, mock_get: Mock) -> None:
         response = Mock()
@@ -40,12 +50,19 @@ class StreamlitAppTests(unittest.TestCase):
 
         self.assertEqual(readiness.status, "ready")
         self.assertEqual(readiness.tool_count, 2)
+        mock_get.assert_called_once_with(
+            "http://127.0.0.1:8000/ready",
+            headers={"X-API-Key": "secret-key"},
+            timeout=10,
+        )
 
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.get", side_effect=requests.RequestException("offline"))
     def test_load_readiness_raises_when_api_is_unreachable(self, _mock_get: Mock) -> None:
         with self.assertRaises(RuntimeError):
             streamlit_app.load_readiness()
 
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.post")
     def test_send_chat_prompt_returns_structured_response(self, mock_post: Mock) -> None:
         response = Mock()
@@ -60,7 +77,14 @@ class StreamlitAppTests(unittest.TestCase):
 
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
+        mock_post.assert_called_once_with(
+            "http://127.0.0.1:8000/chat",
+            json={"prompt": "hello"},
+            headers={"X-API-Key": "secret-key"},
+            timeout=streamlit_app.CHAT_REQUEST_TIMEOUT_SECONDS,
+        )
 
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.post")
     def test_send_chat_prompt_raises_with_api_error_detail(self, mock_post: Mock) -> None:
         response = Mock()

@@ -17,6 +17,7 @@ logger = get_logger("agent.streamlit")
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 CHAT_REQUEST_TIMEOUT_SECONDS = 600
+API_KEY_HEADER = "X-API-Key"
 
 
 @dataclass
@@ -43,6 +44,14 @@ def get_api_base_url() -> str:
     return os.getenv("WEEKEND_WIZARD_API_URL", DEFAULT_API_BASE_URL).rstrip("/")
 
 
+def get_api_headers() -> dict[str, str]:
+    """Return required headers for backend API requests."""
+    api_key = os.getenv("WEEKEND_WIZARD_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("WEEKEND_WIZARD_API_KEY is not configured for the Streamlit client.")
+    return {API_KEY_HEADER: api_key}
+
+
 def load_readiness() -> ReadinessResponse:
     """Fetch readiness from the FastAPI backend.
 
@@ -53,8 +62,9 @@ def load_readiness() -> ReadinessResponse:
         RuntimeError: If the backend is unreachable or returns invalid JSON.
     """
     base_url = get_api_base_url()
+    headers = get_api_headers()
     try:
-        response = requests.get(f"{base_url}/ready", timeout=10)
+        response = requests.get(f"{base_url}/ready", headers=headers, timeout=10)
     except requests.RequestException as exc:
         raise RuntimeError(
             f"Could not reach Weekend Wizard API at {base_url}. Start the API server first."
@@ -82,10 +92,12 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
             responds with an error status.
     """
     base_url = get_api_base_url()
+    headers = get_api_headers()
     try:
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": prompt},
+            headers=headers,
             timeout=CHAT_REQUEST_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:

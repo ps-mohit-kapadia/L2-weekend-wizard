@@ -10,6 +10,8 @@ import api
 from schemas.agent import InteractionResult, ToolObservation
 from schemas.api import ReadinessChecks, ReadinessResponse
 
+_SETTINGS_WITH_KEY = type("Settings", (), {"api_key": "test-key"})()
+
 
 class _FakeWizardApp:
     def __init__(self, *_args, **_kwargs) -> None:
@@ -39,9 +41,9 @@ class _FakeWizardApp:
         self.is_initialized = False
         return None
 
-    def create_interaction_context(self) -> object:
+    def create_interaction_context(self, request_id: str) -> object:
         context = object()
-        self.created_contexts.append(context)
+        self.created_contexts.append((request_id, context))
         return context
 
 
@@ -54,6 +56,7 @@ class ApiTests(unittest.TestCase):
     def test_health_endpoint_returns_ok(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
             patch("api.list_available_models", return_value=["llama3.2:latest"]),
@@ -67,12 +70,13 @@ class ApiTests(unittest.TestCase):
     def test_ready_endpoint_returns_structured_readiness_when_ready(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
             patch("api.list_available_models", return_value=["llama3.2:latest"]),
             TestClient(api.create_api()) as client,
         ):
-            response = client.get("/ready")
+            response = client.get("/ready", headers={"X-API-Key": "test-key"})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ready")
@@ -83,11 +87,12 @@ class ApiTests(unittest.TestCase):
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _BrokenWizardApp),
             TestClient(api.create_api()) as client,
         ):
-            response = client.get("/ready")
+            response = client.get("/ready", headers={"X-API-Key": "test-key"})
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["status"], "not_ready")
@@ -98,19 +103,25 @@ class ApiTests(unittest.TestCase):
 
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", return_value=fake_app),
             patch("api.list_available_models", return_value=["llama3.2:latest"]),
             TestClient(api.create_api()) as client,
         ):
             with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
-                response = client.post("/chat", json={"prompt": "Plan me a weekend in New York"})
+                response = client.post(
+                    "/chat",
+                    json={"prompt": "Plan me a weekend in New York"},
+                    headers={"X-API-Key": "test-key"},
+                )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["answer"], "Weekend plan ready.")
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(len(fake_app.created_contexts), 1)
-        created_context = fake_app.created_contexts[0]
+        request_id, created_context = fake_app.created_contexts[0]
+        self.assertTrue(request_id)
         fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
@@ -119,11 +130,12 @@ class ApiTests(unittest.TestCase):
     def test_chat_endpoint_surfaces_server_errors(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _BrokenWizardApp),
             TestClient(api.create_api()) as client,
         ):
-            response = client.post("/chat", json={"prompt": "hello"})
+            response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "test-key"})
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "startup boom")
@@ -147,14 +159,45 @@ class ApiTests(unittest.TestCase):
 
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", return_value=fake_app),
             patch("api.evaluate_runtime_readiness", side_effect=[ready_response]),
             TestClient(api.create_api()) as client,
         ):
-            response = client.post("/chat", json={"prompt": "hello"})
+            response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "test-key"})
 
         self.assertEqual(response.status_code, 200)
+
+    def test_protected_endpoints_reject_missing_api_key(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            ready_response = client.get("/ready")
+            chat_response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(ready_response.status_code, 401)
+        self.assertEqual(chat_response.status_code, 401)
+
+    def test_protected_endpoints_fail_when_server_api_key_is_not_configured(self) -> None:
+        settings_without_key = type("Settings", (), {"api_key": ""})()
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=settings_without_key),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.get("/ready", headers={"X-API-Key": "test-key"})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("API key is not configured", response.json()["detail"])
 
 
 if __name__ == "__main__":
