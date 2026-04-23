@@ -250,5 +250,23 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 user_prompt="Plan a cozy Saturday in New York at (40.7128, -74.0060) with weather and 3 mystery book ideas.",
             )
 
+    def test_validate_plan_semantics_rejects_bonus_joke_for_books_only_weekend_prompt(self) -> None:
+        plan = {
+            "goal": "weekend_plan",
+            "location": {"city": "Las Vegas"},
+            "book_topic": "adventure",
+            "execution_steps": [
+                {"tool": "book_recs", "args": {"topic": "adventure", "limit": 3}},
+                {"tool": "random_joke", "args": {}},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "unrequested tools"):
+            validate_plan_semantics(
+                plan=validate_execution_plan(plan),
+                available_tools=["book_recs", "random_joke"],
+                user_prompt="Plan a weekend in Las Vegas with 3 adventure books.",
+            )
+
 if __name__ == "__main__":
     unittest.main()
