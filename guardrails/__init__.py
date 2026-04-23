@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Guardrail package for deterministic request-analysis helpers."""
 
-from agent.guardrails.guardrails import (
+from guardrails.guardrails import (
     RequestAnalysis,
     analyze_request,
     infer_book_limit,

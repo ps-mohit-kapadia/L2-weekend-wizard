@@ -11,7 +11,7 @@ from agent.grounding import (
     compose_grounded_answer_from_observations,
     parse_tool_payload_text,
 )
-from agent.guardrails.guardrails import parse_coords, requested_tools as infer_requested_tools
+from guardrails.guardrails import parse_coords, requested_tools as infer_requested_tools
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_log_extra, get_logger, staging_mode, telemetry_enabled
