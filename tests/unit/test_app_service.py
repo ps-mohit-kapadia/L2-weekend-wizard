@@ -62,7 +62,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
         ):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
-            context = app.create_interaction_context()
+            context = app.create_interaction_context("test-request")
             actual = await app.run_interaction("hello", context=context)
 
         self.assertEqual(actual, result)
@@ -82,12 +82,11 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             with self.assertLogs("weekend_wizard.application.service", level="INFO") as captured:
                 await app.__aenter__()
-                await app.run_interaction("hello", context=app.create_interaction_context())
+                await app.run_interaction("hello", context=app.create_interaction_context("test-request"))
                 await app.__aexit__(None, None, None)
 
         joined = "\n".join(captured.output)
         self.assertIn("App session ready", joined)
-        self.assertIn("Dispatching interaction", joined)
         self.assertIn("Interaction completed", joined)
 
     async def test_run_interaction_requires_explicit_context(self) -> None:

@@ -11,7 +11,9 @@ from agent.grounding import (
     compose_grounded_answer_from_observations,
     parse_tool_payload_text,
 )
-from guardrails.guardrails import parse_coords, requested_tools as infer_requested_tools
+from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
+from guardrails.guardrails import parse_coords
+from guardrails.plans import validate_plan_semantics
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_log_extra, get_logger, staging_mode, telemetry_enabled
@@ -131,124 +133,6 @@ async def execute_tool_call(
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
         return _tool_error_payload(tool_name, str(exc))
-
-
-def normalize_tool_args(
-    tool_name: str,
-    args: Dict[str, Any],
-    state: ExecutionState,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Normalize and repair planned tool args before execution."""
-    args = dict(args or {})
-
-    if tool_name == "city_to_coords":
-        city = args.get("city") or (state.plan.location.city if state.plan.location else None)
-        if not city:
-            return None, "city is required"
-        return {"city": str(city)}, None
-
-    if tool_name == "get_weather":
-        latitude = args.get("latitude")
-        longitude = args.get("longitude")
-        if latitude is None or longitude is None:
-            coords = state.resolved_coords
-            if coords is not None:
-                latitude, longitude = coords
-            elif state.plan.location and state.plan.location.latitude is not None and state.plan.location.longitude is not None:
-                latitude, longitude = state.plan.location.latitude, state.plan.location.longitude
-        if latitude is None or longitude is None:
-            return None, "latitude and longitude are required"
-        try:
-            return {"latitude": float(latitude), "longitude": float(longitude)}, None
-        except (TypeError, ValueError):
-            return None, "latitude and longitude must be numeric"
-
-    if tool_name == "book_recs":
-        topic = args.get("topic") or args.get("param") or state.plan.book_topic
-        limit = args.get("limit") or 3
-        if not topic:
-            return None, "topic is required"
-        try:
-            safe_limit = max(1, min(int(limit), 10))
-        except (TypeError, ValueError):
-            safe_limit = 3
-        return {"topic": str(topic), "limit": safe_limit}, None
-
-    if tool_name in {"random_joke", "random_dog", "trivia"}:
-        return {}, None
-
-    return args, None
-
-
-def validate_plan_semantics(plan: ExecutionPlan, available_tools: List[str], user_prompt: str) -> None:
-    """Validate planner output against supported runtime constraints.
-
-    Args:
-        plan: Typed execution plan returned by the planner.
-        available_tools: Tool names exposed by the MCP runtime.
-        user_prompt: Original user prompt used to infer supported intent.
-
-    Raises:
-        ValueError: If the plan requests unsupported tools, omits requested tools,
-            or violates runtime dependency rules.
-    """
-    available = set(available_tools)
-    requested = set(plan.requested_tools)
-    user_requested = infer_requested_tools(user_prompt)
-    coords_in_prompt = parse_coords(user_prompt)
-    if not requested:
-        raise ValueError("Execution plan must request at least one tool.")
-    if not requested.issubset(available):
-        unknown = sorted(requested.difference(available))
-        raise ValueError(f"Execution plan requested unsupported tools: {', '.join(unknown)}")
-    if "city_to_coords" in requested:
-        raise ValueError("Execution plan must not list city_to_coords as a requested tool.")
-    extra_requested = requested.difference(user_requested)
-    if extra_requested:
-        raise ValueError(f"Execution plan added unrequested tools: {', '.join(sorted(extra_requested))}")
-
-    seen_requested = set()
-    saw_city_lookup = False
-    weather_step_count = 0
-    city_lookup_count = 0
-    for step in plan.execution_steps:
-        if step.tool not in available:
-            raise ValueError(f"Execution step uses unsupported tool: {step.tool}")
-        if step.tool != "city_to_coords":
-            seen_requested.add(step.tool)
-        if step.tool == "city_to_coords":
-            saw_city_lookup = True
-            city_lookup_count += 1
-        if step.tool == "get_weather":
-            weather_step_count += 1
-            has_coords = (
-                step.args.get("latitude") is not None
-                and step.args.get("longitude") is not None
-                or
-                plan.location is not None
-                and plan.location.latitude is not None
-                and plan.location.longitude is not None
-            )
-            if not has_coords and not saw_city_lookup:
-                raise ValueError("Weather execution requires coordinates or a prior city_to_coords step.")
-
-    if city_lookup_count and "get_weather" not in requested:
-        raise ValueError("city_to_coords is only valid as a dependency for weather requests.")
-    if city_lookup_count and (
-        coords_in_prompt is not None
-        or (
-            plan.location is not None
-            and plan.location.latitude is not None
-            and plan.location.longitude is not None
-        )
-    ):
-        raise ValueError("Execution plan added city_to_coords even though coordinates were already provided.")
-    if weather_step_count > 1 or city_lookup_count > 1:
-        raise ValueError("Execution plan contains duplicate weather dependency steps.")
-
-    missing_steps = requested.difference(seen_requested)
-    if missing_steps:
-        raise ValueError(f"Execution plan omitted requested tools: {', '.join(sorted(missing_steps))}")
 
 
 def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str) -> None:
@@ -415,10 +299,9 @@ async def orchestrate_interaction(
         )
 
     logger.info(
-        "Planner produced goal=%s with %d steps and requested_tools=%s",
+        "Planner produced goal=%s with %d steps",
         plan.goal,
         len(plan.execution_steps),
-        plan.requested_tools,
         extra=get_log_extra(
             event="planner_completed",
             phase="planner",
@@ -443,7 +326,15 @@ async def orchestrate_interaction(
         if staging_mode():
             logger.info("Executing planned step %d of %d: %s", index, len(plan.execution_steps), step.tool)
         tool_started_at = time.perf_counter()
-        normalized_args, error = normalize_tool_args(step.tool, step.args, state)
+        normalized_args, error = normalize_tool_args(
+            step.tool,
+            step.args,
+            ExecutionStateSnapshot(
+                user_prompt=state.user_prompt,
+                plan=state.plan,
+                resolved_coords=state.resolved_coords,
+            ),
+        )
         if normalized_args is None:
             payload = _tool_error_payload(step.tool, error or "invalid args")
             logger.warning(

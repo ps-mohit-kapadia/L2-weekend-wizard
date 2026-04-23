@@ -5,7 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from agent.orchestrator import orchestrate_interaction, validate_plan_semantics
+from agent.orchestrator import orchestrate_interaction
+from guardrails.plans import validate_plan_semantics
 from mcp_runtime.client import ToolInvocationError
 from schemas.agent import OrchestratorContext, validate_execution_plan
 
@@ -37,7 +38,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "goal": "weekend_plan",
             "location": {"city": "New York"},
             "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog"],
             "execution_steps": [
                 {"tool": "city_to_coords", "args": {"city": "New York"}},
                 {"tool": "get_weather", "args": {}},
@@ -116,7 +116,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         mock_plan.return_value = {
             "goal": "joke",
-            "requested_tools": ["random_joke"],
             "execution_steps": [{"tool": "random_joke", "args": {}}],
         }
 
@@ -139,7 +138,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_plan_returns_planner_failure_message(self, mock_plan: Mock) -> None:
         mock_plan.return_value = {
             "goal": "weekend_plan",
-            "requested_tools": ["get_weather"],
             "execution_steps": [{"tool": "get_weather", "args": {}}],
         }
 
@@ -181,7 +179,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_plan.return_value = {
             "goal": "weekend_plan",
             "location": {"latitude": 40.7128, "longitude": -74.0060},
-            "requested_tools": ["get_weather", "random_joke"],
             "execution_steps": [
                 {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
                 {"tool": "random_joke", "args": {}},
@@ -217,7 +214,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "goal": "weekend_plan",
             "location": {"city": "New York"},
             "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
             "execution_steps": [
                 {"tool": "city_to_coords", "args": {"city": "New York"}},
                 {"tool": "get_weather", "args": {}},
@@ -240,7 +236,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "goal": "weekend_plan",
             "location": {"city": "New York", "latitude": 40.7128, "longitude": -74.0060},
             "book_topic": "mystery",
-            "requested_tools": ["get_weather", "book_recs"],
             "execution_steps": [
                 {"tool": "city_to_coords", "args": {"city": "New York"}},
                 {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},

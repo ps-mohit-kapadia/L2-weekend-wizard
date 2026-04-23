@@ -18,7 +18,7 @@ class LlmClientTests(unittest.TestCase):
 
     @patch(
         "llm_client.call_model",
-        return_value='{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
+        return_value='{"goal":"joke","execution_steps":[{"tool":"random_joke","args":{}}]}',
     )
     def test_llm_plan_json_returns_model_json(self, _call_model: Mock) -> None:
         result = llm_client.llm_plan_json([{"role": "user", "content": "hello"}], "demo-model")
@@ -35,7 +35,7 @@ class LlmClientTests(unittest.TestCase):
         "llm_client.call_model",
         side_effect=[
             '{"unexpected":"shape"}',
-            '{"goal":"joke","requested_tools":["random_joke"],"execution_steps":[{"tool":"random_joke","args":{}}]}',
+            '{"goal":"joke","execution_steps":[{"tool":"random_joke","args":{}}]}',
         ],
     )
     def test_llm_plan_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:

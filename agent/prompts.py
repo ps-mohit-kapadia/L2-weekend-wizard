@@ -48,10 +48,8 @@ def build_planner_messages(
                 '- goal: one of the allowed values above\n'
                 '- location: optional object with city, latitude, longitude\n'
                 '- book_topic: optional string\n'
-                '- requested_tools: only the user-facing tools explicitly requested by the user\n'
                 '- execution_steps: ordered executable tool steps\n'
                 "Rules:\n"
-                "- requested_tools must not include city_to_coords because it is a dependency step, not a user-facing requested tool\n"
                 "Use only the supported tools listed below.\n"
                 "Include only the minimum steps needed to satisfy the request.\n"
                 "Do not include tools the user did not ask for.\n"
@@ -72,7 +70,6 @@ def build_planner_messages(
                 '"goal":"weekend_plan",'
                 '"location":{"city":"New York","latitude":40.7128,"longitude":-74.0060},'
                 '"book_topic":"mystery",'
-                '"requested_tools":["get_weather","book_recs","random_joke","random_dog"],'
                 '"execution_steps":['
                 '{"tool":"get_weather","args":{"latitude":40.7128,"longitude":-74.0060}},'
                 '{"tool":"book_recs","args":{"topic":"mystery","limit":3}},'
@@ -83,7 +80,6 @@ def build_planner_messages(
                 "Single-tool example for trivia:\n"
                 '{'
                 '"goal":"trivia",'
-                '"requested_tools":["trivia"],'
                 '"execution_steps":[{"tool":"trivia","args":{}}]'
                 '}\n'
                 "Supported tools:\n"
