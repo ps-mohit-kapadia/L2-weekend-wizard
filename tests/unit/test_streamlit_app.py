@@ -11,7 +11,9 @@ import streamlit_app
 class StreamlitAppTests(unittest.TestCase):
     @patch.dict("os.environ", {}, clear=True)
     def test_get_api_base_url_uses_default(self) -> None:
-        self.assertEqual(streamlit_app.get_api_base_url(), "http://127.0.0.1:8000")
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            self.assertEqual(streamlit_app.get_api_base_url(), "http://127.0.0.1:8000")
 
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_URL": "http://example.com/"}, clear=True)
     def test_get_api_base_url_strips_trailing_slash(self) -> None:
@@ -46,7 +48,9 @@ class StreamlitAppTests(unittest.TestCase):
         }
         mock_get.return_value = response
 
-        readiness = streamlit_app.load_readiness()
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            readiness = streamlit_app.load_readiness()
 
         self.assertEqual(readiness.status, "ready")
         self.assertEqual(readiness.tool_count, 2)
@@ -59,8 +63,10 @@ class StreamlitAppTests(unittest.TestCase):
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.get", side_effect=requests.RequestException("offline"))
     def test_load_readiness_raises_when_api_is_unreachable(self, _mock_get: Mock) -> None:
-        with self.assertRaises(RuntimeError):
-            streamlit_app.load_readiness()
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            with self.assertRaises(RuntimeError):
+                streamlit_app.load_readiness()
 
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.post")
@@ -73,7 +79,9 @@ class StreamlitAppTests(unittest.TestCase):
         }
         mock_post.return_value = response
 
-        result = streamlit_app.send_chat_prompt("hello")
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            result = streamlit_app.send_chat_prompt("hello")
 
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
@@ -92,8 +100,10 @@ class StreamlitAppTests(unittest.TestCase):
         response.json.return_value = {"detail": "Service is not ready."}
         mock_post.return_value = response
 
-        with self.assertRaisesRegex(RuntimeError, "Service is not ready."):
-            streamlit_app.send_chat_prompt("hello")
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            with self.assertRaisesRegex(RuntimeError, "Service is not ready."):
+                streamlit_app.send_chat_prompt("hello")
 
 
 if __name__ == "__main__":

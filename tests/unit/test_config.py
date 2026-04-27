@@ -19,6 +19,10 @@ class ConfigTests(unittest.TestCase):
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
                 "WEEKEND_WIZARD_API_KEY": "secret-key",
+                "WEEKEND_WIZARD_API_HOST": "0.0.0.0",
+                "WEEKEND_WIZARD_API_PORT": "9000",
+                "WEEKEND_WIZARD_API_URL": "http://0.0.0.0:9000",
+                "WEEKEND_WIZARD_PREFERRED_MODELS": "gpt-oss:20b-cloud,llama3.1:8b",
                 "WEEKEND_WIZARD_OBSERVABILITY_MODE": "local",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
             },
@@ -31,6 +35,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
         self.assertEqual(settings.api_key, "secret-key")
+        self.assertEqual(settings.api_host, "0.0.0.0")
+        self.assertEqual(settings.api_port, 9000)
+        self.assertEqual(settings.api_url, "http://0.0.0.0:9000")
+        self.assertEqual(settings.preferred_models, ("gpt-oss:20b-cloud", "llama3.1:8b"))
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
         self.assertEqual(settings.observability_mode, "local")
 

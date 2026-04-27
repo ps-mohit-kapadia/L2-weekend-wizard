@@ -267,4 +267,5 @@ app = create_api()
 
 def run_api() -> None:
     """Start the Weekend Wizard HTTP server using uvicorn."""
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
+    settings = get_settings()
+    uvicorn.run("api:app", host=settings.api_host, port=settings.api_port, reload=False)

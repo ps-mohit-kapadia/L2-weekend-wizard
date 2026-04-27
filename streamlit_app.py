@@ -9,13 +9,13 @@ from typing import Any
 import requests
 import streamlit as st
 
+from config.config import get_settings
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
 
 
 logger = get_logger("agent.streamlit")
 
-DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 CHAT_REQUEST_TIMEOUT_SECONDS = 600
 API_KEY_HEADER = "X-API-Key"
 
@@ -41,7 +41,10 @@ def get_api_base_url() -> str:
     Returns:
         The normalized backend base URL with any trailing slash removed.
     """
-    return os.getenv("WEEKEND_WIZARD_API_URL", DEFAULT_API_BASE_URL).rstrip("/")
+    configured_url = os.getenv("WEEKEND_WIZARD_API_URL")
+    if configured_url:
+        return configured_url.rstrip("/")
+    return get_settings().api_url
 
 
 def get_api_headers() -> dict[str, str]:

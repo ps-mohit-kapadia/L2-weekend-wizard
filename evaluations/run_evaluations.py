@@ -14,8 +14,7 @@ from typing import Any
 
 import requests
 
-
-DEFAULT_API_URL = "http://127.0.0.1:8000"
+from config.config import get_settings
 API_KEY_HEADER = "X-API-Key"
 
 
@@ -72,8 +71,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--api-url",
-        default=DEFAULT_API_URL,
-        help=f"Base URL of the FastAPI service. Default: {DEFAULT_API_URL}",
+        default=get_settings().api_url,
+        help="Base URL of the FastAPI service. Default: configured WEEKEND_WIZARD_API_URL/runtime host+port.",
     )
     parser.add_argument(
         "--cases-path",
