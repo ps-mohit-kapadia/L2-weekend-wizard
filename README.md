@@ -20,6 +20,13 @@ Unlike a freestyle controller loop, this project uses a bounded agent design:
 
 This keeps the system agentic while preserving reliability, explainability, and a clean local runtime story.
 
+The system now follows a clear ownership split:
+
+- system-owned request scope and guardrails
+- planner-owned executable step selection
+- deterministic tool execution
+- one reflection pass over grounded observations
+
 ---
 
 ## Architecture Overview
@@ -58,7 +65,7 @@ flowchart TD
 ### Execution Flow
 
 1. Streamlit sends the user prompt to FastAPI.
-2. The planner LLM produces one structured execution plan.
+2. The planner LLM produces one bounded step plan.
 3. The orchestrator validates the plan schema and semantics.
 4. The executor runs each planned MCP tool step in order.
 5. Tool outputs are stored as structured `ToolObservation`s.
@@ -114,8 +121,11 @@ weekend-wizard/
 |  |- grounding.py
 |  |- orchestrator.py
 |  |- prompts.py
-|  |- policies/
-|     |- guardrails.py
+|
+|- guardrails/
+|  |- execution.py
+|  |- guardrails.py
+|  |- plans.py
 |
 |- config/
 |  |- config.py
@@ -171,6 +181,7 @@ Responsibilities:
 - expose `/chat`, `/health`, and `/ready`
 - own the shared runtime lifecycle
 - return structured responses using the configured runtime model
+- expose server-side chat outcome metadata for success vs degraded runs
 
 ---
 
@@ -196,6 +207,7 @@ Responsibilities:
 - build planner messages
 - call the planner LLM once
 - validate plan schema and semantics
+- enforce system-owned request scope and runtime boundaries
 - normalize tool arguments before execution
 - execute MCP tools deterministically
 - record `ToolObservation`s
@@ -362,6 +374,7 @@ This runs a small supported-prompt evaluation set and scores the API against sim
 - forbidden tools are absent
 - minimum observations are returned
 - the final answer is non-empty
+- books-only city/coords prompts do not accidentally trigger weather
 
 For latency-focused analysis, use:
 
@@ -385,20 +398,25 @@ WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 WEEKEND_WIZARD_API_KEY=replace-with-a-shared-secret
 
+WEEKEND_WIZARD_API_HOST=127.0.0.1
+WEEKEND_WIZARD_API_PORT=8000
 WEEKEND_WIZARD_OBSERVABILITY_MODE=local
 WEEKEND_WIZARD_LOG_LEVEL=INFO
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
+WEEKEND_WIZARD_PREFERRED_MODELS=llama3.1:8b
 ```
 
 Notes:
 
-- the active runtime model is configured in [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
+- runtime host, port, API URL, and preferred models are environment-configurable through [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
 - `WEEKEND_WIZARD_API_KEY` is required by the protected `/ready` and `/chat` endpoints and must be shared by the backend, Streamlit client, smoke test, and evaluation runner
 - `WEEKEND_WIZARD_OBSERVABILITY_MODE` controls the logging profile:
   - `local` keeps readable developer-focused logs
   - `staging` keeps readable logs and appends request correlation plus richer engineer-friendly telemetry
   - `production` keeps the key request, auth, failure, and timing telemetry with lower-noise operational logging
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
+- `WEEKEND_WIZARD_API_HOST` and `WEEKEND_WIZARD_API_PORT` control where FastAPI binds at runtime
+- `WEEKEND_WIZARD_PREFERRED_MODELS` controls the ordered model resolution preference
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 
 ---
@@ -417,6 +435,17 @@ Checks whether the backend runtime is actually usable, including:
 - configured model availability
 - MCP session readiness
 - discovered tools
+
+### `/chat`
+
+Returns:
+
+- `answer`
+- `tool_observations`
+- `outcome` with `success` or `degraded`
+- `used_fallback` for server-side degraded/fallback tracking
+
+`outcome` and `used_fallback` are currently backend-facing contract fields. They are intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
 
 ---
 
@@ -439,7 +468,7 @@ Advantages:
 
 The system uses:
 
-**LLM plans -> system executes -> LLM reflects**
+**LLM plans bounded steps -> system executes -> LLM reflects**
 
 instead of:
 
@@ -449,6 +478,7 @@ instead of:
 This gives the project:
 
 - agentic behavior
+- system-owned scope boundaries
 - deterministic execution after planning
 - clearer debugging and testing boundaries
 - better control over tool usage
@@ -505,6 +535,7 @@ Limitations:
 - local-model latency is still noticeable, especially for planning and reflection on larger models
 - runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
 - the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
+- degraded outcomes are surfaced through the backend contract, but not yet shown in the customer UI
 
 These tradeoffs prioritize:
 

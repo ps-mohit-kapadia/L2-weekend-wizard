@@ -1,5 +1,23 @@
 [
   {
+    "id": "books-city-only",
+    "category": "books",
+    "prompt": "Plan a weekend in Las Vegas with 3 adventure books.",
+    "required_tools": ["book_recs"],
+    "forbidden_tools": ["get_weather", "random_joke", "random_dog", "trivia"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
+    "id": "books-coords-only",
+    "category": "books",
+    "prompt": "I'm at (40.7128, -74.0060). Give me 3 adventure books.",
+    "required_tools": ["book_recs"],
+    "forbidden_tools": ["get_weather", "random_joke", "random_dog", "trivia"],
+    "min_observations": 1,
+    "expect_answer": true
+  },
+  {
     "id": "weather-city",
     "category": "weather",
     "prompt": "What's the weather in New York today?",
