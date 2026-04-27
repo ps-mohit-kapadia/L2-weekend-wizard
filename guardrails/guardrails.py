@@ -41,6 +41,24 @@ _BOOK_TOPIC_STOPWORDS = {
     "the",
 }
 
+_WEATHER_KEYWORDS = (
+    "weather",
+    "temperature",
+    "forecast",
+    "rain",
+    "raining",
+    "sunny",
+    "cloudy",
+    "snow",
+    "snowing",
+    "wind",
+    "windy",
+    "humid",
+    "humidity",
+    "hot",
+    "cold",
+)
+
 
 @dataclass(frozen=True)
 class RequestAnalysis:
@@ -103,10 +121,9 @@ def infer_city(text: str) -> Optional[str]:
 def requested_tools(prompt: str) -> Set[str]:
     """Infer which tool categories the user is explicitly asking for."""
     lowered = prompt.lower()
-    coords = parse_coords(prompt)
     requested: Set[str] = set()
 
-    if coords is not None or infer_city(prompt) is not None or "weather" in lowered or "temperature" in lowered:
+    if any(keyword in lowered for keyword in _WEATHER_KEYWORDS):
         requested.add("get_weather")
     if "book" in lowered or "read" in lowered or "theme" in lowered:
         requested.add("book_recs")

@@ -45,6 +45,16 @@ class PolicyTests(unittest.TestCase):
 
         self.assertIn("get_weather", requested)
 
+    def test_requested_tools_does_not_infer_weather_from_city_alone(self) -> None:
+        requested = requested_tools("Plan a weekend in Las Vegas with 3 adventure books.")
+
+        self.assertEqual(requested, {"book_recs"})
+
+    def test_requested_tools_does_not_infer_weather_from_coords_alone(self) -> None:
+        requested = requested_tools("I'm at (40.7128, -74.0060). Give me 3 adventure books.")
+
+        self.assertEqual(requested, {"book_recs"})
+
     def test_requested_tools_collects_multi_tool_prompt(self) -> None:
         requested = requested_tools(
             "Plan a weekend with weather, book ideas, a joke, a dog pic, and trivia."
