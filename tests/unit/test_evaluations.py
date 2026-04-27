@@ -34,6 +34,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(len(cases), 1)
         self.assertEqual(cases[0].case_id, "joke-only")
         self.assertEqual(cases[0].required_tools, ["random_joke"])
+        self.assertFalse(cases[0].allow_degraded)
 
     def test_score_case_passes_when_contract_is_satisfied(self) -> None:
         case = EvaluationCase(
@@ -53,6 +54,8 @@ class EvaluationTests(unittest.TestCase):
                     "payload": '{"joke": "hello"}',
                 }
             ],
+            "outcome": "success",
+            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -76,6 +79,8 @@ class EvaluationTests(unittest.TestCase):
                 {"tool_name": "get_weather", "args": {}, "payload": "{}"},
                 {"tool_name": "trivia", "args": {}, "payload": "{}"},
             ],
+            "outcome": "success",
+            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -96,6 +101,8 @@ class EvaluationTests(unittest.TestCase):
         payload = {
             "answer": "   ",
             "tool_observations": [],
+            "outcome": "success",
+            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -103,6 +110,52 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertTrue(any("non-empty answer" in reason for reason in result.reasons))
         self.assertTrue(any("Expected at least 1 observations" in reason for reason in result.reasons))
+
+    def test_score_case_fails_degraded_response_by_default(self) -> None:
+        case = EvaluationCase(
+            case_id="books-only",
+            category="books",
+            prompt="Plan a weekend in Las Vegas with 3 adventure books.",
+            required_tools=["book_recs"],
+            min_observations=1,
+        )
+        payload = {
+            "answer": "Here are 3 adventure books.",
+            "tool_observations": [
+                {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
+            ],
+            "outcome": "degraded",
+            "used_fallback": True,
+        }
+
+        result = score_case(case, payload)
+
+        self.assertFalse(result.passed)
+        self.assertTrue(any("marked degraded" in reason for reason in result.reasons))
+        self.assertTrue(any("fallback path" in reason for reason in result.reasons))
+
+    def test_score_case_allows_degraded_response_when_case_opts_in(self) -> None:
+        case = EvaluationCase(
+            case_id="reflection-only-fallback",
+            category="books",
+            prompt="Give me 3 adventure books.",
+            required_tools=["book_recs"],
+            min_observations=1,
+            allow_degraded=True,
+        )
+        payload = {
+            "answer": "Here are 3 adventure books.",
+            "tool_observations": [
+                {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
+            ],
+            "outcome": "degraded",
+            "used_fallback": True,
+        }
+
+        result = score_case(case, payload)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.reasons, [])
 
     @patch("evaluations.run_evaluations.requests.post", side_effect=requests.Timeout("too slow"))
     def test_evaluate_case_returns_failed_result_on_timeout(self, _mock_post: Mock) -> None:

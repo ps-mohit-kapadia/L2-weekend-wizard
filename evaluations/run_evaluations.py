@@ -30,6 +30,7 @@ class EvaluationCase:
         forbidden_tools: Tool names that must not appear in observations.
         min_observations: Minimum number of observations expected.
         expect_answer: Whether the API should return a non-empty answer.
+        allow_degraded: Whether a degraded backend outcome is acceptable for the case.
     """
 
     case_id: str
@@ -39,6 +40,7 @@ class EvaluationCase:
     forbidden_tools: list[str] = field(default_factory=list)
     min_observations: int = 0
     expect_answer: bool = True
+    allow_degraded: bool = False
 
 
 @dataclass(slots=True)
@@ -134,6 +136,7 @@ def load_cases(path: Path) -> list[EvaluationCase]:
             forbidden_tools=list(item.get("forbidden_tools", [])),
             min_observations=int(item.get("min_observations", 0)),
             expect_answer=bool(item.get("expect_answer", True)),
+            allow_degraded=bool(item.get("allow_degraded", False)),
         )
         for item in payload
     ]
@@ -238,9 +241,16 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     reasons: list[str] = []
     answer = payload.get("answer")
     observations = payload.get("tool_observations")
+    outcome = payload.get("outcome")
+    used_fallback = bool(payload.get("used_fallback", False))
 
     if case.expect_answer and (not isinstance(answer, str) or not answer.strip()):
         reasons.append("Response did not include a non-empty answer.")
+
+    if outcome == "degraded" and not case.allow_degraded:
+        reasons.append("Response was marked degraded by the backend.")
+    if used_fallback and not case.allow_degraded:
+        reasons.append("Response used a fallback path.")
 
     if not isinstance(observations, list):
         reasons.append("Response did not include a tool_observations list.")
