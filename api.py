@@ -255,6 +255,7 @@ def create_api() -> FastAPI:
             return ChatResponse(
                 answer=result.answer,
                 tool_observations=result.tool_observations,
+                used_fallback=result.used_fallback,
             )
         finally:
             reset_request_context(token)

@@ -119,6 +119,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["answer"], "Weekend plan ready.")
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
+        self.assertFalse(response.json()["used_fallback"])
         self.assertEqual(len(fake_app.created_contexts), 1)
         request_id, created_context = fake_app.created_contexts[0]
         self.assertTrue(request_id)
@@ -126,6 +127,33 @@ class ApiTests(unittest.TestCase):
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
+
+    def test_chat_endpoint_exposes_fallback_state(self) -> None:
+        fake_app = _FakeWizardApp()
+        fake_app.run_interaction = AsyncMock(
+            return_value=InteractionResult(
+                answer="I could not complete the full plan, but here is a safe fallback.",
+                tool_observations=[],
+                used_fallback=True,
+            )
+        )
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post(
+                "/chat",
+                json={"prompt": "Plan a weekend in Las Vegas with 3 adventure books."},
+                headers={"X-API-Key": "test-key"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["used_fallback"])
 
     def test_chat_endpoint_surfaces_server_errors(self) -> None:
         with (

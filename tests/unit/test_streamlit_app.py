@@ -76,6 +76,7 @@ class StreamlitAppTests(unittest.TestCase):
         response.json.return_value = {
             "answer": "Weekend plan ready.",
             "tool_observations": [],
+            "used_fallback": False,
         }
         mock_post.return_value = response
 
@@ -85,6 +86,7 @@ class StreamlitAppTests(unittest.TestCase):
 
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
+        self.assertFalse(result.used_fallback)
         mock_post.assert_called_once_with(
             "http://127.0.0.1:8000/chat",
             json={"prompt": "hello"},

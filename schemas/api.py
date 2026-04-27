@@ -25,10 +25,12 @@ class ChatResponse(BaseModel):
     Attributes:
         answer: Final grounded answer generated for the request.
         tool_observations: Structured tool observations collected during execution.
+        used_fallback: Whether the response came from a degraded fallback path.
     """
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
+    used_fallback: bool = False
 
 
 class HealthResponse(BaseModel):
