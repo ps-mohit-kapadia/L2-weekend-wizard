@@ -239,6 +239,7 @@ def create_api() -> FastAPI:
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
 
             total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 1)
+            request_outcome = "degraded" if result.used_fallback else "success"
             logger.info(
                 "Completed /chat request with %d observations, fallback=%s, answer length=%d",
                 len(result.tool_observations),
@@ -247,7 +248,7 @@ def create_api() -> FastAPI:
                 extra=get_log_extra(
                     event="request_completed",
                     phase="api",
-                    outcome="success",
+                    outcome=request_outcome,
                     duration_ms=total_duration_ms,
                     model_name=wizard.model_name,
                 ),

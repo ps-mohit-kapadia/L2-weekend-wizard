@@ -12,7 +12,7 @@ from agent.grounding import (
     parse_tool_payload_text,
 )
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
-from guardrails.guardrails import parse_coords
+from guardrails.guardrails import parse_coords, requested_tools
 from guardrails.plans import validate_plan_semantics
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
@@ -104,6 +104,15 @@ def _tool_error_payload(tool_name: str, details: str) -> str:
     return json.dumps({"error": f"{tool_name} failed", "details": details})
 
 
+def payload_indicates_error(payload: str) -> bool:
+    """Return whether a serialized tool payload represents a tool failure."""
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return '"error"' in payload
+    return isinstance(parsed, dict) and "error" in parsed
+
+
 def record_tool_observation(
     history: List[Dict[str, str]],
     tool_observations: List[ToolObservation],
@@ -161,6 +170,17 @@ def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservati
         A grounded draft answer derived from observed tool data.
     """
     return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
+
+
+def has_required_tool_failures(user_prompt: str, tool_observations: List[ToolObservation]) -> bool:
+    """Return whether any requested tool completed with an error payload."""
+    requested = requested_tools(user_prompt)
+    if not requested:
+        return False
+    for observation in tool_observations:
+        if observation.tool_name in requested and payload_indicates_error(observation.payload):
+            return True
+    return False
 
 
 def run_reflection(
@@ -246,7 +266,7 @@ def finalize_after_execution(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_fallback=used_fallback,
+        used_fallback=used_fallback or has_required_tool_failures(user_prompt, tool_observations),
     )
 
 
@@ -295,7 +315,7 @@ async def orchestrate_interaction(
             context.history,
             answer=build_planner_failure_answer(),
             tool_observations=[],
-            used_fallback=False,
+            used_fallback=True,
         )
 
     logger.info(
@@ -351,7 +371,7 @@ async def orchestrate_interaction(
         else:
             payload = await execute_tool_call(tool_gateway, step.tool, normalized_args)
             if telemetry_enabled():
-                tool_outcome = "failure" if "\"error\"" in payload else "success"
+                tool_outcome = "failure" if payload_indicates_error(payload) else "success"
                 logger.info(
                     "Tool step completed: %s",
                     step.tool,
@@ -389,6 +409,7 @@ async def orchestrate_interaction(
         state.tool_observations,
         used_fallback=False,
     )
+    interaction_outcome = "degraded" if result.used_fallback else "success"
     logger.info(
         "Interaction completed with %d observations and answer length %d",
         len(result.tool_observations),
@@ -396,7 +417,7 @@ async def orchestrate_interaction(
         extra=get_log_extra(
             event="interaction_completed",
             phase="orchestrator",
-            outcome="success",
+            outcome=interaction_outcome,
             duration_ms=round((time.perf_counter() - interaction_started_at) * 1000, 1),
             model_name=context.model_name,
         ),

@@ -155,7 +155,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="What's the weather in New York?",
         )
 
-        self.assertFalse(result.used_fallback)
+        self.assertTrue(result.used_fallback)
         self.assertEqual(result.tool_observations, [])
         self.assertIn("couldn't build a reliable weekend plan", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 0)
@@ -204,7 +204,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Give me the weather and a joke for 40.7128, -74.0060.",
         )
 
-        self.assertFalse(result.used_fallback)
+        self.assertTrue(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
