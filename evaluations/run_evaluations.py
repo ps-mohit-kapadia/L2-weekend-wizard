@@ -228,6 +228,17 @@ def stop_process(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=5)
 
 
+def _payload_indicates_error(payload: Any) -> bool:
+    """Return whether one serialized tool payload represents an execution failure."""
+    if not isinstance(payload, str):
+        return False
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return '"error"' in payload
+    return isinstance(parsed, dict) and "error" in parsed
+
+
 def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResult:
     """Score one API response against an evaluation contract.
 
@@ -247,11 +258,6 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     if case.expect_answer and (not isinstance(answer, str) or not answer.strip()):
         reasons.append("Response did not include a non-empty answer.")
 
-    if outcome == "degraded" and not case.allow_degraded:
-        reasons.append("Response was marked degraded by the backend.")
-    if used_fallback and not case.allow_degraded:
-        reasons.append("Response used a fallback path.")
-
     if not isinstance(observations, list):
         reasons.append("Response did not include a tool_observations list.")
         observations = []
@@ -261,6 +267,15 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
         for item in observations
         if isinstance(item, dict) and isinstance(item.get("tool_name"), str)
     ]
+    failed_tools = sorted(
+        {
+            item.get("tool_name")
+            for item in observations
+            if isinstance(item, dict)
+            and isinstance(item.get("tool_name"), str)
+            and _payload_indicates_error(item.get("payload"))
+        }
+    )
 
     if len(observations) < case.min_observations:
         reasons.append(
@@ -274,6 +289,19 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     present_forbidden = sorted(set(case.forbidden_tools).intersection(tool_names))
     if present_forbidden:
         reasons.append(f"Observed forbidden tools: {', '.join(present_forbidden)}.")
+
+    if outcome == "degraded" and not case.allow_degraded:
+        reasons.append("Response was marked degraded by the backend.")
+        if used_fallback and not observations:
+            reasons.append("Response degraded before tool execution completed.")
+        elif used_fallback:
+            reasons.append("Response used a fallback path.")
+
+        failed_required = sorted(set(case.required_tools).intersection(failed_tools))
+        if failed_required:
+            reasons.append(f"Required tools failed during execution: {', '.join(failed_required)}.")
+        elif failed_tools:
+            reasons.append(f"Tool failures occurred during execution: {', '.join(failed_tools)}.")
 
     return EvaluationResult(
         case_id=case.case_id,

@@ -134,6 +134,37 @@ class EvaluationTests(unittest.TestCase):
         self.assertTrue(any("marked degraded" in reason for reason in result.reasons))
         self.assertTrue(any("fallback path" in reason for reason in result.reasons))
 
+    def test_score_case_reports_required_tool_failures_for_degraded_response(self) -> None:
+        case = EvaluationCase(
+            case_id="weather-joke",
+            category="multi_tool",
+            prompt="Give me the weather and a joke.",
+            required_tools=["get_weather", "random_joke"],
+            min_observations=2,
+        )
+        payload = {
+            "answer": "I could only complete part of that request.",
+            "tool_observations": [
+                {
+                    "tool_name": "get_weather",
+                    "args": {"latitude": 40.7128, "longitude": -74.0060},
+                    "payload": '{"error":"get_weather failed","details":"timeout"}',
+                },
+                {
+                    "tool_name": "random_joke",
+                    "args": {},
+                    "payload": '{"joke":"hello"}',
+                },
+            ],
+            "outcome": "degraded",
+            "used_fallback": False,
+        }
+
+        result = score_case(case, payload)
+
+        self.assertFalse(result.passed)
+        self.assertTrue(any("Required tools failed during execution: get_weather." == reason for reason in result.reasons))
+
     def test_score_case_allows_degraded_response_when_case_opts_in(self) -> None:
         case = EvaluationCase(
             case_id="reflection-only-fallback",

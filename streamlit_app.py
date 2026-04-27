@@ -16,7 +16,6 @@ from schemas.api import ChatResponse, ReadinessResponse
 
 logger = get_logger("agent.streamlit")
 
-CHAT_REQUEST_TIMEOUT_SECONDS = 600
 API_KEY_HEADER = "X-API-Key"
 
 
@@ -96,12 +95,13 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
     """
     base_url = get_api_base_url()
     headers = get_api_headers()
+    request_timeout = get_settings().request_timeout
     try:
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": prompt},
             headers=headers,
-            timeout=CHAT_REQUEST_TIMEOUT_SECONDS,
+            timeout=request_timeout,
         )
     except requests.RequestException as exc:
         raise RuntimeError(

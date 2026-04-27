@@ -83,6 +83,7 @@ class StreamlitAppTests(unittest.TestCase):
 
         with patch("streamlit_app.get_settings") as mock_settings:
             mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            mock_settings.return_value.request_timeout = 42
             result = streamlit_app.send_chat_prompt("hello")
 
         self.assertEqual(result.answer, "Weekend plan ready.")
@@ -93,7 +94,7 @@ class StreamlitAppTests(unittest.TestCase):
             "http://127.0.0.1:8000/chat",
             json={"prompt": "hello"},
             headers={"X-API-Key": "secret-key"},
-            timeout=streamlit_app.CHAT_REQUEST_TIMEOUT_SECONDS,
+            timeout=42,
         )
 
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
@@ -106,6 +107,7 @@ class StreamlitAppTests(unittest.TestCase):
 
         with patch("streamlit_app.get_settings") as mock_settings:
             mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            mock_settings.return_value.request_timeout = 42
             with self.assertRaisesRegex(RuntimeError, "Service is not ready."):
                 streamlit_app.send_chat_prompt("hello")
 
