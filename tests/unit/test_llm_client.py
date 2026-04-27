@@ -118,6 +118,32 @@ class LlmClientTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Configured Ollama model is not available"):
             llm_client.discover_model(None)
 
+    @patch("llm_client.requests.post")
+    @patch("llm_client.get_settings")
+    def test_call_model_uses_runtime_request_timeout(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            ollama_url="http://127.0.0.1:11434/api/chat",
+            request_timeout=42,
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"message": {"content": '{"goal":"joke","execution_steps":[]}' }}
+        mock_post.return_value = response
+
+        llm_client.call_model([{"role": "user", "content": "hello"}], "demo-model", temperature=0.2, json_mode=True)
+
+        mock_post.assert_called_once_with(
+            "http://127.0.0.1:11434/api/chat",
+            json={
+                "model": "demo-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+                "options": {"temperature": 0.2},
+                "format": "json",
+            },
+            timeout=42,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

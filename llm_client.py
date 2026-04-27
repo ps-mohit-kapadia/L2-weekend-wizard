@@ -10,8 +10,6 @@ import requests
 from config.config import get_settings
 from logger.logging import get_logger, staging_mode
 from schemas.agent import validate_execution_plan, validate_reflection_result
-
-MODEL_REQUEST_TIMEOUT_SECONDS = 600
 logger = get_logger("llm_client")
 
 
@@ -82,7 +80,7 @@ def call_model(
     response = requests.post(
         settings.ollama_url,
         json=payload,
-        timeout=MODEL_REQUEST_TIMEOUT_SECONDS,
+        timeout=settings.request_timeout,
     )
     response.raise_for_status()
     data = response.json()
