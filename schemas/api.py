@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Typed request and response models for the Weekend Wizard HTTP API."""
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,11 +25,13 @@ class ChatResponse(BaseModel):
     Attributes:
         answer: Final grounded answer generated for the request.
         tool_observations: Structured tool observations collected during execution.
+        outcome: High-level server-side result classification for the request.
         used_fallback: Whether the response came from a degraded fallback path.
     """
 
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
+    outcome: Literal["success", "degraded"] = "success"
     used_fallback: bool = False
 
 
