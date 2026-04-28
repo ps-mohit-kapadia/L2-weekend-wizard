@@ -120,7 +120,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["answer"], "Weekend plan ready.")
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(response.json()["response_status"], "success")
-        self.assertFalse(response.json()["used_fallback"])
         self.assertEqual(len(fake_app.created_contexts), 1)
         request_id, created_context = fake_app.created_contexts[0]
         self.assertTrue(request_id)
@@ -155,7 +154,6 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["response_status"], "degraded")
-        self.assertTrue(response.json()["used_fallback"])
 
     def test_chat_endpoint_surfaces_server_errors(self) -> None:
         with (

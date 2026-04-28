@@ -257,7 +257,6 @@ def create_api() -> FastAPI:
                 answer=result.answer,
                 tool_observations=result.tool_observations,
                 response_status="degraded" if result.used_fallback else "success",
-                used_fallback=result.used_fallback,
             )
         finally:
             reset_request_context(token)

@@ -443,9 +443,8 @@ Returns:
 - `answer`
 - `tool_observations`
 - `response_status` with `success` or `degraded`
-- `used_fallback` for server-side degraded/fallback tracking
 
-`response_status` and `used_fallback` are currently backend-facing contract fields. They are intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
+`response_status` is the backend-facing degraded/success contract field. It is intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
 
 ---
 

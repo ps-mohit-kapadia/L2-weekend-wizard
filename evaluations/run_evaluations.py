@@ -253,7 +253,6 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     answer = payload.get("answer")
     observations = payload.get("tool_observations")
     response_status = payload.get("response_status")
-    used_fallback = bool(payload.get("used_fallback", False))
 
     if case.expect_answer and (not isinstance(answer, str) or not answer.strip()):
         reasons.append("Response did not include a non-empty answer.")
@@ -292,10 +291,6 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
 
     if response_status == "degraded" and not case.allow_degraded:
         reasons.append("Response was marked degraded by the backend.")
-        if used_fallback and not observations:
-            reasons.append("Response degraded before tool execution completed.")
-        elif used_fallback:
-            reasons.append("Response used a fallback path.")
 
         failed_required = sorted(set(case.required_tools).intersection(failed_tools))
         if failed_required:

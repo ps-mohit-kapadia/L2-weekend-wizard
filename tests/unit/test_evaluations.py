@@ -55,7 +55,6 @@ class EvaluationTests(unittest.TestCase):
                 }
             ],
             "response_status": "success",
-            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -80,7 +79,6 @@ class EvaluationTests(unittest.TestCase):
                 {"tool_name": "trivia", "args": {}, "payload": "{}"},
             ],
             "response_status": "success",
-            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -102,7 +100,6 @@ class EvaluationTests(unittest.TestCase):
             "answer": "   ",
             "tool_observations": [],
             "response_status": "success",
-            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -125,14 +122,12 @@ class EvaluationTests(unittest.TestCase):
                 {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
             ],
             "response_status": "degraded",
-            "used_fallback": True,
         }
 
         result = score_case(case, payload)
 
         self.assertFalse(result.passed)
         self.assertTrue(any("marked degraded" in reason for reason in result.reasons))
-        self.assertTrue(any("fallback path" in reason for reason in result.reasons))
 
     def test_score_case_reports_required_tool_failures_for_degraded_response(self) -> None:
         case = EvaluationCase(
@@ -157,7 +152,6 @@ class EvaluationTests(unittest.TestCase):
                 },
             ],
             "response_status": "degraded",
-            "used_fallback": False,
         }
 
         result = score_case(case, payload)
@@ -180,7 +174,6 @@ class EvaluationTests(unittest.TestCase):
                 {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
             ],
             "response_status": "degraded",
-            "used_fallback": True,
         }
 
         result = score_case(case, payload)
