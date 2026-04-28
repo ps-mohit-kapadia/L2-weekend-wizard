@@ -19,6 +19,7 @@ from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_log_extra, get_logger, staging_mode, telemetry_enabled
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
+    ExecutionPlan,
     InteractionResult,
     OrchestratorContext,
     ToolObservation,
