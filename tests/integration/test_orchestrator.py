@@ -41,7 +41,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "execution_steps": [
                     {"tool": "city_to_coords", "args": {"city": "New York"}},
                     {"tool": "get_weather", "args": {}},
-                    {"tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
+                    {"tool": "book_recs", "args": {"topic": "mystery", "limit": 2}},
                     {"tool": "random_joke", "args": {}},
                     {"tool": "random_dog", "args": {}},
                 ],
