@@ -33,7 +33,7 @@ def list_available_models(timeout: int = 5) -> List[str]:
     if staging_mode():
         logger.info("Requesting available Ollama models with timeout %ss", timeout)
     response = requests.get(
-        get_settings().ollama_url.replace("/api/chat", "/api/tags"),
+        get_settings().ollama_tags_url,
         timeout=timeout,
     )
     response.raise_for_status()

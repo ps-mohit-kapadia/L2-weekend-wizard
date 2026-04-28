@@ -25,6 +25,7 @@ class ConfigTests(unittest.TestCase):
                 "WEEKEND_WIZARD_PREFERRED_MODELS": "gpt-oss:20b-cloud,llama3.1:8b",
                 "WEEKEND_WIZARD_OBSERVABILITY_MODE": "local",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
+                "OLLAMA_TAGS_URL": "http://localhost:11434/api/tags",
             },
             clear=False,
         ):
@@ -40,7 +41,21 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.api_url, "http://0.0.0.0:9000")
         self.assertEqual(settings.preferred_models, ("gpt-oss:20b-cloud", "llama3.1:8b"))
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
+        self.assertEqual(settings.ollama_tags_url, "http://localhost:11434/api/tags")
         self.assertEqual(settings.observability_mode, "local")
+
+    def test_get_settings_derives_ollama_tags_url_from_chat_url(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OLLAMA_URL": "http://localhost:11434/api/chat",
+            },
+            clear=True,
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.ollama_tags_url, "http://localhost:11434/api/tags")
 
     def test_get_settings_reloads_when_environment_changes(self) -> None:
         with patch.dict(

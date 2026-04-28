@@ -98,6 +98,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["status"], "not_ready")
         self.assertIn("startup boom", response.json()["details"])
 
+    def test_discover_model_failure_still_serves_health_and_not_ready(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
+            patch("api.discover_model", side_effect=RuntimeError("ollama offline")),
+            TestClient(api.create_api()) as client,
+        ):
+            health_response = client.get("/health")
+            ready_response = client.get("/ready", headers={"X-API-Key": "test-key"})
+
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(health_response.json(), {"status": "ok"})
+        self.assertEqual(ready_response.status_code, 503)
+        self.assertEqual(ready_response.json()["status"], "not_ready")
+        self.assertIn("ollama offline", ready_response.json()["details"])
+
     def test_chat_endpoint_returns_structured_response(self) -> None:
         fake_app = _FakeWizardApp()
 

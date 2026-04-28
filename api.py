@@ -124,8 +124,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Control back to FastAPI while the shared runtime is available.
     """
     project_dir = Path(__file__).resolve().parent
-    server_path, model_name = project_dir / "main.py", discover_model(None)
-    wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
+    server_path = project_dir / "main.py"
+    model_name = ""
     app.state.wizard = None
     app.state.readiness = build_not_ready_response(
         server_path,
@@ -134,6 +134,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     try:
+        model_name = discover_model(None)
+        wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
         await wizard.__aenter__()
     except Exception as exc:
         logger.exception("API runtime startup failed: %s", exc)

@@ -90,6 +90,7 @@ class LlmClientTests(unittest.TestCase):
     def test_discover_model_uses_configured_model(self, mock_settings: Mock, mock_get: Mock) -> None:
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
+            ollama_tags_url="http://127.0.0.1:11434/api/tags",
             preferred_models=("gpt-oss:20b-cloud",),
         )
         response = Mock()
@@ -111,6 +112,7 @@ class LlmClientTests(unittest.TestCase):
     def test_discover_model_fails_when_configured_model_is_missing(self, mock_settings: Mock, mock_get: Mock) -> None:
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
+            ollama_tags_url="http://127.0.0.1:11434/api/tags",
             preferred_models=("gpt-oss:20b-cloud",),
         )
         response = Mock()
@@ -127,6 +129,7 @@ class LlmClientTests(unittest.TestCase):
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
             request_timeout=42,
+            ollama_tags_url="http://127.0.0.1:11434/api/tags",
         )
         response = Mock()
         response.raise_for_status.return_value = None
@@ -146,6 +149,22 @@ class LlmClientTests(unittest.TestCase):
             },
             timeout=42,
         )
+
+    @patch("llm_client.requests.get")
+    @patch("llm_client.get_settings")
+    def test_list_available_models_uses_explicit_tags_url(self, mock_settings: Mock, mock_get: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            ollama_tags_url="http://proxy.internal/ollama/tags",
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"models": [{"name": "llama3.2:latest"}]}
+        mock_get.return_value = response
+
+        result = llm_client.list_available_models(timeout=7)
+
+        self.assertEqual(result, ["llama3.2:latest"])
+        mock_get.assert_called_once_with("http://proxy.internal/ollama/tags", timeout=7)
 
 
 if __name__ == "__main__":

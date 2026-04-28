@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 
 def _load_dotenv() -> None:
@@ -42,6 +43,22 @@ def _env_float(name: str, default: float) -> float:
     return float(value)
 
 
+def _derive_ollama_tags_url(chat_url: str) -> str:
+    """Derive a reasonable Ollama tags endpoint from the configured chat URL."""
+    stripped = chat_url.rstrip("/")
+    parsed = urlsplit(stripped)
+    path = parsed.path.rstrip("/")
+
+    if path.endswith("/api/chat"):
+        tags_path = f"{path[:-len('/api/chat')]}/api/tags"
+    elif path.endswith("/chat"):
+        tags_path = f"{path[:-len('/chat')]}/tags"
+    else:
+        tags_path = f"{path}/api/tags" if path else "/api/tags"
+
+    return urlunsplit((parsed.scheme, parsed.netloc, tags_path, parsed.query, parsed.fragment))
+
+
 @dataclass(frozen=True)
 class Settings:
     """Typed application settings for the Weekend Wizard runtime."""
@@ -50,6 +67,7 @@ class Settings:
     http_max_retries: int
     http_retry_backoff_seconds: float
     ollama_url: str
+    ollama_tags_url: str
     api_key: str
     api_host: str
     api_port: int
@@ -74,6 +92,7 @@ def get_settings() -> Settings:
     _load_dotenv()
     api_host = os.getenv("WEEKEND_WIZARD_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
     api_port = _env_int("WEEKEND_WIZARD_API_PORT", 8000)
+    ollama_chat_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat").rstrip("/")
     return Settings(
         request_timeout=_env_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 20),
         http_max_retries=_env_int("WEEKEND_WIZARD_HTTP_MAX_RETRIES", 2),
@@ -81,7 +100,8 @@ def get_settings() -> Settings:
             "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS",
             0.5,
         ),
-        ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat"),
+        ollama_url=ollama_chat_url,
+        ollama_tags_url=os.getenv("OLLAMA_TAGS_URL", _derive_ollama_tags_url(ollama_chat_url)).rstrip("/"),
         api_key=os.getenv("WEEKEND_WIZARD_API_KEY", "").strip(),
         api_host=api_host,
         api_port=api_port,
