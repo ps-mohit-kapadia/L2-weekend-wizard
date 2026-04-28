@@ -83,6 +83,32 @@ class StreamlitAppTests(unittest.TestCase):
                 streamlit_app.load_readiness()
 
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
+    @patch("streamlit_app.requests.get")
+    def test_load_readiness_raises_with_structured_not_ready_details(self, mock_get: Mock) -> None:
+        response = Mock()
+        response.status_code = 503
+        response.json.return_value = {
+            "status": "not_ready",
+            "model_name": "",
+            "tool_count": 0,
+            "checks": {
+                "model_resolved": False,
+                "model_available": False,
+                "server_path_exists": True,
+                "ollama_reachable": False,
+                "mcp_session_ready": False,
+                "tools_discovered": False,
+            },
+            "details": "Ollama is not reachable.",
+        }
+        mock_get.return_value = response
+
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            with self.assertRaisesRegex(RuntimeError, "Ollama is not reachable."):
+                streamlit_app.load_readiness()
+
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
     @patch("streamlit_app.requests.post")
     def test_send_chat_prompt_returns_structured_response(self, mock_post: Mock) -> None:
         response = Mock()

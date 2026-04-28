@@ -79,7 +79,9 @@ def load_readiness() -> ReadinessResponse:
         raise RuntimeError("Weekend Wizard API returned an invalid readiness response.") from exc
 
     if response.status_code != 200:
-        detail = payload.get("detail") if isinstance(payload, dict) else None
+        detail = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("details")
         raise RuntimeError(detail or f"Weekend Wizard API returned HTTP {response.status_code}.")
 
     return ReadinessResponse.model_validate(payload)
