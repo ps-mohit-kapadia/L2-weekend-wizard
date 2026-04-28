@@ -168,6 +168,45 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="A fetched joke."),
+    )
+    @patch("agent.orchestrator.validate_execution_plan", create=True)
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_orchestrator_does_not_revalidate_typed_plan_schema(
+        self,
+        mock_plan: Mock,
+        mock_validate_execution_plan: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "joke",
+                "execution_steps": [{"tool": "random_joke", "args": {}}],
+            }
+        )
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["random_joke"],
+            model_name="demo-model",
+            request_id="test-request",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Tell me a joke.",
+        )
+
+        mock_validate_execution_plan.assert_not_called()
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
         return_value=ReflectionResult(
             answer=(
                 "Weekend Wizard Plan\n"
