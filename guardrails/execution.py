@@ -48,7 +48,7 @@ def normalize_tool_args(
             return None, "latitude and longitude must be numeric"
 
     if tool_name == "book_recs":
-        topic = args.get("topic") or args.get("param")
+        topic = args.get("topic")
         limit = args.get("limit") or 3
         if not topic:
             return None, "topic is required"

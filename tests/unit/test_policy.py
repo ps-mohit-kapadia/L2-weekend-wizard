@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
 from guardrails.guardrails import (
     analyze_request,
     infer_city,
@@ -9,6 +10,7 @@ from guardrails.guardrails import (
     parse_coords,
     requested_tools,
 )
+from schemas.agent import ExecutionPlan
 
 
 class PolicyTests(unittest.TestCase):
@@ -89,6 +91,20 @@ class PolicyTests(unittest.TestCase):
         )
 
         self.assertIsNone(analysis)
+
+    def test_normalize_book_args_rejects_legacy_param_key(self) -> None:
+        normalized, error = normalize_tool_args(
+            "book_recs",
+            {"param": "mystery", "limit": 3},
+            ExecutionStateSnapshot(
+                user_prompt="Give me 3 mystery books.",
+                plan=ExecutionPlan(goal="book_suggestions", execution_steps=[]),
+                resolved_coords=None,
+            ),
+        )
+
+        self.assertIsNone(normalized)
+        self.assertEqual(error, "topic is required")
 
 
 if __name__ == "__main__":
