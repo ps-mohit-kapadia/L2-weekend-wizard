@@ -9,7 +9,12 @@ import requests
 
 from config.config import get_settings
 from logger.logging import get_logger, staging_mode
-from schemas.agent import validate_execution_plan, validate_reflection_result
+from schemas.agent import (
+    ExecutionPlan,
+    ReflectionResult,
+    validate_execution_plan,
+    validate_reflection_result,
+)
 logger = get_logger("llm_client")
 
 
@@ -146,24 +151,22 @@ def extract_json(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
-def _validate_plan_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_plan_payload(payload: Dict[str, Any]) -> ExecutionPlan:
     """Ensure a parsed JSON payload matches the execution plan contract."""
-    validate_execution_plan(payload)
-    return payload
+    return validate_execution_plan(payload)
 
 
-def _extract_valid_plan_json(text: str) -> Dict[str, Any]:
+def _extract_valid_plan_json(text: str) -> ExecutionPlan:
     """Extract and validate one execution plan payload from raw model output."""
     return _validate_plan_payload(extract_json(text))
 
 
-def _validate_reflection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_reflection_payload(payload: Dict[str, Any]) -> ReflectionResult:
     """Ensure a parsed JSON payload matches the reflection contract."""
-    validate_reflection_result(payload)
-    return payload
+    return validate_reflection_result(payload)
 
 
-def _extract_valid_reflection_json(text: str) -> Dict[str, Any]:
+def _extract_valid_reflection_json(text: str) -> ReflectionResult:
     """Extract and validate one reflection payload from raw model output."""
     return _validate_reflection_payload(extract_json(text))
 
@@ -171,7 +174,7 @@ def _extract_valid_reflection_json(text: str) -> Dict[str, Any]:
 def llm_plan_json(
     messages: List[Dict[str, str]],
     model: str,
-) -> Dict[str, Any]:
+) -> ExecutionPlan:
     """Return a JSON execution plan from Ollama.
 
     Args:
@@ -179,7 +182,7 @@ def llm_plan_json(
         model: Ollama model name to invoke.
 
     Returns:
-        A JSON execution plan for the agent loop.
+        A validated execution plan for the agent loop.
 
     Raises:
         requests.RequestException: If the Ollama request fails in normal mode.
@@ -215,8 +218,8 @@ def llm_plan_json(
 def llm_reflection_json(
     messages: List[Dict[str, str]],
     model: str,
-) -> Dict[str, Any]:
-    """Return a JSON reflection payload from Ollama."""
+) -> ReflectionResult:
+    """Return a validated reflection payload from Ollama."""
     raw = call_model(messages, model, temperature=0.0, json_mode=True)
 
     try:

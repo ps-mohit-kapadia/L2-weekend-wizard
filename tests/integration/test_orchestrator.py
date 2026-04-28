@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from agent.orchestrator import orchestrate_interaction
 from guardrails.plans import validate_plan_semantics
 from mcp_runtime.client import ToolInvocationError
-from schemas.agent import OrchestratorContext, validate_execution_plan
+from schemas.agent import OrchestratorContext, ReflectionResult, validate_execution_plan
 
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
@@ -18,15 +18,15 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={
-            "answer": (
+        return_value=ReflectionResult(
+            answer=(
                 "Weekend Wizard Plan\n"
                 "- Weather: 6.1C, clear sky\n"
                 "- Books: A Caribbean Mystery by Agatha Christie\n"
                 "- Joke: A fetched joke.\n"
                 "- Dog Pic: https://example.com/dog.jpg"
             )
-        },
+        ),
     )
     @patch("agent.orchestrator.llm_plan_json")
     async def test_city_prompt_flows_to_reflected_grounded_final_answer(
@@ -34,18 +34,20 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_plan: Mock,
         mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "location": {"city": "New York"},
-            "book_topic": "mystery",
-            "execution_steps": [
-                {"tool": "city_to_coords", "args": {"city": "New York"}},
-                {"tool": "get_weather", "args": {}},
-                {"tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
-                {"tool": "random_joke", "args": {}},
-                {"tool": "random_dog", "args": {}},
-            ],
-        }
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "weekend_plan",
+                "location": {"city": "New York"},
+                "book_topic": "mystery",
+                "execution_steps": [
+                    {"tool": "city_to_coords", "args": {"city": "New York"}},
+                    {"tool": "get_weather", "args": {}},
+                    {"tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
+                    {"tool": "random_joke", "args": {}},
+                    {"tool": "random_dog", "args": {}},
+                ],
+            }
+        )
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
@@ -114,10 +116,12 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_plan: Mock,
         _mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "joke",
-            "execution_steps": [{"tool": "random_joke", "args": {}}],
-        }
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "joke",
+                "execution_steps": [{"tool": "random_joke", "args": {}}],
+            }
+        )
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
@@ -136,10 +140,12 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_plan_json")
     async def test_invalid_plan_returns_planner_failure_message(self, mock_plan: Mock) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "execution_steps": [{"tool": "get_weather", "args": {}}],
-        }
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "weekend_plan",
+                "execution_steps": [{"tool": "get_weather", "args": {}}],
+            }
+        )
 
         tool_gateway = AsyncMock()
         context = OrchestratorContext(
@@ -162,13 +168,13 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={
-            "answer": (
+        return_value=ReflectionResult(
+            answer=(
                 "Weekend Wizard Plan\n"
                 "- Weather: unavailable (weather request failed)\n"
                 "- Joke: A fetched joke."
             )
-        },
+        ),
     )
     @patch("agent.orchestrator.llm_plan_json")
     async def test_tool_failures_are_recorded_and_remaining_steps_continue(
@@ -176,14 +182,16 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_plan: Mock,
         _mock_reflection: Mock,
     ) -> None:
-        mock_plan.return_value = {
-            "goal": "weekend_plan",
-            "location": {"latitude": 40.7128, "longitude": -74.0060},
-            "execution_steps": [
-                {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
-                {"tool": "random_joke", "args": {}},
-            ],
-        }
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "weekend_plan",
+                "location": {"latitude": 40.7128, "longitude": -74.0060},
+                "execution_steps": [
+                    {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
+                    {"tool": "random_joke", "args": {}},
+                ],
+            }
+        )
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [

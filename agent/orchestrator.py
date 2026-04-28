@@ -19,11 +19,9 @@ from llm_client import llm_plan_json, llm_reflection_json
 from logger.logging import get_log_extra, get_logger, staging_mode, telemetry_enabled
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
-    ExecutionPlan,
     InteractionResult,
     OrchestratorContext,
     ToolObservation,
-    validate_execution_plan,
 )
 from schemas.tools import GeoResult, ToolError
 
@@ -216,7 +214,7 @@ def run_reflection(
                     model_name=context.model_name,
                 ),
             )
-        return reflected["answer"].strip()
+        return reflected.answer.strip()
     except Exception as exc:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 1)
         logger.warning(
@@ -296,8 +294,7 @@ async def orchestrate_interaction(
     planner_messages = build_planner_messages(user_prompt, context.tool_names)
     planner_started_at = time.perf_counter()
     try:
-        raw_plan = llm_plan_json(planner_messages, context.model_name)
-        plan = validate_execution_plan(raw_plan)
+        plan = llm_plan_json(planner_messages, context.model_name)
         validate_plan_semantics(plan, context.tool_names, user_prompt)
     except Exception as exc:
         logger.exception(
