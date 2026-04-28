@@ -32,6 +32,7 @@ class StreamlitAppTests(unittest.TestCase):
     @patch("streamlit_app.requests.get")
     def test_load_readiness_returns_structured_response(self, mock_get: Mock) -> None:
         response = Mock()
+        response.status_code = 200
         response.json.return_value = {
             "status": "ready",
             "model_name": "llama3.2:latest",
@@ -66,6 +67,19 @@ class StreamlitAppTests(unittest.TestCase):
         with patch("streamlit_app.get_settings") as mock_settings:
             mock_settings.return_value.api_url = "http://127.0.0.1:8000"
             with self.assertRaises(RuntimeError):
+                streamlit_app.load_readiness()
+
+    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)
+    @patch("streamlit_app.requests.get")
+    def test_load_readiness_raises_with_api_error_detail(self, mock_get: Mock) -> None:
+        response = Mock()
+        response.status_code = 503
+        response.json.return_value = {"detail": "Unauthorized."}
+        mock_get.return_value = response
+
+        with patch("streamlit_app.get_settings") as mock_settings:
+            mock_settings.return_value.api_url = "http://127.0.0.1:8000"
+            with self.assertRaisesRegex(RuntimeError, "Unauthorized."):
                 streamlit_app.load_readiness()
 
     @patch.dict("os.environ", {"WEEKEND_WIZARD_API_KEY": "secret-key"}, clear=True)

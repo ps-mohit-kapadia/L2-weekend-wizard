@@ -61,7 +61,8 @@ def load_readiness() -> ReadinessResponse:
         The validated readiness response returned by the backend.
 
     Raises:
-        RuntimeError: If the backend is unreachable or returns invalid JSON.
+        RuntimeError: If the backend is unreachable, returns invalid JSON, or
+            responds with an error status.
     """
     base_url = get_api_base_url()
     headers = get_api_headers()
@@ -76,6 +77,10 @@ def load_readiness() -> ReadinessResponse:
         payload = response.json()
     except ValueError as exc:
         raise RuntimeError("Weekend Wizard API returned an invalid readiness response.") from exc
+
+    if response.status_code != 200:
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        raise RuntimeError(detail or f"Weekend Wizard API returned HTTP {response.status_code}.")
 
     return ReadinessResponse.model_validate(payload)
 
