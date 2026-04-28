@@ -39,13 +39,11 @@ class ExecutionPlan(BaseModel):
     Attributes:
         goal: High-level interaction goal selected by the planner.
         location: Optional location details inferred during planning.
-        book_topic: Optional book topic used for recommendation requests.
         execution_steps: Ordered tool steps to execute deterministically.
     """
 
     goal: Literal["weekend_plan", "weather_lookup", "book_suggestions", "joke", "dog_photo", "trivia"]
     location: Optional[PlanLocation] = None
-    book_topic: Optional[str] = None
     execution_steps: List[PlanStep] = Field(default_factory=list)
 
 

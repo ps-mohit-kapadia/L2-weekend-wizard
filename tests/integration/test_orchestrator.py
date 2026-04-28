@@ -38,7 +38,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             {
                 "goal": "weekend_plan",
                 "location": {"city": "New York"},
-                "book_topic": "mystery",
                 "execution_steps": [
                     {"tool": "city_to_coords", "args": {"city": "New York"}},
                     {"tool": "get_weather", "args": {}},
@@ -260,7 +259,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         plan = {
             "goal": "weekend_plan",
             "location": {"city": "New York"},
-            "book_topic": "mystery",
             "execution_steps": [
                 {"tool": "city_to_coords", "args": {"city": "New York"}},
                 {"tool": "get_weather", "args": {}},
@@ -282,7 +280,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         plan = {
             "goal": "weekend_plan",
             "location": {"city": "New York", "latitude": 40.7128, "longitude": -74.0060},
-            "book_topic": "mystery",
             "execution_steps": [
                 {"tool": "city_to_coords", "args": {"city": "New York"}},
                 {"tool": "get_weather", "args": {"latitude": 40.7128, "longitude": -74.0060}},
@@ -301,7 +298,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         plan = {
             "goal": "weekend_plan",
             "location": {"city": "Las Vegas"},
-            "book_topic": "adventure",
             "execution_steps": [
                 {"tool": "book_recs", "args": {"topic": "adventure", "limit": 3}},
                 {"tool": "random_joke", "args": {}},

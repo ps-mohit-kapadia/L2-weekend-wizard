@@ -47,7 +47,6 @@ def build_planner_messages(
                 "JSON fields:\n"
                 '- goal: one of the allowed values above\n'
                 '- location: optional object with city, latitude, longitude\n'
-                '- book_topic: optional string\n'
                 '- execution_steps: ordered executable tool steps\n'
                 "Rules:\n"
                 "Use only the supported tools listed below.\n"
@@ -74,7 +73,6 @@ def build_planner_messages(
                 '{'
                 '"goal":"weekend_plan",'
                 '"location":{"city":"New York","latitude":40.7128,"longitude":-74.0060},'
-                '"book_topic":"mystery",'
                 '"execution_steps":['
                 '{"tool":"get_weather","args":{"latitude":40.7128,"longitude":-74.0060}},'
                 '{"tool":"book_recs","args":{"topic":"mystery","limit":3}},'
@@ -91,7 +89,6 @@ def build_planner_messages(
                 '{'
                 '"goal":"weekend_plan",'
                 '"location":{"city":"Las Vegas"},'
-                '"book_topic":"adventure",'
                 '"execution_steps":[{"tool":"book_recs","args":{"topic":"adventure","limit":3}}]'
                 '}\n'
                 "Supported tools:\n"
