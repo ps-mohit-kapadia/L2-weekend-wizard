@@ -256,7 +256,7 @@ def create_api() -> FastAPI:
             return ChatResponse(
                 answer=result.answer,
                 tool_observations=result.tool_observations,
-                outcome="degraded" if result.used_fallback else "success",
+                response_status="degraded" if result.used_fallback else "success",
                 used_fallback=result.used_fallback,
             )
         finally:

@@ -54,7 +54,7 @@ class EvaluationTests(unittest.TestCase):
                     "payload": '{"joke": "hello"}',
                 }
             ],
-            "outcome": "success",
+            "response_status": "success",
             "used_fallback": False,
         }
 
@@ -79,7 +79,7 @@ class EvaluationTests(unittest.TestCase):
                 {"tool_name": "get_weather", "args": {}, "payload": "{}"},
                 {"tool_name": "trivia", "args": {}, "payload": "{}"},
             ],
-            "outcome": "success",
+            "response_status": "success",
             "used_fallback": False,
         }
 
@@ -101,7 +101,7 @@ class EvaluationTests(unittest.TestCase):
         payload = {
             "answer": "   ",
             "tool_observations": [],
-            "outcome": "success",
+            "response_status": "success",
             "used_fallback": False,
         }
 
@@ -124,7 +124,7 @@ class EvaluationTests(unittest.TestCase):
             "tool_observations": [
                 {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
             ],
-            "outcome": "degraded",
+            "response_status": "degraded",
             "used_fallback": True,
         }
 
@@ -156,7 +156,7 @@ class EvaluationTests(unittest.TestCase):
                     "payload": '{"joke":"hello"}',
                 },
             ],
-            "outcome": "degraded",
+            "response_status": "degraded",
             "used_fallback": False,
         }
 
@@ -179,7 +179,7 @@ class EvaluationTests(unittest.TestCase):
             "tool_observations": [
                 {"tool_name": "book_recs", "args": {"topic": "adventure", "limit": 3}, "payload": "{}"},
             ],
-            "outcome": "degraded",
+            "response_status": "degraded",
             "used_fallback": True,
         }
 

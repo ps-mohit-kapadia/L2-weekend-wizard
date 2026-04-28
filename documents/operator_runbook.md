@@ -111,7 +111,7 @@ Check:
 - `/ready` is green
 - Ollama/model/tool discovery is still healthy
 
-### `/chat` returns `200` with `outcome=degraded`
+### `/chat` returns `200` with `response_status=degraded`
 
 Check:
 

@@ -252,7 +252,7 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     reasons: list[str] = []
     answer = payload.get("answer")
     observations = payload.get("tool_observations")
-    outcome = payload.get("outcome")
+    response_status = payload.get("response_status")
     used_fallback = bool(payload.get("used_fallback", False))
 
     if case.expect_answer and (not isinstance(answer, str) or not answer.strip()):
@@ -290,7 +290,7 @@ def score_case(case: EvaluationCase, payload: dict[str, Any]) -> EvaluationResul
     if present_forbidden:
         reasons.append(f"Observed forbidden tools: {', '.join(present_forbidden)}.")
 
-    if outcome == "degraded" and not case.allow_degraded:
+    if response_status == "degraded" and not case.allow_degraded:
         reasons.append("Response was marked degraded by the backend.")
         if used_fallback and not observations:
             reasons.append("Response degraded before tool execution completed.")

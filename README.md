@@ -181,7 +181,7 @@ Responsibilities:
 - expose `/chat`, `/health`, and `/ready`
 - own the shared runtime lifecycle
 - return structured responses using the configured runtime model
-- expose server-side chat outcome metadata for success vs degraded runs
+- expose server-side chat response-status metadata for success vs degraded runs
 
 ---
 
@@ -442,10 +442,10 @@ Returns:
 
 - `answer`
 - `tool_observations`
-- `outcome` with `success` or `degraded`
+- `response_status` with `success` or `degraded`
 - `used_fallback` for server-side degraded/fallback tracking
 
-`outcome` and `used_fallback` are currently backend-facing contract fields. They are intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
+`response_status` and `used_fallback` are currently backend-facing contract fields. They are intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
 
 ---
 
