@@ -20,16 +20,14 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         "agent.orchestrator.llm_reflection_json",
         return_value=ReflectionResult(
             answer=(
-                "Weekend Wizard Plan\n"
-                "- Weather: 6.1C, clear sky\n"
-                "- Books: A Caribbean Mystery by Agatha Christie\n"
-                "- Joke: A fetched joke.\n"
-                "- Dog Pic: https://example.com/dog.jpg"
+                "Here is your cozy Saturday plan: expect 6.1C and clear skies, "
+                "read A Caribbean Mystery and The Mysterious Affair at Styles, "
+                "enjoy this joke: A fetched joke., and check this dog photo: https://example.com/dog.jpg"
             )
         ),
     )
     @patch("agent.orchestrator.llm_plan_json")
-    async def test_city_prompt_flows_to_reflected_grounded_final_answer(
+    async def test_city_prompt_returns_reflection_as_final_answer(
         self,
         mock_plan: Mock,
         mock_reflection: Mock,
@@ -102,8 +100,11 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertFalse(result.used_fallback)
-        self.assertIn("Weekend Wizard Plan", result.answer)
-        self.assertIn("A fetched joke.", result.answer)
+        self.assertEqual(
+            result.answer,
+            "Here is your cozy Saturday plan: expect 6.1C and clear skies, read A Caribbean Mystery and The Mysterious Affair at Styles, enjoy this joke: A fetched joke., and check this dog photo: https://example.com/dog.jpg",
+        )
+        self.assertNotIn("Weekend Wizard Plan\n- Weather:", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
         mock_reflection.assert_called_once()
 

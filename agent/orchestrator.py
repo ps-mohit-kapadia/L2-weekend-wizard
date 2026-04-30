@@ -260,7 +260,6 @@ def finalize_after_execution(
     """
     grounded = build_grounded_draft(user_prompt, tool_observations)
     final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
-    final_answer = compose_grounded_answer_from_observations(user_prompt, final_answer, tool_observations)
     return build_interaction_result(
         context.history,
         answer=final_answer,
