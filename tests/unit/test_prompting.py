@@ -67,7 +67,7 @@ class PromptingTests(unittest.TestCase):
             ToolObservation(
                 tool_name="book_recs",
                 args={},
-                payload='{"topic": "mystery", "results": [{"title": "A Caribbean Mystery", "author": "Agatha Christie"}, {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"}]}',
+                payload='{"topic": "mystery", "results": [{"title": "A Caribbean Mystery", "author": "Agatha Christie"}, {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"}, {"title": "Murder on the Orient Express", "author": "Agatha Christie"}]}',
             ),
             ToolObservation(
                 tool_name="random_joke",
@@ -88,7 +88,10 @@ class PromptingTests(unittest.TestCase):
         )
 
         self.assertTrue(composed.startswith("Weekend Wizard Plan"))
-        self.assertIn("- Books: A Caribbean Mystery by Agatha Christie; The Mysterious Affair at Styles by Agatha Christie", composed)
+        self.assertIn(
+            "- Books: A Caribbean Mystery by Agatha Christie; The Mysterious Affair at Styles by Agatha Christie; Murder on the Orient Express by Agatha Christie",
+            composed,
+        )
         self.assertIn("- Joke: Fetched joke text.", composed)
         self.assertIn("- Dog Pic: https://example.com/dog.jpg", composed)
         self.assertNotIn("Hallucinated answer here.", composed)

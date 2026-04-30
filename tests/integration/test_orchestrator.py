@@ -93,7 +93,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "random_dog",
             ],
             model_name="demo-model",
-            request_id="test-request",
         )
 
         result = await orchestrate_interaction(
@@ -129,7 +128,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             history=[],
             tool_names=["random_joke"],
             model_name="demo-model",
-            request_id="test-request",
         )
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
@@ -151,7 +149,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             history=[],
             tool_names=["get_weather", "city_to_coords"],
             model_name="demo-model",
-            request_id="test-request",
         )
 
         result = await orchestrate_interaction(
@@ -191,7 +188,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             history=[],
             tool_names=["random_joke"],
             model_name="demo-model",
-            request_id="test-request",
         )
 
         result = await orchestrate_interaction(
@@ -241,7 +237,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             history=[],
             tool_names=["get_weather", "random_joke"],
             model_name="demo-model",
-            request_id="test-request",
         )
 
         result = await orchestrate_interaction(

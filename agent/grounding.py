@@ -88,7 +88,7 @@ def build_grounded_items(user_prompt: str, payloads: Dict[str, Any]) -> List[Gro
     elif isinstance(books, BookResults) and books.results:
         titles = [
             f"{book.title} by {book.author}"
-            for book in books.results[:2]
+            for book in books.results
             if book.title
         ]
         if titles:
