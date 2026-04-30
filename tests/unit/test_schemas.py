@@ -38,7 +38,6 @@ class SchemaTests(unittest.TestCase):
             tool_names=["get_weather", "random_joke"],
             history=[{"role": "user", "content": "prompt"}],
             model_name="demo-model",
-            request_id="test-request",
         )
 
         self.assertEqual(context.tool_names, ["get_weather", "random_joke"])

@@ -41,9 +41,9 @@ class _FakeWizardApp:
         self.is_initialized = False
         return None
 
-    def create_interaction_context(self, request_id: str) -> object:
+    def create_interaction_context(self) -> object:
         context = object()
-        self.created_contexts.append((request_id, context))
+        self.created_contexts.append(context)
         return context
 
 
@@ -137,8 +137,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(response.json()["response_status"], "success")
         self.assertEqual(len(fake_app.created_contexts), 1)
-        request_id, created_context = fake_app.created_contexts[0]
-        self.assertTrue(request_id)
+        created_context = fake_app.created_contexts[0]
         fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)

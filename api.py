@@ -228,7 +228,7 @@ def create_api() -> FastAPI:
                 extra=get_log_extra(event="request_received", phase="api", model_name=wizard.model_name),
             )
             try:
-                context = wizard.create_interaction_context(request_id=request_id)
+                context = wizard.create_interaction_context()
                 result = await wizard.run_interaction(request.prompt, context=context)
             except HTTPException:
                 raise

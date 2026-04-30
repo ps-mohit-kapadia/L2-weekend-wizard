@@ -106,7 +106,7 @@ class WeekendWizardApp:
         self._tool_names = []
         await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
 
-    def create_interaction_context(self, request_id: str) -> OrchestratorContext:
+    def create_interaction_context(self) -> OrchestratorContext:
         """Create a fresh orchestration context for one interaction flow.
 
         Returns:
@@ -122,7 +122,6 @@ class WeekendWizardApp:
             tool_names=list(self._tool_names),
             history=[],
             model_name=self._model_name,
-            request_id=request_id,
         )
 
     async def run_interaction(
