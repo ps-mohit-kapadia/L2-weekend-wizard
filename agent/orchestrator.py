@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
-    compose_grounded_answer_from_observations,
+    build_grounded_draft_from_observations,
     parse_tool_payload_text,
 )
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
@@ -168,7 +168,7 @@ def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservati
     Returns:
         A grounded draft answer derived from observed tool data.
     """
-    return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
+    return build_grounded_draft_from_observations(user_prompt, "", tool_observations)
 
 
 def has_required_tool_failures(user_prompt: str, tool_observations: List[ToolObservation]) -> bool:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from agent.grounding import compose_grounded_answer_from_observations
+from agent.grounding import build_grounded_draft_from_observations
 from agent.prompts import build_planner_messages, build_reflection_messages
 from schemas.agent import ToolObservation
 
@@ -44,7 +44,7 @@ class PromptingTests(unittest.TestCase):
             ToolObservation(tool_name="random_joke", args={}, payload='{"joke": "A precise joke."}'),
         ]
 
-        grounded = compose_grounded_answer_from_observations(
+        grounded = build_grounded_draft_from_observations(
             "Tell me a joke.",
             "Placeholder answer.",
             tool_observations,
@@ -81,7 +81,7 @@ class PromptingTests(unittest.TestCase):
             ),
         ]
 
-        composed = compose_grounded_answer_from_observations(
+        composed = build_grounded_draft_from_observations(
             "Plan a cozy Saturday in New York with weather, books, a joke, and a dog pic.",
             "Hallucinated answer here.",
             tool_observations,

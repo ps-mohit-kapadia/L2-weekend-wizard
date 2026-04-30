@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Grounding helpers for tool-result parsing and final answer composition."""
+"""Grounding helpers for tool-result parsing and grounded draft composition."""
 
 from dataclasses import dataclass
 import json
@@ -179,12 +179,12 @@ def render_grounded_sections(items: List[GroundedItem]) -> List[str]:
     return [f"- {item.title}: {item.detail}" for item in items]
 
 
-def compose_grounded_answer_from_payloads(
+def build_grounded_draft_from_payloads(
     user_prompt: str,
     answer: str,
     payloads: Dict[str, Any],
 ) -> str:
-    """Compose the final grounded answer from parsed tool payloads."""
+    """Build a grounded draft answer from parsed tool payloads."""
     if not payloads:
         return answer
 
@@ -213,13 +213,13 @@ def compose_grounded_answer_from_payloads(
     return answer
 
 
-def compose_grounded_answer_from_observations(
+def build_grounded_draft_from_observations(
     user_prompt: str,
     answer: str,
     tool_observations: List[ToolObservation],
 ) -> str:
-    """Compose the final grounded answer from structured tool observations."""
-    return compose_grounded_answer_from_payloads(
+    """Build a grounded draft answer from structured tool observations."""
+    return build_grounded_draft_from_payloads(
         user_prompt,
         answer,
         parse_tool_observations(tool_observations),
