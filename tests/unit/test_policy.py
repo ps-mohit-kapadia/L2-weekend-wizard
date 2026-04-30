@@ -97,7 +97,6 @@ class PolicyTests(unittest.TestCase):
             "book_recs",
             {"param": "mystery", "limit": 3},
             ExecutionStateSnapshot(
-                user_prompt="Give me 3 mystery books.",
                 plan=ExecutionPlan(goal="book_suggestions", execution_steps=[]),
                 resolved_coords=None,
             ),

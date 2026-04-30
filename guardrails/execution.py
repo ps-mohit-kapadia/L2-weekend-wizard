@@ -12,7 +12,6 @@ from schemas.agent import ExecutionPlan
 class ExecutionStateSnapshot:
     """Minimal execution state needed for tool-arg guardrails."""
 
-    user_prompt: str
     plan: ExecutionPlan
     resolved_coords: Optional[Tuple[float, float]]
 

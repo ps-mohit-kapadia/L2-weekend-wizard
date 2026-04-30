@@ -348,7 +348,6 @@ async def orchestrate_interaction(
             step.tool,
             step.args,
             ExecutionStateSnapshot(
-                user_prompt=state.user_prompt,
                 plan=state.plan,
                 resolved_coords=state.resolved_coords,
             ),
