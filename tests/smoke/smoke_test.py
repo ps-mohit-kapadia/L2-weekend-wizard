@@ -119,11 +119,14 @@ def validate_chat_payload(payload: dict[str, Any]) -> None:
     """Validate the shape of the /chat response payload."""
     answer = payload.get("answer")
     tool_observations = payload.get("tool_observations")
+    response_status = payload.get("response_status")
 
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("Smoke test failed: /chat response did not include a non-empty answer.")
     if not isinstance(tool_observations, list):
         raise RuntimeError("Smoke test failed: /chat response did not include a tool_observations list.")
+    if response_status == "degraded":
+        raise RuntimeError("Smoke test failed: /chat response was marked degraded by the backend.")
 
 
 def start_local_api(project_dir: Path) -> subprocess.Popen[str]:
