@@ -7,7 +7,7 @@ from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
 from logger.logging import get_logger, staging_mode
-from mcp_runtime.client import McpService
+from mcp_runtime.client import McpService, RuntimeService
 from schemas.agent import InteractionResult, OrchestratorContext
 
 
@@ -28,11 +28,12 @@ class WeekendWizardApp:
         server_path: Path,
         model_name: str,
         server_args: Sequence[str] | None = None,
+        runtime_service: RuntimeService | None = None,
     ) -> None:
         self._server_path = server_path
         self._model_name = model_name
         self._server_args = list(server_args or [])
-        self._mcp_service = McpService(server_path, server_args=self._server_args)
+        self._runtime_service = runtime_service or McpService(server_path, server_args=self._server_args)
         self._tool_names: List[str] = []
         self._is_initialized = False
 
@@ -88,15 +89,15 @@ class WeekendWizardApp:
             self._server_args,
         )
         try:
-            await self._mcp_service.__aenter__()
-            self._tool_names = self._mcp_service.tool_names
+            await self._runtime_service.__aenter__()
+            self._tool_names = self._runtime_service.tool_names
             self._validate_startup()
             self._is_initialized = True
             logger.info("App session ready with model %s and %d tools", self._model_name, len(self._tool_names))
             return self
         except Exception as exc:
             logger.exception("App session startup failed: %s", exc)
-            await self._mcp_service.__aexit__(None, None, None)
+            await self._runtime_service.__aexit__(None, None, None)
             raise
 
     async def __aexit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
@@ -104,7 +105,7 @@ class WeekendWizardApp:
         logger.info("Closing app session for model %s with %d tools", self._model_name, len(self._tool_names))
         self._is_initialized = False
         self._tool_names = []
-        await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
+        await self._runtime_service.__aexit__(exc_type, exc, exc_tb)
 
     def create_interaction_context(self) -> OrchestratorContext:
         """Create a fresh orchestration context for one interaction flow.
@@ -151,7 +152,7 @@ class WeekendWizardApp:
                 len(user_prompt),
             )
         result = await orchestrate_interaction(
-            self._mcp_service,
+            self._runtime_service,
             context,
             user_prompt,
         )

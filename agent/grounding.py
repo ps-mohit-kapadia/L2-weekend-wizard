@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from schemas.agent import ToolObservation
 from schemas.tools import (
@@ -27,6 +27,9 @@ class GroundedItem:
     fact: Optional[str] = None
 
 
+ToolRenderer = Callable[[Any], Optional[GroundedItem]]
+
+
 def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
     """Parse one serialized tool payload into a typed payload when possible."""
     try:
@@ -46,6 +49,108 @@ def parse_tool_observations(tool_observations: List[ToolObservation]) -> Dict[st
     return payloads
 
 
+def _render_weather_item(payload: Any) -> Optional[GroundedItem]:
+    if isinstance(payload, ToolError):
+        return GroundedItem(
+            title="Weather",
+            detail=f"unavailable ({payload.details or payload.error})",
+        )
+    if isinstance(payload, WeatherResult) and payload.temperature is not None:
+        detail = f"{payload.temperature}{payload.temperature_unit or ''}, {payload.weather_summary or 'current conditions'}"
+        return GroundedItem(
+            title="Weather",
+            detail=detail,
+            fact=f"Weather now: {detail}.",
+        )
+    return None
+
+
+def _render_books_item(payload: Any) -> Optional[GroundedItem]:
+    if isinstance(payload, ToolError):
+        return GroundedItem(
+            title="Books",
+            detail=f"unavailable ({payload.details or payload.error})",
+        )
+    if isinstance(payload, BookResults) and payload.results:
+        titles = [
+            f"{book.title} by {book.author}"
+            for book in payload.results
+            if book.title
+        ]
+        if titles:
+            detail = "; ".join(titles)
+            return GroundedItem(
+                title="Books",
+                detail=detail,
+                fact=f"Book ideas for {payload.topic}: {detail}.",
+            )
+    return None
+
+
+def _render_joke_item(payload: Any) -> Optional[GroundedItem]:
+    if isinstance(payload, ToolError):
+        return GroundedItem(
+            title="Joke",
+            detail=f"unavailable ({payload.details or payload.error})",
+        )
+    if isinstance(payload, JokeResult):
+        return GroundedItem(
+            title="Joke",
+            detail=payload.joke,
+            fact=f"Joke: {payload.joke}",
+        )
+    return None
+
+
+def _render_dog_item(payload: Any) -> Optional[GroundedItem]:
+    if isinstance(payload, ToolError):
+        return GroundedItem(
+            title="Dog Pic",
+            detail=f"unavailable ({payload.details or payload.error})",
+        )
+    if isinstance(payload, DogResult):
+        return GroundedItem(
+            title="Dog Pic",
+            detail=payload.image_url,
+            fact=f"Dog pic: {payload.image_url}",
+        )
+    return None
+
+
+def _render_trivia_item(payload: Any) -> Optional[GroundedItem]:
+    if isinstance(payload, ToolError):
+        return GroundedItem(
+            title="Trivia",
+            detail=f"unavailable ({payload.details or payload.error})",
+        )
+    if isinstance(payload, TriviaResult):
+        choices = payload.incorrect_answers + [payload.correct_answer]
+        detail = f"{payload.question} Choices: {', '.join(choices)}"
+        return GroundedItem(
+            title="Trivia",
+            detail=detail,
+            fact=f"Trivia: {detail}.",
+        )
+    return None
+
+
+_TOOL_RENDERERS: Dict[str, ToolRenderer] = {
+    "get_weather": _render_weather_item,
+    "book_recs": _render_books_item,
+    "random_joke": _render_joke_item,
+    "random_dog": _render_dog_item,
+    "trivia": _render_trivia_item,
+}
+
+_RENDER_ORDER = (
+    "get_weather",
+    "book_recs",
+    "random_joke",
+    "random_dog",
+    "trivia",
+)
+
+
 def build_grounded_items(user_prompt: str, payloads: Dict[str, Any]) -> List[GroundedItem]:
     """Build normalized grounded items from typed tool payloads.
 
@@ -59,100 +164,13 @@ def build_grounded_items(user_prompt: str, payloads: Dict[str, Any]) -> List[Gro
     items: List[GroundedItem] = []
     lowered = user_prompt.lower()
 
-    weather = payloads.get("get_weather")
-    if isinstance(weather, ToolError):
-        items.append(
-            GroundedItem(
-                title="Weather",
-                detail=f"unavailable ({weather.details or weather.error})",
-            )
-        )
-    elif isinstance(weather, WeatherResult) and weather.temperature is not None:
-        detail = f"{weather.temperature}{weather.temperature_unit or ''}, {weather.weather_summary or 'current conditions'}"
-        items.append(
-            GroundedItem(
-                title="Weather",
-                detail=detail,
-                fact=f"Weather now: {detail}.",
-            )
-        )
-
-    books = payloads.get("book_recs")
-    if isinstance(books, ToolError):
-        items.append(
-            GroundedItem(
-                title="Books",
-                detail=f"unavailable ({books.details or books.error})",
-            )
-        )
-    elif isinstance(books, BookResults) and books.results:
-        titles = [
-            f"{book.title} by {book.author}"
-            for book in books.results
-            if book.title
-        ]
-        if titles:
-            detail = "; ".join(titles)
-            items.append(
-                GroundedItem(
-                    title="Books",
-                    detail=detail,
-                    fact=f"Book ideas for {books.topic}: {detail}.",
-                )
-            )
-
-    joke = payloads.get("random_joke")
-    if isinstance(joke, ToolError):
-        items.append(
-            GroundedItem(
-                title="Joke",
-                detail=f"unavailable ({joke.details or joke.error})",
-            )
-        )
-    elif isinstance(joke, JokeResult):
-        items.append(
-            GroundedItem(
-                title="Joke",
-                detail=joke.joke,
-                fact=f"Joke: {joke.joke}",
-            )
-        )
-
-    dog = payloads.get("random_dog")
-    if isinstance(dog, ToolError):
-        items.append(
-            GroundedItem(
-                title="Dog Pic",
-                detail=f"unavailable ({dog.details or dog.error})",
-            )
-        )
-    elif isinstance(dog, DogResult):
-        items.append(
-            GroundedItem(
-                title="Dog Pic",
-                detail=dog.image_url,
-                fact=f"Dog pic: {dog.image_url}",
-            )
-        )
-
-    trivia = payloads.get("trivia")
-    if isinstance(trivia, ToolError):
-        items.append(
-            GroundedItem(
-                title="Trivia",
-                detail=f"unavailable ({trivia.details or trivia.error})",
-            )
-        )
-    elif isinstance(trivia, TriviaResult):
-        choices = trivia.incorrect_answers + [trivia.correct_answer]
-        detail = f"{trivia.question} Choices: {', '.join(choices)}"
-        items.append(
-            GroundedItem(
-                title="Trivia",
-                detail=detail,
-                fact=f"Trivia: {detail}.",
-            )
-        )
+    for tool_name in _RENDER_ORDER:
+        payload = payloads.get(tool_name)
+        if payload is None:
+            continue
+        item = _TOOL_RENDERERS[tool_name](payload)
+        if item is not None:
+            items.append(item)
 
     if not items and "weekend" in lowered:
         fallback = "Try a cozy cafe stop, a short walk, and a relaxing book session this weekend."

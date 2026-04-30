@@ -9,6 +9,17 @@ import streamlit_app
 
 
 class StreamlitAppTests(unittest.TestCase):
+    def test_extract_error_detail_prefers_detail_then_details(self) -> None:
+        self.assertEqual(
+            streamlit_app._extract_error_detail({"detail": "Unauthorized.", "details": "Ignored."}),
+            "Unauthorized.",
+        )
+        self.assertEqual(
+            streamlit_app._extract_error_detail({"details": "Ollama is not reachable."}),
+            "Ollama is not reachable.",
+        )
+        self.assertIsNone(streamlit_app._extract_error_detail("not-a-dict"))
+
     @patch.dict("os.environ", {}, clear=True)
     def test_get_api_base_url_uses_default(self) -> None:
         with patch("streamlit_app.get_settings") as mock_settings:

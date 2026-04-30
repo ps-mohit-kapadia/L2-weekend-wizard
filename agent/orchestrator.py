@@ -35,13 +35,11 @@ class ExecutionState:
     """Mutable execution state for one Weekend Wizard interaction.
 
     Attributes:
-        user_prompt: Original user prompt being processed.
         plan: Validated execution plan produced by the planner.
         tool_observations: Structured tool outputs collected so far.
         resolved_coords: Coordinates resolved during execution, when available.
     """
 
-    user_prompt: str
     plan: ExecutionPlan
     tool_observations: List[ToolObservation]
     resolved_coords: Optional[Tuple[float, float]]
@@ -332,7 +330,6 @@ async def orchestrate_interaction(
     if plan.location and plan.location.latitude is not None and plan.location.longitude is not None:
         initial_coords = (plan.location.latitude, plan.location.longitude)
     state = ExecutionState(
-        user_prompt=user_prompt,
         plan=plan,
         tool_observations=[],
         resolved_coords=initial_coords,

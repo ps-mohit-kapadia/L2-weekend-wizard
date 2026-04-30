@@ -6,13 +6,14 @@ import asyncio
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any, Dict, List, Protocol
+from typing import Any, Dict, List, Protocol, runtime_checkable
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
 
 
+@runtime_checkable
 class ToolGateway(Protocol):
     """Protocol for components that can invoke MCP tools.
 
@@ -22,6 +23,25 @@ class ToolGateway(Protocol):
 
     async def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         """Invoke a named tool with JSON-compatible arguments."""
+
+
+@runtime_checkable
+class RuntimeService(ToolGateway, Protocol):
+    """Protocol for the runtime service used by the application layer.
+
+    A runtime service must support lifecycle management, expose discovered tool
+    names, and allow tool invocation through the shared tool gateway boundary.
+    """
+
+    @property
+    def tool_names(self) -> List[str]:
+        """Return tool names exposed by the runtime."""
+
+    async def __aenter__(self) -> "RuntimeService":
+        """Initialize the runtime service."""
+
+    async def __aexit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
+        """Tear down the runtime service."""
 
 
 class ToolInvocationError(RuntimeError):

@@ -61,10 +61,10 @@ def get_api_headers() -> dict[str, str]:
     return {API_KEY_HEADER: api_key}
 
 
-def api_is_reachable(base_url: str, headers: dict[str, str], timeout: int = 3) -> bool:
+def api_is_reachable(base_url: str, timeout: int = 3) -> bool:
     """Return whether the API health endpoint is reachable."""
     try:
-        response = requests.get(f"{base_url}/health", headers=headers, timeout=timeout)
+        response = requests.get(f"{base_url}/health", timeout=timeout)
         return response.status_code == 200
     except requests.RequestException:
         return False
@@ -115,16 +115,21 @@ def wait_for_ready(
     raise RuntimeError(f"Weekend Wizard API did not become ready within {timeout_seconds}s: {last_details}")
 
 
-def validate_chat_payload(payload: dict[str, Any]) -> None:
-    """Validate the shape of the /chat response payload."""
+def validate_chat_payload_shape(payload: dict[str, Any]) -> None:
+    """Validate the structural shape of the /chat response payload."""
     answer = payload.get("answer")
     tool_observations = payload.get("tool_observations")
-    response_status = payload.get("response_status")
 
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("Smoke test failed: /chat response did not include a non-empty answer.")
     if not isinstance(tool_observations, list):
         raise RuntimeError("Smoke test failed: /chat response did not include a tool_observations list.")
+
+
+def validate_chat_response_status(payload: dict[str, Any]) -> None:
+    """Validate the operator-facing quality status of the /chat response payload."""
+    response_status = payload.get("response_status")
+
     if response_status == "degraded":
         raise RuntimeError("Smoke test failed: /chat response was marked degraded by the backend.")
 
@@ -162,7 +167,7 @@ def main() -> None:
     process: subprocess.Popen[str] | None = None
 
     try:
-        if api_is_reachable(base_url, headers):
+        if api_is_reachable(base_url):
             print(f"Using existing Weekend Wizard API at {base_url}")
         else:
             if args.no_start_api:
@@ -202,7 +207,8 @@ def main() -> None:
         if not isinstance(payload, dict):
             raise RuntimeError("Smoke test failed: /chat did not return a JSON object.")
 
-        validate_chat_payload(payload)
+        validate_chat_payload_shape(payload)
+        validate_chat_response_status(payload)
 
         print("Smoke test passed.")
         print(f"Prompt: {args.prompt}")

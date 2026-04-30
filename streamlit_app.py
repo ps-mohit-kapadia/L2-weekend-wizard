@@ -54,6 +54,37 @@ def get_api_headers() -> dict[str, str]:
     return {API_KEY_HEADER: api_key}
 
 
+def _extract_error_detail(payload: Any) -> str | None:
+    """Extract a user-facing error detail from a backend payload when available."""
+    if isinstance(payload, dict):
+        return payload.get("detail") or payload.get("details")
+    return None
+
+
+def _request_json(method: str, path: str, *, timeout: int | float, json_body: dict[str, Any] | None = None) -> tuple[int, Any]:
+    """Send one backend request and return its status code plus decoded JSON payload."""
+    base_url = get_api_base_url()
+    headers = get_api_headers()
+    url = f"{base_url}{path}"
+
+    try:
+        if method == "GET":
+            response = requests.get(url, headers=headers, timeout=timeout)
+        else:
+            response = requests.post(url, json=json_body, headers=headers, timeout=timeout)
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Could not reach Weekend Wizard API at {base_url}. Start the API server first."
+        ) from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Weekend Wizard API returned an invalid response from {path}.") from exc
+
+    return response.status_code, payload
+
+
 def load_readiness() -> ReadinessResponse:
     """Fetch readiness from the FastAPI backend.
 
@@ -64,25 +95,10 @@ def load_readiness() -> ReadinessResponse:
         RuntimeError: If the backend is unreachable, returns invalid JSON, or
             responds with an error status.
     """
-    base_url = get_api_base_url()
-    headers = get_api_headers()
-    try:
-        response = requests.get(f"{base_url}/ready", headers=headers, timeout=10)
-    except requests.RequestException as exc:
-        raise RuntimeError(
-            f"Could not reach Weekend Wizard API at {base_url}. Start the API server first."
-        ) from exc
+    status_code, payload = _request_json("GET", "/ready", timeout=10)
 
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise RuntimeError("Weekend Wizard API returned an invalid readiness response.") from exc
-
-    if response.status_code != 200:
-        detail = None
-        if isinstance(payload, dict):
-            detail = payload.get("detail") or payload.get("details")
-        raise RuntimeError(detail or f"Weekend Wizard API returned HTTP {response.status_code}.")
+    if status_code != 200:
+        raise RuntimeError(_extract_error_detail(payload) or f"Weekend Wizard API returned HTTP {status_code}.")
 
     return ReadinessResponse.model_validate(payload)
 
@@ -100,29 +116,16 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
         RuntimeError: If the backend is unreachable, returns invalid JSON, or
             responds with an error status.
     """
-    base_url = get_api_base_url()
-    headers = get_api_headers()
     request_timeout = get_settings().request_timeout
-    try:
-        response = requests.post(
-            f"{base_url}/chat",
-            json={"prompt": prompt},
-            headers=headers,
-            timeout=request_timeout,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError(
-            f"Could not reach Weekend Wizard API at {base_url}. Start the API server first."
-        ) from exc
+    status_code, payload = _request_json(
+        "POST",
+        "/chat",
+        timeout=request_timeout,
+        json_body={"prompt": prompt},
+    )
 
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise RuntimeError("Weekend Wizard API returned an invalid chat response.") from exc
-
-    if response.status_code != 200:
-        detail = payload.get("detail") if isinstance(payload, dict) else None
-        raise RuntimeError(detail or f"Weekend Wizard API returned HTTP {response.status_code}.")
+    if status_code != 200:
+        raise RuntimeError(_extract_error_detail(payload) or f"Weekend Wizard API returned HTTP {status_code}.")
 
     return ChatResponse.model_validate(payload)
 
