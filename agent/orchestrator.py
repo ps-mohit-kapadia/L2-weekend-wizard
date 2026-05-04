@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
-    build_grounded_draft_from_observations,
+    build_grounded_draft_from_payloads,
     parse_tool_payload_text,
 )
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
@@ -43,6 +43,14 @@ class ExecutionState:
     plan: ExecutionPlan
     tool_observations: List[ToolObservation]
     resolved_coords: Optional[Tuple[float, float]]
+
+
+@dataclass(frozen=True)
+class FinalizationAnalysis:
+    """Parsed finalization view reused by draft building and failure detection."""
+
+    payloads: Dict[str, Any]
+    required_tool_failures: bool
 
 
 def render_tool_result(result: Any) -> str:
@@ -156,28 +164,28 @@ def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str)
             state.plan.location.longitude = state.resolved_coords[1]
 
 
-def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservation]) -> str:
-    """Build the grounded draft answer before reflection.
-
-    Args:
-        user_prompt: Original user request.
-        tool_observations: Structured tool outputs collected during execution.
-
-    Returns:
-        A grounded draft answer derived from observed tool data.
-    """
-    return build_grounded_draft_from_observations(user_prompt, "", tool_observations)
-
-
-def has_required_tool_failures(user_prompt: str, tool_observations: List[ToolObservation]) -> bool:
-    """Return whether any requested tool completed with an error payload."""
+def analyze_finalization(
+    user_prompt: str,
+    tool_observations: List[ToolObservation],
+) -> FinalizationAnalysis:
+    """Parse observations once for final grounded draft assembly and failure detection."""
     requested = requested_tools(user_prompt)
-    if not requested:
-        return False
+    payloads: Dict[str, Any] = {}
+    required_tool_failures = False
+
     for observation in tool_observations:
-        if observation.tool_name in requested and payload_indicates_error(observation.payload):
-            return True
-    return False
+        parsed_payload = parse_tool_payload_text(observation.tool_name, observation.payload)
+        payloads[observation.tool_name] = parsed_payload
+        if observation.tool_name in requested:
+            if isinstance(parsed_payload, ToolError):
+                required_tool_failures = True
+            elif isinstance(parsed_payload, str) and '"error"' in parsed_payload:
+                required_tool_failures = True
+
+    return FinalizationAnalysis(
+        payloads=payloads,
+        required_tool_failures=required_tool_failures,
+    )
 
 
 def run_reflection(
@@ -256,13 +264,14 @@ def finalize_after_execution(
     Returns:
         The final structured interaction result.
     """
-    grounded = build_grounded_draft(user_prompt, tool_observations)
+    analysis = analyze_finalization(user_prompt, tool_observations)
+    grounded = build_grounded_draft_from_payloads(user_prompt, "", analysis.payloads)
     final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
     return build_interaction_result(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_fallback=used_fallback or has_required_tool_failures(user_prompt, tool_observations),
+        used_fallback=used_fallback or analysis.required_tool_failures,
     )
 
 
