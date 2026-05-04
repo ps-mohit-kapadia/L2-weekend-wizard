@@ -2,9 +2,11 @@ from __future__ import annotations
 
 """Prompt construction helpers for the Weekend Wizard planner and reflection steps."""
 
-from typing import Iterable, List
+import json
+from typing import Any, Dict, Iterable, List
 
-from schemas.agent import ToolObservation
+from pydantic import BaseModel
+
 
 
 _TOOL_SPECS = {
@@ -101,13 +103,13 @@ def build_planner_messages(
 
 def build_reflection_messages(
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    payloads: Dict[str, Any],
     draft_answer: str,
 ) -> List[dict[str, str]]:
     """Build the one-shot reflection prompt."""
     observation_lines = [
-        f"- {observation.tool_name} args={observation.args} payload={observation.payload}"
-        for observation in tool_observations
+        f"- {tool_name} payload={_format_reflection_payload(payload)}"
+        for tool_name, payload in payloads.items()
     ]
     observation_block = "\n".join(observation_lines) if observation_lines else "- none"
 
@@ -133,3 +135,12 @@ def build_reflection_messages(
             ),
         },
     ]
+
+
+def _format_reflection_payload(payload: Any) -> str:
+    """Render one parsed payload into stable prompt text."""
+    if isinstance(payload, BaseModel):
+        return json.dumps(payload.model_dump(mode="json"), ensure_ascii=False)
+    if isinstance(payload, str):
+        return payload
+    return json.dumps(payload, ensure_ascii=False)

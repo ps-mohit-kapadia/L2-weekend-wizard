@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from schemas.agent import ToolObservation
 from schemas.tools import (
     BookResults,
     DogResult,
@@ -36,17 +35,6 @@ def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
         return parse_tool_payload(tool_name, json.loads(payload_text))
     except json.JSONDecodeError:
         return payload_text
-
-
-def parse_tool_observations(tool_observations: List[ToolObservation]) -> Dict[str, Any]:
-    """Parse structured tool observations into typed payloads keyed by tool name."""
-    payloads: Dict[str, Any] = {}
-    for observation in tool_observations:
-        payloads[observation.tool_name] = parse_tool_payload_text(
-            observation.tool_name,
-            observation.payload,
-        )
-    return payloads
 
 
 def _render_weather_item(payload: Any) -> Optional[GroundedItem]:
@@ -229,16 +217,3 @@ def build_grounded_draft_from_payloads(
         return " ".join(grounded_facts)
 
     return answer
-
-
-def build_grounded_draft_from_observations(
-    user_prompt: str,
-    answer: str,
-    tool_observations: List[ToolObservation],
-) -> str:
-    """Build a grounded draft answer from structured tool observations."""
-    return build_grounded_draft_from_payloads(
-        user_prompt,
-        answer,
-        parse_tool_observations(tool_observations),
-    )

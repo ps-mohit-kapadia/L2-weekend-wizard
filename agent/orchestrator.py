@@ -191,7 +191,7 @@ def analyze_finalization(
 def run_reflection(
     context: OrchestratorContext,
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    payloads: Dict[str, Any],
     draft_answer: str,
 ) -> str:
     """Run one reflection pass and fall back to the grounded draft on failure.
@@ -199,14 +199,14 @@ def run_reflection(
     Args:
         context: Runtime interaction context carrying the active model name.
         user_prompt: Original user request.
-        tool_observations: Structured tool outputs collected during execution.
+        payloads: Parsed tool payloads collected during execution.
         draft_answer: Grounded draft answer to refine.
 
     Returns:
         The reflected answer when reflection succeeds, otherwise the original
         grounded draft answer.
     """
-    messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
+    messages = build_reflection_messages(user_prompt, payloads, draft_answer)
     started_at = time.perf_counter()
     try:
         reflected = llm_reflection_json(messages, context.model_name)
@@ -266,7 +266,7 @@ def finalize_after_execution(
     """
     analysis = analyze_finalization(user_prompt, tool_observations)
     grounded = build_grounded_draft_from_payloads(user_prompt, "", analysis.payloads)
-    final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
+    final_answer = run_reflection(context, user_prompt, analysis.payloads, grounded)
     return build_interaction_result(
         context.history,
         answer=final_answer,

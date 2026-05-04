@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from agent.grounding import build_grounded_draft_from_observations
+from agent.grounding import build_grounded_draft_from_payloads
 from agent.prompts import build_planner_messages, build_reflection_messages
-from schemas.agent import ToolObservation
+from schemas.tools import BookItem, BookResults, DogResult, GeoResult, JokeResult, WeatherResult
 
 
 class PromptingTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class PromptingTests(unittest.TestCase):
     def test_build_reflection_messages_include_observations_and_draft(self) -> None:
         messages = build_reflection_messages(
             "Tell me a joke.",
-            [ToolObservation(tool_name="random_joke", args={}, payload='{"joke":"Hi"}')],
+            {"random_joke": JokeResult(joke="Hi")},
             "Joke: Hi",
         )
 
@@ -40,51 +40,41 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("Joke: Hi", messages[1]["content"])
 
     def test_compose_grounded_answer_returns_single_tool_fact(self) -> None:
-        tool_observations = [
-            ToolObservation(tool_name="random_joke", args={}, payload='{"joke": "A precise joke."}'),
-        ]
-
-        grounded = build_grounded_draft_from_observations(
+        grounded = build_grounded_draft_from_payloads(
             "Tell me a joke.",
             "Placeholder answer.",
-            tool_observations,
+            {"random_joke": JokeResult(joke="A precise joke.")},
         )
 
         self.assertEqual(grounded, "Joke: A precise joke.")
 
     def test_compose_grounded_answer_prefers_fetched_facts_for_plan_requests(self) -> None:
-        tool_observations = [
-            ToolObservation(
-                tool_name="city_to_coords",
-                args={},
-                payload='{"city": "New York", "latitude": 40.7128, "longitude": -74.0060, "country": "United States"}',
-            ),
-            ToolObservation(
-                tool_name="get_weather",
-                args={},
-                payload='{"temperature": 4.0, "temperature_unit": "C", "weather_summary": "clear sky"}',
-            ),
-            ToolObservation(
-                tool_name="book_recs",
-                args={},
-                payload='{"topic": "mystery", "results": [{"title": "A Caribbean Mystery", "author": "Agatha Christie"}, {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"}, {"title": "Murder on the Orient Express", "author": "Agatha Christie"}]}',
-            ),
-            ToolObservation(
-                tool_name="random_joke",
-                args={},
-                payload='{"joke": "Fetched joke text."}',
-            ),
-            ToolObservation(
-                tool_name="random_dog",
-                args={},
-                payload='{"image_url": "https://example.com/dog.jpg"}',
-            ),
-        ]
-
-        composed = build_grounded_draft_from_observations(
+        composed = build_grounded_draft_from_payloads(
             "Plan a cozy Saturday in New York with weather, books, a joke, and a dog pic.",
             "Hallucinated answer here.",
-            tool_observations,
+            {
+                "city_to_coords": GeoResult(
+                    city="New York",
+                    latitude=40.7128,
+                    longitude=-74.0060,
+                    country="United States",
+                ),
+                "get_weather": WeatherResult(
+                    temperature=4.0,
+                    temperature_unit="C",
+                    weather_summary="clear sky",
+                ),
+                "book_recs": BookResults(
+                    topic="mystery",
+                    results=[
+                        BookItem(title="A Caribbean Mystery", author="Agatha Christie"),
+                        BookItem(title="The Mysterious Affair at Styles", author="Agatha Christie"),
+                        BookItem(title="Murder on the Orient Express", author="Agatha Christie"),
+                    ],
+                ),
+                "random_joke": JokeResult(joke="Fetched joke text."),
+                "random_dog": DogResult(image_url="https://example.com/dog.jpg"),
+            },
         )
 
         self.assertTrue(composed.startswith("Weekend Wizard Plan"))
