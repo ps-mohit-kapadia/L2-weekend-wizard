@@ -9,12 +9,12 @@ from tools.shared import error_payload, get_json
 
 
 @mcp.tool()
-def book_recs(topic: str, limit: int = 5) -> Dict[str, Any]:
+async def book_recs(topic: str, limit: int = 5) -> Dict[str, Any]:
     """Simple book suggestions for a topic via Open Library search."""
     safe_limit = max(1, min(limit, 10))
 
     try:
-        data = get_json(
+        data = await get_json(
             "https://openlibrary.org/search.json",
             params={"q": topic, "limit": safe_limit},
         )

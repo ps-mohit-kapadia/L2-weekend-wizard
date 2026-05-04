@@ -9,10 +9,10 @@ from tools.shared import error_payload, get_json
 
 
 @mcp.tool()
-def city_to_coords(city: str) -> Dict[str, Any]:
+async def city_to_coords(city: str) -> Dict[str, Any]:
     """Resolve a city name to coordinates via Open-Meteo geocoding."""
     try:
-        data = get_json(
+        data = await get_json(
             "https://geocoding-api.open-meteo.com/v1/search",
             params={"name": city, "count": 1, "language": "en", "format": "json"},
         )

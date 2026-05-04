@@ -10,10 +10,10 @@ from tools.shared import error_payload, get_json
 
 
 @mcp.tool()
-def random_joke() -> Dict[str, Any]:
+async def random_joke() -> Dict[str, Any]:
     """Return a safe one-line joke via JokeAPI."""
     try:
-        data = get_json("https://v2.jokeapi.dev/joke/Any?type=single&safe-mode")
+        data = await get_json("https://v2.jokeapi.dev/joke/Any?type=single&safe-mode")
     except requests.RequestException as exc:
         return error_payload("joke", exc)
 
@@ -21,10 +21,10 @@ def random_joke() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def random_dog() -> Dict[str, Any]:
+async def random_dog() -> Dict[str, Any]:
     """Return a random dog image URL via Dog CEO."""
     try:
-        data = get_json("https://dog.ceo/api/breeds/image/random")
+        data = await get_json("https://dog.ceo/api/breeds/image/random")
     except requests.RequestException as exc:
         return error_payload("dog", exc)
 
@@ -32,10 +32,10 @@ def random_dog() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def trivia() -> Dict[str, Any]:
+async def trivia() -> Dict[str, Any]:
     """Return one multiple-choice trivia question via Open Trivia DB."""
     try:
-        data = get_json("https://opentdb.com/api.php?amount=1&type=multiple")
+        data = await get_json("https://opentdb.com/api.php?amount=1&type=multiple")
     except requests.RequestException as exc:
         return error_payload("trivia", exc)
 

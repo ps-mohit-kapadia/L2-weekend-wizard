@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Shared HTTP helpers used by MCP tool implementations."""
 
-import time
+import asyncio
 from typing import Any, Dict
 
 import requests
@@ -14,7 +14,7 @@ from logger.logging import get_logger
 logger = get_logger("tools.shared")
 
 
-def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
+async def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Fetch a JSON payload from an HTTP endpoint with retry handling.
 
     Args:
@@ -33,7 +33,12 @@ def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
     last_exception: Exception | None = None
     for attempt in range(settings.http_max_retries + 1):
         try:
-            response = requests.get(url, params=params, timeout=settings.request_timeout)
+            response = await asyncio.to_thread(
+                requests.get,
+                url,
+                params=params,
+                timeout=settings.request_timeout,
+            )
             response.raise_for_status()
             logger.info("HTTP request succeeded for %s with status %s", url, response.status_code)
             return response.json()
@@ -50,7 +55,7 @@ def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
                 delay,
                 exc,
             )
-            time.sleep(delay)
+            await asyncio.sleep(delay)
 
     assert last_exception is not None
     raise last_exception

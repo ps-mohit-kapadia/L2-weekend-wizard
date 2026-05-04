@@ -41,7 +41,7 @@ WEATHER_CODES = {
 
 
 @mcp.tool()
-def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
+async def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
     """Current weather for coordinates via Open-Meteo."""
     params = {
         "latitude": latitude,
@@ -51,7 +51,7 @@ def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
     }
 
     try:
-        data = get_json("https://api.open-meteo.com/v1/forecast", params=params)
+        data = await get_json("https://api.open-meteo.com/v1/forecast", params=params)
     except requests.RequestException as exc:
         return error_payload("weather", exc)
 
