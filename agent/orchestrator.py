@@ -12,7 +12,7 @@ from agent.grounding import (
     parse_tool_payload_text,
 )
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
-from guardrails.guardrails import parse_coords, requested_tools
+from guardrails.guardrails import parse_coords, requested_tools, validate_final_answer
 from guardrails.plans import validate_plan_semantics
 from agent.prompts import build_planner_messages, build_reflection_messages
 from llm_client import llm_plan_json, llm_reflection_json
@@ -266,12 +266,19 @@ def finalize_after_execution(
     """
     analysis = analyze_finalization(user_prompt, tool_observations)
     grounded = build_grounded_draft_from_payloads(user_prompt, "", analysis.payloads)
-    final_answer = run_reflection(context, user_prompt, analysis.payloads, grounded)
+    reflected = run_reflection(context, user_prompt, analysis.payloads, grounded)
+    validation = validate_final_answer(user_prompt, reflected, analysis.payloads)
+    final_answer = reflected if validation.is_valid else grounded
+    if not validation.is_valid:
+        logger.warning(
+            "Reflection answer missing observed content for tools=%s; falling back to grounded answer",
+            ",".join(validation.missing_tools),
+        )
     return build_interaction_result(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_fallback=used_fallback or analysis.required_tool_failures,
+        used_fallback=used_fallback or analysis.required_tool_failures or not validation.is_valid,
     )
 
 

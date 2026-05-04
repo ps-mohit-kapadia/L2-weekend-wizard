@@ -36,6 +36,11 @@ class PromptingTests(unittest.TestCase):
 
         self.assertEqual(len(messages), 2)
         self.assertIn('{"answer":"..."}', messages[0]["content"])
+        self.assertIn("preserve exact fetched book titles", messages[0]["content"])
+        self.assertIn("exact joke text", messages[0]["content"])
+        self.assertIn("exact dog URL", messages[0]["content"])
+        self.assertIn("smooth natural prose", messages[0]["content"])
+        self.assertIn("do not keep labels like Weather:", messages[0]["content"])
         self.assertIn("random_joke", messages[1]["content"])
         self.assertIn("Joke: Hi", messages[1]["content"])
 

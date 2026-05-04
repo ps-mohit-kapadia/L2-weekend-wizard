@@ -9,8 +9,10 @@ from guardrails.guardrails import (
     missing_requested_tools,
     parse_coords,
     requested_tools,
+    validate_final_answer,
 )
 from schemas.agent import ExecutionPlan
+from schemas.tools import BookItem, BookResults, DogResult, JokeResult, WeatherResult
 
 
 class PolicyTests(unittest.TestCase):
@@ -104,6 +106,66 @@ class PolicyTests(unittest.TestCase):
 
         self.assertIsNone(normalized)
         self.assertEqual(error, "topic is required")
+
+    def test_validate_final_answer_accepts_reflection_that_covers_requested_outputs(self) -> None:
+        validation = validate_final_answer(
+            "Plan a cozy Saturday with weather, 2 mystery books, a joke, and a dog pic.",
+            (
+                "Plan a cozy Saturday with clear sky and 20.5C weather. "
+                "Read A Caribbean Mystery and The Mysterious Affair at Styles. "
+                "Joke: Oysters hate to give away their pearls because they are shellfish. "
+                "Dog: https://example.com/dog.jpg"
+            ),
+            {
+                "get_weather": WeatherResult(temperature=20.5, temperature_unit="C", weather_summary="clear sky"),
+                "book_recs": BookResults(
+                    topic="mystery",
+                    results=[
+                        BookItem(title="A Caribbean Mystery", author="Agatha Christie"),
+                        BookItem(title="The Mysterious Affair at Styles", author="Agatha Christie"),
+                    ],
+                ),
+                "random_joke": JokeResult(
+                    joke="Oysters hate to give away their pearls because they are shellfish."
+                ),
+                "random_dog": DogResult(image_url="https://example.com/dog.jpg"),
+            },
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertEqual(validation.missing_tools, ())
+
+    def test_validate_final_answer_rejects_reflection_that_drops_requested_outputs(self) -> None:
+        validation = validate_final_answer(
+            "Plan a cozy Saturday with weather, 2 mystery books, a joke, and a dog pic.",
+            "Plan a cozy Saturday in New York with clear sky and 20.5C weather.",
+            {
+                "get_weather": WeatherResult(temperature=20.5, temperature_unit="C", weather_summary="clear sky"),
+                "book_recs": BookResults(
+                    topic="mystery",
+                    results=[BookItem(title="A Caribbean Mystery", author="Agatha Christie")],
+                ),
+                "random_joke": JokeResult(joke="A fetched joke."),
+                "random_dog": DogResult(image_url="https://example.com/dog.jpg"),
+            },
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(set(validation.missing_tools), {"book_recs", "random_dog"})
+
+    def test_validate_final_answer_does_not_require_exact_joke_text(self) -> None:
+        validation = validate_final_answer(
+            "Tell me a joke.",
+            "Here is a joke to brighten your day.",
+            {
+                "random_joke": JokeResult(
+                    joke='Eight bytes walk into a bar. The bartender asks, "Can I get you anything?" "Yeah," reply the bytes. "Make us a double."'
+                ),
+            },
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertEqual(validation.missing_tools, ())
 
 
 if __name__ == "__main__":

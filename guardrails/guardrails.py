@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import re
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from schemas.tools import BookResults, DogResult, ToolError, WeatherResult
+
 
 _TOOL_ORDER = (
     "get_weather",
@@ -81,6 +83,14 @@ class RequestAnalysis:
     @property
     def needs_city_lookup(self) -> bool:
         return self.coords is None and self.city is not None
+
+
+@dataclass(frozen=True)
+class FinalAnswerValidation:
+    """Deterministic validation result for a reflected final answer."""
+
+    is_valid: bool
+    missing_tools: Tuple[str, ...] = ()
 
 
 def parse_coords(text: str) -> Optional[Tuple[float, float]]:
@@ -225,3 +235,54 @@ def missing_requested_tools(prompt: str, payloads: Dict[str, Any]) -> List[str]:
         for tool_name in requested_tools(prompt)
         if tool_name not in payloads
     ]
+
+
+def validate_final_answer(prompt: str, answer: str, payloads: Dict[str, Any]) -> FinalAnswerValidation:
+    """Validate that a reflected answer still covers required observed content."""
+    missing: List[str] = []
+
+    for tool_name in requested_tools(prompt):
+        payload = payloads.get(tool_name)
+        if payload is None or isinstance(payload, ToolError):
+            continue
+        if not _answer_covers_tool_output(tool_name, answer, payload):
+            missing.append(tool_name)
+
+    return FinalAnswerValidation(is_valid=not missing, missing_tools=tuple(missing))
+
+
+def _answer_covers_tool_output(tool_name: str, answer: str, payload: Any) -> bool:
+    lowered_answer = answer.lower()
+
+    if tool_name == "get_weather" and isinstance(payload, WeatherResult):
+        return _answer_covers_weather(lowered_answer, payload)
+    if tool_name == "book_recs" and isinstance(payload, BookResults):
+        return all(
+            not book.title or book.title.lower() in lowered_answer
+            for book in payload.results
+        )
+    if tool_name == "random_dog" and isinstance(payload, DogResult):
+        return payload.image_url.lower() in lowered_answer
+
+    return True
+
+
+def _answer_covers_weather(answer: str, payload: WeatherResult) -> bool:
+    has_temperature = False
+    if payload.temperature is not None:
+        temperature_text = format(payload.temperature, "g")
+        has_temperature = temperature_text in answer
+
+    has_summary = False
+    if payload.weather_summary:
+        summary_tokens = [
+            token
+            for token in re.findall(r"[a-z]+", payload.weather_summary.lower())
+            if token not in {"and", "the"}
+        ]
+        has_summary = all(
+            token in answer or (token == "sky" and "skies" in answer)
+            for token in summary_tokens
+        )
+
+    return has_temperature or has_summary

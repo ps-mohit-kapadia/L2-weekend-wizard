@@ -27,7 +27,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         ),
     )
     @patch("agent.orchestrator.llm_plan_json")
-    async def test_city_prompt_returns_reflection_as_final_answer(
+    async def test_city_prompt_returns_valid_reflection_as_final_answer(
         self,
         mock_plan: Mock,
         mock_reflection: Mock,
@@ -104,7 +104,97 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             result.answer,
             "Here is your cozy Saturday plan: expect 6.1C and clear skies, read A Caribbean Mystery and The Mysterious Affair at Styles, enjoy this joke: A fetched joke., and check this dog photo: https://example.com/dog.jpg",
         )
-        self.assertNotIn("Weekend Wizard Plan\n- Weather:", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 5)
+        mock_reflection.assert_called_once()
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(
+            answer="Plan a cozy Saturday in New York with clear sky and 6.1C weather."
+        ),
+    )
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_city_prompt_falls_back_when_reflection_drops_requested_outputs(
+        self,
+        mock_plan: Mock,
+        mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "weekend_plan",
+                "location": {"city": "New York"},
+                "execution_steps": [
+                    {"tool": "city_to_coords", "args": {"city": "New York"}},
+                    {"tool": "get_weather", "args": {}},
+                    {"tool": "book_recs", "args": {"topic": "mystery", "limit": 2}},
+                    {"tool": "random_joke", "args": {}},
+                    {"tool": "random_dog", "args": {}},
+                ],
+            }
+        )
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                    "admin1": "New York",
+                    "timezone": "America/New_York",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 6.1,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "topic": "mystery",
+                    "count": 2,
+                    "results": [
+                        {"title": "A Caribbean Mystery", "author": "Agatha Christie"},
+                        {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"},
+                    ],
+                }
+            ),
+            fake_tool_result({"joke": "A fetched joke."}),
+            fake_tool_result({"status": "success", "image_url": "https://example.com/dog.jpg"}),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=[
+                "city_to_coords",
+                "get_weather",
+                "book_recs",
+                "random_joke",
+                "random_dog",
+            ],
+            model_name="demo-model",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Plan a cozy Saturday in New York. Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.",
+        )
+
+        self.assertTrue(result.used_fallback)
+        self.assertTrue(result.answer.startswith("Weekend Wizard Plan"))
+        self.assertIn("- Weather: 6.1C, clear sky", result.answer)
+        self.assertIn(
+            "- Books: A Caribbean Mystery by Agatha Christie; The Mysterious Affair at Styles by Agatha Christie",
+            result.answer,
+        )
+        self.assertIn("- Joke: A fetched joke.", result.answer)
+        self.assertIn("- Dog Pic: https://example.com/dog.jpg", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
         mock_reflection.assert_called_once()
 

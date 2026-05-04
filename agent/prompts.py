@@ -121,7 +121,12 @@ def build_reflection_messages(
                 'Return ONLY valid JSON in the shape {"answer":"..."}.\n'
                 "Do one light reflection pass:\n"
                 "- remove unsupported claims\n"
-                "- make sure requested fetched items are reflected\n"
+                "- keep every fetched item requested by the user in the final answer\n"
+                "- preserve exact fetched book titles, exact joke text, and exact dog URL when present\n"
+                "- keep weather facts aligned to the fetched observation and do not replace them with invented values\n"
+                "- you may improve tone and flow, but do not swap in different books, jokes, links, or factual details\n"
+                "- rewrite the draft into smooth natural prose instead of copying section labels or list formatting\n"
+                "- do not keep labels like Weather:, Books:, Joke:, or Dog Pic: in the final answer\n"
                 "- keep the answer short, upbeat, and grounded in observations\n"
                 "- do not introduce new facts or suggest new tool calls"
             ),
