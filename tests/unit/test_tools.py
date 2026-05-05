@@ -4,12 +4,16 @@ import unittest
 import requests
 from unittest.mock import AsyncMock, Mock, patch
 
+from config.config import get_settings
 from tools.books import book_recs
 from tools.shared import error_payload, get_json
 from tools.weather import get_weather
 
 
 class ToolTests(unittest.IsolatedAsyncioTestCase):
+    def tearDown(self) -> None:
+        get_settings.cache_clear()
+
     @patch("tools.books.get_json", new_callable=AsyncMock)
     async def test_book_recs_transforms_open_library_docs(self, mock_get_json: AsyncMock) -> None:
         mock_get_json.return_value = {
@@ -73,6 +77,24 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(mock_get.call_count, 2)
         mock_sleep.assert_awaited_once()
+
+    @patch("tools.shared.requests.get")
+    async def test_get_json_uses_dedicated_tool_timeout(self, mock_get: Mock) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"ok": True}
+        mock_get.return_value = response
+
+        with patch.dict("os.environ", {"WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT": "11"}, clear=False):
+            get_settings.cache_clear()
+            result = await get_json("https://example.com", params={"q": "dog"})
+
+        self.assertEqual(result, {"ok": True})
+        mock_get.assert_called_once_with(
+            "https://example.com",
+            params={"q": "dog"},
+            timeout=11,
+        )
 
     @patch("tools.shared.asyncio.sleep", new_callable=AsyncMock)
     @patch("tools.shared.requests.get")

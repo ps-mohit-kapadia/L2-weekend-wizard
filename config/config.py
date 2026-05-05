@@ -64,6 +64,7 @@ class Settings:
     """Typed application settings for the Weekend Wizard runtime."""
 
     request_timeout: int
+    tool_http_timeout: int
     http_max_retries: int
     http_retry_backoff_seconds: float
     ollama_url: str
@@ -95,6 +96,7 @@ def get_settings() -> Settings:
     ollama_chat_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat").rstrip("/")
     return Settings(
         request_timeout=_env_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 20),
+        tool_http_timeout=_env_int("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", 15),
         http_max_retries=_env_int("WEEKEND_WIZARD_HTTP_MAX_RETRIES", 2),
         http_retry_backoff_seconds=_env_float(
             "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS",

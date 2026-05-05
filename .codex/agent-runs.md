@@ -36,3 +36,14 @@ REGRESSION_RISK: medium
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Finalization now returns the grounded degraded draft when a required tool fails, preserving both unavailable required-tool content and successful optional tool output.
 FOLLOW_UP_NEEDED: Install the missing local mcp dependency if orchestrator tests are expected to run in this environment.
+
+## 2026-05-05 - Decouple external tool HTTP timeout from model timeout
+MODE_USED: PERFORMANCE FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: config/config.py, tools/shared.py, tests/unit/test_config.py, tests/unit/test_tools.py, .env.example, README.md
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_config tests.unit.test_tools
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: External tool HTTP calls now use a dedicated bounded timeout setting without changing the longer Ollama request timeout used for planner and reflection calls.
+FOLLOW_UP_NEEDED: Re-run the evaluation suite after restarting the API so the new environment setting is loaded.

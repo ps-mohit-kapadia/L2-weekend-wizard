@@ -37,7 +37,7 @@ async def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, 
                 requests.get,
                 url,
                 params=params,
-                timeout=settings.request_timeout,
+                timeout=settings.tool_http_timeout,
             )
             response.raise_for_status()
             logger.info("HTTP request succeeded for %s with status %s", url, response.status_code)

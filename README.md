@@ -394,6 +394,7 @@ Example values:
 OLLAMA_URL=http://127.0.0.1:11434/api/chat
 
 WEEKEND_WIZARD_REQUEST_TIMEOUT=600
+WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT=15
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 WEEKEND_WIZARD_API_KEY=replace-with-a-shared-secret
@@ -418,6 +419,7 @@ Notes:
 - `WEEKEND_WIZARD_API_HOST` and `WEEKEND_WIZARD_API_PORT` control where FastAPI binds at runtime
 - `WEEKEND_WIZARD_PREFERRED_MODELS` controls the ordered model resolution preference
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
+- `WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT` separately bounds external tool API calls so slow upstream services do not inherit the longer model timeout
 
 ---
 

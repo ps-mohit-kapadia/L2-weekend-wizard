@@ -15,6 +15,7 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT": "12",
                 "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "4",
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
@@ -32,6 +33,7 @@ class ConfigTests(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
+        self.assertEqual(settings.tool_http_timeout, 12)
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
@@ -45,12 +47,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.observability_mode, "local")
 
     def test_get_settings_derives_ollama_tags_url_from_chat_url(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "OLLAMA_URL": "http://localhost:11434/api/chat",
-            },
-            clear=True,
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OLLAMA_URL": "http://localhost:11434/api/chat",
+                },
+                clear=True,
+            ),
+            patch("config.config.Path.exists", return_value=False),
         ):
             get_settings.cache_clear()
             settings = get_settings()
@@ -61,6 +66,7 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT": "9",
                 "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "6",
             },
             clear=False,
@@ -68,6 +74,7 @@ class ConfigTests(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
+            self.assertEqual(settings.tool_http_timeout, 9)
             self.assertEqual(settings.http_max_retries, 6)
 
     def test_get_settings_loads_local_dotenv_values_when_not_present_in_environment(self) -> None:
