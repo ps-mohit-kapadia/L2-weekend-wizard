@@ -4,7 +4,6 @@ import unittest
 
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
 from guardrails.guardrails import (
-    analyze_request,
     infer_city,
     missing_requested_tools,
     parse_coords,
@@ -69,30 +68,10 @@ class PolicyTests(unittest.TestCase):
             {"get_weather", "book_recs", "random_joke", "random_dog", "trivia"},
         )
 
-    def test_analyze_request_builds_deterministic_plan_for_city_prompt(self) -> None:
-        analysis = analyze_request(
-            "Plan a cozy Saturday in New York with today's weather, 3 cozy mystery book ideas, a joke, and a dog pic.",
-            ["city_to_coords", "get_weather", "book_recs", "random_joke", "random_dog"],
-        )
+    def test_requested_tools_does_not_infer_weather_from_photo_word(self) -> None:
+        requested = requested_tools("Give me a dog photo.")
 
-        self.assertIsNotNone(analysis)
-        assert analysis is not None
-        self.assertEqual(
-            analysis.requested_tools,
-            ("get_weather", "book_recs", "random_joke", "random_dog"),
-        )
-        self.assertEqual(analysis.city, "New York")
-        self.assertIsNone(analysis.coords)
-        self.assertEqual(analysis.book_topic, "cozy mystery")
-        self.assertEqual(analysis.book_limit, 3)
-
-    def test_analyze_request_returns_none_when_weather_has_no_location(self) -> None:
-        analysis = analyze_request(
-            "What's the weather like today with a joke?",
-            ["get_weather", "random_joke"],
-        )
-
-        self.assertIsNone(analysis)
+        self.assertEqual(requested, {"random_dog"})
 
     def test_normalize_book_args_rejects_legacy_param_key(self) -> None:
         normalized, error = normalize_tool_args(

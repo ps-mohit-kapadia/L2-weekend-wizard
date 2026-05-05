@@ -47,3 +47,36 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: External tool HTTP calls now use a dedicated bounded timeout setting without changing the longer Ollama request timeout used for planner and reflection calls.
 FOLLOW_UP_NEEDED: Re-run the evaluation suite after restarting the API so the new environment setting is loaded.
+
+## 2026-05-05 - Add dog-only planner fallback regression test
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: tests/integration/test_orchestrator.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.integration.test_orchestrator
+REGRESSION_RISK: medium
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Added a focused dog-only orchestration regression test that currently fails, confirming the bug before production behavior is changed.
+FOLLOW_UP_NEEDED: Fix requested-tool inference so dog photo prompts do not trigger weather semantics through substring matching.
+
+## 2026-05-05 - Fix dog-only weather keyword collision
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: guardrails/guardrails.py, tests/unit/test_policy.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_policy tests.integration.test_orchestrator
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Weather inference now uses token matching, so dog photo prompts no longer accidentally request weather through the word "photo".
+FOLLOW_UP_NEEDED: Re-run the evaluation suite to confirm the live dog-only case is now green.
+
+## 2026-05-05 - Remove unused deterministic analyze_request path
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: guardrails/guardrails.py, guardrails/__init__.py, tests/unit/test_policy.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_policy tests.integration.test_orchestrator
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Removed the unused RequestAnalysis/analyze_request helper path and its dead supporting book-topic/book-limit logic without affecting the live planner/executor flow.
+FOLLOW_UP_NEEDED: None.

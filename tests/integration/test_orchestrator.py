@@ -418,6 +418,46 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="Here is your dog photo: https://example.com/dog.jpg"),
+    )
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_dog_only_prompt_requires_random_dog_execution_instead_of_planner_fallback(
+        self,
+        mock_plan: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "dog_photo",
+                "execution_steps": [{"tool": "random_dog", "args": {}}],
+            }
+        )
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result({"status": "success", "image_url": "https://example.com/dog.jpg"})
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["random_dog"],
+            model_name="demo-model",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Give me a dog photo.",
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(len(result.tool_observations), 1)
+        self.assertEqual(result.tool_observations[0].tool_name, "random_dog")
+        self.assertNotIn("couldn't build a reliable weekend plan", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
         return_value=ReflectionResult(answer="A fetched joke."),
     )
     @patch("agent.orchestrator.validate_execution_plan", create=True)
