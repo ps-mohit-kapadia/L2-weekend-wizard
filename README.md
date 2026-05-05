@@ -546,6 +546,7 @@ Limitations:
 
 - local-model latency is still noticeable, especially for planning and reflection on larger models
 - local-model latency can cause timed evaluations to fail on budget even when the request is otherwise functionally correct
+- the local single-process runtime shares one MCP session, so tool calls are serialized across concurrent requests
 - runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
 - the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
 - degraded outcomes are surfaced through the backend contract, but not yet shown in the customer UI

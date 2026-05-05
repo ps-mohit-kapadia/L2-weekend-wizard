@@ -98,6 +98,14 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
     )
 
 
+async def resolve_readiness_state(app: FastAPI) -> ReadinessResponse:
+    """Resolve the current readiness state from live runtime or cached startup state."""
+    wizard = getattr(app.state, "wizard", None)
+    if wizard is None:
+        return app.state.readiness
+    return await asyncio.to_thread(evaluate_runtime_readiness, wizard)
+
+
 def require_api_key(x_api_key: str | None) -> None:
     """Validate the configured API key for protected endpoints."""
     configured_api_key = get_settings().api_key
@@ -194,15 +202,25 @@ def create_api() -> FastAPI:
         """Return a readiness signal for the Weekend Wizard application."""
         request_id = str(uuid4())
         token = set_request_context(request_id)
+        ready_started_at = time.perf_counter()
         try:
             require_api_key(x_api_key)
-            wizard = getattr(app.state, "wizard", None)
-            response = (
-                await asyncio.to_thread(evaluate_runtime_readiness, wizard)
-                if wizard is not None
-                else app.state.readiness
-            )
+            response = await resolve_readiness_state(app)
             app.state.readiness = response
+            duration_ms = round((time.perf_counter() - ready_started_at) * 1000, 1)
+            logger.info(
+                "Completed /ready check with status=%s in %.1fms",
+                response.status,
+                duration_ms,
+                extra=get_log_extra(
+                    event="readiness_completed",
+                    phase="api",
+                    outcome=response.status,
+                    duration_ms=duration_ms,
+                    model_name=getattr(getattr(app.state, "wizard", None), "model_name", None),
+                    status_code=200 if response.status == "ready" else 503,
+                ),
+            )
 
             status_code = 200 if response.status == "ready" else 503
             return JSONResponse(status_code=status_code, content=response.model_dump())

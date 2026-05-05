@@ -146,3 +146,36 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Numeric environment settings now fail fast with clear field-specific errors for invalid ports, non-positive timeouts, and negative retry values while keeping valid defaults and zero-allowed retry settings unchanged.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Improve local timing visibility for readiness and reflection
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: agent/orchestrator.py, api.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_api
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Local logs now include reflection success timing and /ready completion timing, making slow planner/reflection/readiness behavior easier to diagnose without changing runtime decisions.
+FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Clarify readiness ownership in API
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: api.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_api
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Extracted readiness resolution into a small helper so cached startup state and live /ready recomputation are separated more clearly without changing readiness semantics, status codes, or /chat not-ready behavior.
+FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Add final operator/demo docs polish
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: README.md, documents/operator_runbook.md
+VERIFICATION_RUN: none
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Added a short demo checklist, clarified how to interpret timeout-budget-heavy eval failures, and documented the shared MCP session serialization limit for local single-process runtime demos.
+FOLLOW_UP_NEEDED: None.

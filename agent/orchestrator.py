@@ -227,17 +227,18 @@ def run_reflection(
     started_at = time.perf_counter()
     try:
         reflected = llm_reflection_json(messages, context.model_name)
-        if telemetry_enabled():
-            logger.info(
-                "Reflection completed",
-                extra=get_log_extra(
-                    event="reflection_completed",
-                    phase="reflection",
-                    outcome="success",
-                    duration_ms=round((time.perf_counter() - started_at) * 1000, 1),
-                    model_name=context.model_name,
-                ),
-            )
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        logger.info(
+            "Reflection completed in %.1fms",
+            duration_ms,
+            extra=get_log_extra(
+                event="reflection_completed",
+                phase="reflection",
+                outcome="success",
+                duration_ms=duration_ms,
+                model_name=context.model_name,
+            ),
+        )
         return reflected.answer.strip()
     except Exception as exc:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 1)

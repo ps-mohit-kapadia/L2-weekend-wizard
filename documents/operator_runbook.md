@@ -56,6 +56,15 @@ For a quick tool-backed verification, a weather prompt is also a useful smoke ch
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "What's the weather in New York today?"
 ```
 
+## Demo Checklist
+
+Use this short checklist before a local demo:
+
+1. Run `python .\scripts\dev_up.py check`
+2. Start the API with `python .\scripts\dev_up.py api`
+3. Run a joke smoke prompt and one weather smoke prompt
+4. If timing matters, run `.\.venv\Scripts\python.exe .\evaluations\run_evaluations.py --timing`
+
 ## Update Workflow
 
 Use this checklist after pulling new code or changing configuration.
@@ -155,6 +164,7 @@ Notes for local Ollama verification:
 - local planner/reflection calls can be slow, especially on larger prompts
 - timed eval output now separates timeout-budget failures from contract failures
 - a timeout-budget failure does not automatically mean the request contract is wrong
+- if timed evals fail mostly on timeout budget but logs show successful completions, treat that as a latency issue first and inspect logs before calling it a functional regression
 
 ## Recovery Checklist
 
