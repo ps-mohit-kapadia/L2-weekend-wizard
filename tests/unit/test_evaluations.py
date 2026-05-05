@@ -200,6 +200,7 @@ class EvaluationTests(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertEqual(result.tool_names, [])
+        self.assertEqual(result.failure_category, "timeout_budget")
         self.assertTrue(any("timed out" in reason for reason in result.reasons))
 
     def test_print_summary_hides_timing_by_default(self) -> None:
@@ -252,6 +253,30 @@ class EvaluationTests(unittest.TestCase):
         self.assertIn("total_duration", output)
         self.assertIn("slowest_case: dog-only", output)
         self.assertIn("duration=12.3s", output)
+        self.assertIn("timeout_budget_failures: 1", output)
+        self.assertIn("contract_failures: 0", output)
+        self.assertIn("failure_category=timeout_budget", output)
+
+    def test_print_summary_reports_contract_failures_separately(self) -> None:
+        results = [
+            EvaluationResult(
+                case_id="weather-city",
+                passed=False,
+                reasons=["Missing required tools: get_weather."],
+                tool_names=[],
+                observation_count=0,
+                answer_length=0,
+                duration_seconds=12.0,
+            )
+        ]
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            print_summary(results, show_timing=False)
+
+        output = captured.getvalue()
+        self.assertIn("timeout_budget_failures: 0", output)
+        self.assertIn("contract_failures: 1", output)
+        self.assertIn("failure_category=contract", output)
 
 
 if __name__ == "__main__":

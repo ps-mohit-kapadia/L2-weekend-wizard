@@ -80,3 +80,14 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Removed the unused RequestAnalysis/analyze_request helper path and its dead supporting book-topic/book-limit logic without affecting the live planner/executor flow.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Classify evaluation timeout-budget failures separately
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: evaluations/run_evaluations.py, tests/unit/test_evaluations.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_evaluations
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Evaluation summaries now separate timeout-budget failures from other contract failures without changing pass/fail behavior or exit status.
+FOLLOW_UP_NEEDED: None.

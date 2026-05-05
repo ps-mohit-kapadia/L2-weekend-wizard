@@ -65,6 +65,15 @@ class EvaluationResult:
     answer_length: int
     duration_seconds: float
 
+    @property
+    def failure_category(self) -> str | None:
+        """Return a concise failure category for operator-facing summaries."""
+        if self.passed:
+            return None
+        if any("timed out after" in reason.lower() for reason in self.reasons):
+            return "timeout_budget"
+        return "contract"
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the evaluation runner."""
@@ -391,10 +400,15 @@ def print_summary(results: list[EvaluationResult], *, show_timing: bool) -> None
     """Print a concise evaluation summary for operators."""
     passed_count = sum(1 for result in results if result.passed)
     total = len(results)
+    timeout_failures = sum(1 for result in results if result.failure_category == "timeout_budget")
+    contract_failures = sum(1 for result in results if result.failure_category == "contract")
 
     print("Weekend Wizard evaluation summary")
     print(f"- passed: {passed_count}/{total}")
     print(f"- failed: {total - passed_count}/{total}")
+    if timeout_failures or contract_failures:
+        print(f"- timeout_budget_failures: {timeout_failures}")
+        print(f"- contract_failures: {contract_failures}")
     if show_timing and results:
         total_duration = sum(result.duration_seconds for result in results)
         slowest = max(results, key=lambda result: result.duration_seconds)
@@ -410,6 +424,8 @@ def print_summary(results: list[EvaluationResult], *, show_timing: bool) -> None
             f"tools={', '.join(result.tool_names) if result.tool_names else 'none'} "
             f"answer_length={result.answer_length}"
         )
+        if result.failure_category is not None:
+            line += f" failure_category={result.failure_category}"
         if show_timing:
             line += f" duration={result.duration_seconds:.1f}s"
         print(line)
