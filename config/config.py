@@ -43,6 +43,50 @@ def _env_float(name: str, default: float) -> float:
     return float(value)
 
 
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive integer environment variable with validation."""
+    try:
+        value = _env_int(name, default)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return value
+
+
+def _env_non_negative_int(name: str, default: int) -> int:
+    """Read a non-negative integer environment variable with validation."""
+    try:
+        value = _env_int(name, default)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+    if value < 0:
+        raise ValueError(f"{name} must be zero or positive.")
+    return value
+
+
+def _env_non_negative_float(name: str, default: float) -> float:
+    """Read a non-negative float environment variable with validation."""
+    try:
+        value = _env_float(name, default)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number.") from exc
+    if value < 0:
+        raise ValueError(f"{name} must be zero or positive.")
+    return value
+
+
+def _env_port(name: str, default: int) -> int:
+    """Read a TCP port environment variable with validation."""
+    try:
+        value = _env_int(name, default)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer from 1 to 65535.") from exc
+    if not 1 <= value <= 65535:
+        raise ValueError(f"{name} must be an integer from 1 to 65535.")
+    return value
+
+
 def _derive_ollama_tags_url(chat_url: str) -> str:
     """Derive a reasonable Ollama tags endpoint from the configured chat URL."""
     stripped = chat_url.rstrip("/")
@@ -92,13 +136,13 @@ def get_settings() -> Settings:
     """Load and cache application settings from environment variables."""
     _load_dotenv()
     api_host = os.getenv("WEEKEND_WIZARD_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    api_port = _env_int("WEEKEND_WIZARD_API_PORT", 8000)
+    api_port = _env_port("WEEKEND_WIZARD_API_PORT", 8000)
     ollama_chat_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat").rstrip("/")
     return Settings(
-        request_timeout=_env_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 20),
-        tool_http_timeout=_env_int("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", 15),
-        http_max_retries=_env_int("WEEKEND_WIZARD_HTTP_MAX_RETRIES", 2),
-        http_retry_backoff_seconds=_env_float(
+        request_timeout=_env_positive_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 20),
+        tool_http_timeout=_env_positive_int("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", 15),
+        http_max_retries=_env_non_negative_int("WEEKEND_WIZARD_HTTP_MAX_RETRIES", 2),
+        http_retry_backoff_seconds=_env_non_negative_float(
             "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS",
             0.5,
         ),

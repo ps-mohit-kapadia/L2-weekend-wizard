@@ -135,3 +135,14 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: The /ready endpoint now offloads live readiness recomputation to a worker thread, preserving startup behavior and response shape while avoiding blocking Ollama I/O on the async request path.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Validate numeric config settings
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: config/config.py, tests/unit/test_config.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_config
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Numeric environment settings now fail fast with clear field-specific errors for invalid ports, non-positive timeouts, and negative retry values while keeping valid defaults and zero-allowed retry settings unchanged.
+FOLLOW_UP_NEEDED: None.

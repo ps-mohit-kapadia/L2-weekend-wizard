@@ -119,6 +119,61 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.api_key, "env-secret")
 
+    def test_get_settings_rejects_non_numeric_request_timeout(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_REQUEST_TIMEOUT": "abc"}, clear=False):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(ValueError, "WEEKEND_WIZARD_REQUEST_TIMEOUT must be an integer."):
+                get_settings()
+
+    def test_get_settings_rejects_non_positive_timeouts(self) -> None:
+        for env_name in ("WEEKEND_WIZARD_REQUEST_TIMEOUT", "WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT"):
+            with self.subTest(env_name=env_name):
+                with patch.dict(os.environ, {env_name: "0"}, clear=False):
+                    get_settings.cache_clear()
+                    with self.assertRaisesRegex(ValueError, f"{env_name} must be positive."):
+                        get_settings()
+
+    def test_get_settings_rejects_negative_retry_count(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_HTTP_MAX_RETRIES": "-1"}, clear=False):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(ValueError, "WEEKEND_WIZARD_HTTP_MAX_RETRIES must be zero or positive."):
+                get_settings()
+
+    def test_get_settings_allows_zero_retry_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "0",
+                "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0",
+            },
+            clear=False,
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.http_max_retries, 0)
+        self.assertEqual(settings.http_retry_backoff_seconds, 0.0)
+
+    def test_get_settings_rejects_negative_retry_backoff(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "-0.1"}, clear=False):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(
+                ValueError,
+                "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS must be zero or positive.",
+            ):
+                get_settings()
+
+    def test_get_settings_rejects_invalid_api_port(self) -> None:
+        for value in ("abc", "0", "70000"):
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"WEEKEND_WIZARD_API_PORT": value}, clear=False):
+                    get_settings.cache_clear()
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "WEEKEND_WIZARD_API_PORT must be an integer from 1 to 65535.",
+                    ):
+                        get_settings()
+
 
 if __name__ == "__main__":
     unittest.main()
