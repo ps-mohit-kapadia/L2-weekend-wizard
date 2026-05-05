@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
     build_grounded_draft_from_payloads,
+    parse_tool_payloads,
     parse_tool_payload_text,
 )
 from guardrails.execution import ExecutionStateSnapshot, normalize_tool_args
@@ -42,6 +43,7 @@ class ExecutionState:
 
     plan: ExecutionPlan
     tool_observations: List[ToolObservation]
+    parsed_payloads: Dict[str, Any]
     resolved_coords: Optional[Tuple[float, float]]
 
 
@@ -74,16 +76,15 @@ def render_tool_result(result: Any) -> str:
     return str(result)
 
 
-def geo_payload_to_coords(payload: str) -> Optional[Tuple[float, float]]:
-    """Extract coordinates from a serialized city lookup payload when possible."""
-    parsed = parse_tool_payload_text("city_to_coords", payload)
-    if isinstance(parsed, GeoResult):
-        return parsed.latitude, parsed.longitude
-    if isinstance(parsed, ToolError):
+def geo_payload_to_coords(payload: Any) -> Optional[Tuple[float, float]]:
+    """Extract coordinates from a city lookup payload when possible."""
+    if isinstance(payload, GeoResult):
+        return payload.latitude, payload.longitude
+    if isinstance(payload, ToolError):
         return None
-    if isinstance(parsed, dict):
-        latitude = parsed.get("latitude")
-        longitude = parsed.get("longitude")
+    if isinstance(payload, dict):
+        latitude = payload.get("latitude")
+        longitude = payload.get("longitude")
         if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
             return float(latitude), float(longitude)
     return None
@@ -157,8 +158,10 @@ def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str)
         tool_name: Name of the tool that just completed.
         payload: Serialized payload returned by the tool.
     """
+    parsed_payload = parse_tool_payload_text(tool_name, payload)
+    state.parsed_payloads[tool_name] = parsed_payload
     if tool_name == "city_to_coords":
-        state.resolved_coords = geo_payload_to_coords(payload)
+        state.resolved_coords = geo_payload_to_coords(parsed_payload)
         if state.plan.location is not None and state.resolved_coords is not None:
             state.plan.location.latitude = state.resolved_coords[0]
             state.plan.location.longitude = state.resolved_coords[1]
@@ -166,17 +169,14 @@ def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str)
 
 def analyze_finalization(
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    payloads: Dict[str, Any],
 ) -> FinalizationAnalysis:
     """Parse observations once for final grounded draft assembly and failure detection."""
     requested = requested_tools(user_prompt)
-    payloads: Dict[str, Any] = {}
     required_tool_failures = False
 
-    for observation in tool_observations:
-        parsed_payload = parse_tool_payload_text(observation.tool_name, observation.payload)
-        payloads[observation.tool_name] = parsed_payload
-        if observation.tool_name in requested:
+    for tool_name, parsed_payload in payloads.items():
+        if tool_name in requested:
             if isinstance(parsed_payload, ToolError):
                 required_tool_failures = True
             elif isinstance(parsed_payload, str) and '"error"' in parsed_payload:
@@ -186,6 +186,23 @@ def analyze_finalization(
         payloads=payloads,
         required_tool_failures=required_tool_failures,
     )
+
+
+def _finalization_payloads(
+    tool_observations: List[ToolObservation],
+    parsed_payloads: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return canonical parsed payloads, reusing cache only when it matches observations."""
+    canonical_payloads = parse_tool_payloads(
+        {observation.tool_name: observation.payload for observation in tool_observations}
+    )
+    if not parsed_payloads:
+        return canonical_payloads
+    if set(parsed_payloads) != set(canonical_payloads):
+        return canonical_payloads
+    if any(parsed_payloads[tool_name] != canonical_payloads[tool_name] for tool_name in canonical_payloads):
+        return canonical_payloads
+    return parsed_payloads
 
 
 def run_reflection(
@@ -250,6 +267,7 @@ def finalize_after_execution(
     context: OrchestratorContext,
     user_prompt: str,
     tool_observations: List[ToolObservation],
+    parsed_payloads: Dict[str, Any],
     *,
     used_fallback: bool = False,
 ) -> InteractionResult:
@@ -264,12 +282,18 @@ def finalize_after_execution(
     Returns:
         The final structured interaction result.
     """
-    analysis = analyze_finalization(user_prompt, tool_observations)
+    parsed_payloads = _finalization_payloads(tool_observations, parsed_payloads)
+    analysis = analyze_finalization(user_prompt, parsed_payloads)
     grounded = build_grounded_draft_from_payloads(user_prompt, "", analysis.payloads)
     reflected = run_reflection(context, user_prompt, analysis.payloads, grounded)
-    validation = validate_final_answer(user_prompt, reflected, analysis.payloads)
-    final_answer = reflected if validation.is_valid else grounded
-    if not validation.is_valid:
+    if analysis.required_tool_failures:
+        final_answer = grounded
+        validation_failed = False
+    else:
+        validation = validate_final_answer(user_prompt, reflected, analysis.payloads)
+        final_answer = reflected if validation.is_valid else grounded
+        validation_failed = not validation.is_valid
+    if not analysis.required_tool_failures and validation_failed:
         logger.warning(
             "Reflection answer missing observed content for tools=%s; falling back to grounded answer",
             ",".join(validation.missing_tools),
@@ -278,7 +302,7 @@ def finalize_after_execution(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_fallback=used_fallback or analysis.required_tool_failures or not validation.is_valid,
+        used_fallback=used_fallback or analysis.required_tool_failures or validation_failed,
     )
 
 
@@ -348,6 +372,7 @@ async def orchestrate_interaction(
     state = ExecutionState(
         plan=plan,
         tool_observations=[],
+        parsed_payloads={},
         resolved_coords=initial_coords,
     )
 
@@ -416,6 +441,7 @@ async def orchestrate_interaction(
         context,
         user_prompt,
         state.tool_observations,
+        state.parsed_payloads,
         used_fallback=False,
     )
     interaction_outcome = "degraded" if result.used_fallback else "success"

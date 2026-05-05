@@ -37,6 +37,14 @@ def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
         return payload_text
 
 
+def parse_tool_payloads(payload_texts: Dict[str, str]) -> Dict[str, Any]:
+    """Parse serialized tool payloads once and return them keyed by tool name."""
+    return {
+        tool_name: parse_tool_payload_text(tool_name, payload_text)
+        for tool_name, payload_text in payload_texts.items()
+    }
+
+
 def _render_weather_item(payload: Any) -> Optional[GroundedItem]:
     if isinstance(payload, ToolError):
         return GroundedItem(

@@ -5,10 +5,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from agent.orchestrator import orchestrate_interaction
+from agent.grounding import parse_tool_payload_text
+from agent.orchestrator import finalize_after_execution, orchestrate_interaction
 from guardrails.plans import validate_plan_semantics
 from mcp_runtime.client import ToolInvocationError
-from schemas.agent import OrchestratorContext, ReflectionResult, validate_execution_plan
+from schemas.agent import OrchestratorContext, ReflectionResult, ToolObservation, validate_execution_plan
 
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
@@ -16,6 +17,168 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="Weather now: 6.1C, clear sky."),
+    )
+    def test_finalize_reuses_complete_consistent_cache(
+        self,
+        _mock_reflection: Mock,
+    ) -> None:
+        context = OrchestratorContext(history=[], tool_names=["get_weather"], model_name="demo-model")
+        observations = [
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 40.71427, "longitude": -74.00597},
+                payload=json.dumps(
+                    {
+                        "latitude": 40.71427,
+                        "longitude": -74.00597,
+                        "temperature": 6.1,
+                        "temperature_unit": "C",
+                        "weather_summary": "clear sky",
+                    }
+                ),
+            )
+        ]
+        parsed_payloads = {
+            "get_weather": parse_tool_payload_text("get_weather", observations[0].payload),
+        }
+
+        result = finalize_after_execution(
+            context,
+            "What's the weather in New York?",
+            observations,
+            parsed_payloads,
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(result.answer, "Weather now: 6.1C, clear sky.")
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="Weather now: 6.1C, clear sky."),
+    )
+    def test_finalize_recomputes_when_cache_is_partial(
+        self,
+        _mock_reflection: Mock,
+    ) -> None:
+        context = OrchestratorContext(history=[], tool_names=["get_weather", "random_joke"], model_name="demo-model")
+        observations = [
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 40.71427, "longitude": -74.00597},
+                payload=json.dumps(
+                    {
+                        "latitude": 40.71427,
+                        "longitude": -74.00597,
+                        "temperature": 6.1,
+                        "temperature_unit": "C",
+                        "weather_summary": "clear sky",
+                    }
+                ),
+            ),
+            ToolObservation(
+                tool_name="random_joke",
+                args={},
+                payload=json.dumps({"joke": "A fetched joke."}),
+            ),
+        ]
+
+        result = finalize_after_execution(
+            context,
+            "Give me the weather in New York and a joke.",
+            observations,
+            {"get_weather": parse_tool_payload_text("get_weather", observations[0].payload)},
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(result.answer, "Weather now: 6.1C, clear sky.")
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="Weather now: 6.1C, clear sky."),
+    )
+    def test_finalize_recomputes_when_cache_is_stale(
+        self,
+        _mock_reflection: Mock,
+    ) -> None:
+        context = OrchestratorContext(history=[], tool_names=["get_weather"], model_name="demo-model")
+        observations = [
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 40.71427, "longitude": -74.00597},
+                payload=json.dumps(
+                    {
+                        "latitude": 40.71427,
+                        "longitude": -74.00597,
+                        "temperature": 6.1,
+                        "temperature_unit": "C",
+                        "weather_summary": "clear sky",
+                    }
+                ),
+            )
+        ]
+        stale_cache = {
+            "get_weather": parse_tool_payload_text(
+                "get_weather",
+                json.dumps(
+                    {
+                        "latitude": 40.71427,
+                        "longitude": -74.00597,
+                        "temperature": 22.0,
+                        "temperature_unit": "C",
+                        "weather_summary": "rain",
+                    }
+                ),
+            )
+        }
+
+        result = finalize_after_execution(
+            context,
+            "What's the weather in New York?",
+            observations,
+            stale_cache,
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(result.answer, "Weather now: 6.1C, clear sky.")
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(answer="Here's a joke."),
+    )
+    def test_finalize_returns_grounded_degraded_answer_when_required_tool_fails(
+        self,
+        _mock_reflection: Mock,
+    ) -> None:
+        context = OrchestratorContext(history=[], tool_names=["get_weather", "random_joke"], model_name="demo-model")
+        observations = [
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 40.71427, "longitude": -74.00597},
+                payload=json.dumps({"error": "get_weather failed", "details": "weather request failed"}),
+            ),
+            ToolObservation(
+                tool_name="random_joke",
+                args={},
+                payload=json.dumps({"joke": "A fetched joke."}),
+            ),
+        ]
+
+        result = finalize_after_execution(
+            context,
+            "Give me the weather in New York and a joke.",
+            observations,
+            {"random_joke": parse_tool_payload_text("random_joke", observations[1].payload)},
+        )
+
+        self.assertTrue(result.used_fallback)
+        self.assertTrue(result.answer.startswith("Weekend Wizard Results"))
+        self.assertIn("Weather: unavailable", result.answer)
+        self.assertIn("Joke: A fetched joke.", result.answer)
+        self.assertNotEqual(result.answer, "Here's a joke.")
+
     @patch(
         "agent.orchestrator.llm_reflection_json",
         return_value=ReflectionResult(
