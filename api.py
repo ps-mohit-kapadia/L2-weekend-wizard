@@ -23,6 +23,15 @@ from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChec
 
 logger = get_logger("agent.api")
 API_KEY_HEADER = "X-API-Key"
+GENERIC_CHAT_ERROR_DETAIL = "Weekend Wizard could not complete the request."
+GENERIC_READINESS_ERROR_DETAIL = "Weekend Wizard runtime failed to initialize."
+
+
+def _sanitize_readiness_error(details: str | None) -> str:
+    """Return a safe readiness detail string for unexpected internal failures."""
+    if not details:
+        return GENERIC_READINESS_ERROR_DETAIL
+    return details if details.startswith("API runtime has not started yet.") else GENERIC_READINESS_ERROR_DETAIL
 
 
 def build_not_ready_response(
@@ -139,7 +148,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await wizard.__aenter__()
     except Exception as exc:
         logger.exception("API runtime startup failed: %s", exc)
-        app.state.readiness = build_not_ready_response(server_path, model_name, str(exc))
+        app.state.readiness = build_not_ready_response(
+            server_path,
+            model_name,
+            _sanitize_readiness_error(str(exc)),
+        )
         yield
         return
 
@@ -238,7 +251,7 @@ def create_api() -> FastAPI:
                     exc,
                     extra=get_log_extra(event="request_failed", phase="api", outcome="server_error"),
                 )
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
+                raise HTTPException(status_code=500, detail=GENERIC_CHAT_ERROR_DETAIL) from exc
 
             total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 1)
             request_outcome = "degraded" if result.used_fallback else "success"

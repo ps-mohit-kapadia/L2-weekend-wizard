@@ -91,3 +91,36 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Evaluation summaries now separate timeout-budget failures from other contract failures without changing pass/fail behavior or exit status.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Add books-only planner minimality regression
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: tests/integration/test_orchestrator.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.integration.test_orchestrator
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Added a focused books-only orchestration regression proving the planner/runtime path executes only book_recs for an unambiguous books-only prompt.
+FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Align docs with current planner/degrade/timeout behavior
+MODE_USED: REFACTOR
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: README.md, documents/operator_runbook.md, .env.example
+VERIFICATION_RUN: none
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Updated README, runbook, and env comments to reflect current planner/decide/reflect flow, degraded fallback behavior, local Ollama latency expectations, eval timeout-budget categories, and tool timeout guidance.
+FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Sanitize API error responses
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: api.py, tests/unit/test_api.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_api
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Unexpected /chat failures now return a stable generic 500 message, and startup/not-ready responses no longer expose raw internal exception strings while detailed server logs are preserved.
+FOLLOW_UP_NEEDED: None.

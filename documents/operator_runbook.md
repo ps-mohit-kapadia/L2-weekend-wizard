@@ -20,6 +20,7 @@ Common runtime overrides:
 - `WEEKEND_WIZARD_PREFERRED_MODELS`
 - `WEEKEND_WIZARD_OBSERVABILITY_MODE`
 - `WEEKEND_WIZARD_LOG_LEVEL`
+- `WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT`
 
 ## Startup Workflow
 
@@ -49,6 +50,12 @@ Invoke-WebRequest -Uri http://127.0.0.1:8000/ready -Headers @{ "X-API-Key" = "<y
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
 ```
 
+For a quick tool-backed verification, a weather prompt is also a useful smoke check:
+
+```powershell
+.\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "What's the weather in New York today?"
+```
+
 ## Update Workflow
 
 Use this checklist after pulling new code or changing configuration.
@@ -68,6 +75,12 @@ python .\scripts\dev_up.py check
 
 ```powershell
 .\.venv\Scripts\python.exe .\evaluations\run_evaluations.py
+```
+
+If you are verifying latency or local-model behavior, use:
+
+```powershell
+.\.venv\Scripts\python.exe .\evaluations\run_evaluations.py --timing
 ```
 
 ## Restart Rules
@@ -121,6 +134,12 @@ Check:
 
 Degraded responses are valid transport-level responses, but they should be treated as product-quality issues during verification.
 
+If the answer still returns successfully, degraded usually means one of:
+
+- planner fallback
+- required-tool failure
+- grounded fallback replacing a weaker reflected answer
+
 ## Verification Signals
 
 Healthy runtime signs:
@@ -130,6 +149,12 @@ Healthy runtime signs:
 - smoke test passes
 - evaluations pass for the targeted prompt set
 - logs show `outcome=success` for expected happy-path prompts
+
+Notes for local Ollama verification:
+
+- local planner/reflection calls can be slow, especially on larger prompts
+- timed eval output now separates timeout-budget failures from contract failures
+- a timeout-budget failure does not automatically mean the request contract is wrong
 
 ## Recovery Checklist
 

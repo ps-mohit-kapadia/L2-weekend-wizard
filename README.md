@@ -71,7 +71,7 @@ flowchart TD
 5. Tool outputs are stored as structured `ToolObservation`s.
 6. Grounding builds a draft answer from real observations.
 7. The reflection LLM performs one lightweight correction pass.
-8. The final grounded answer is returned to the UI.
+8. The final answer is returned to the UI. If required tools fail or reflected content drops required grounded content, the grounded draft is returned instead.
 
 ---
 
@@ -360,6 +360,12 @@ python .\main.py mcp-server
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
 ```
 
+For a quick tool-backed verification, a weather prompt is also a good smoke candidate:
+
+```powershell
+.\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "What's the weather in New York today?"
+```
+
 ---
 
 ### 9. Run contract evaluations
@@ -381,6 +387,8 @@ For latency-focused analysis, use:
 ```powershell
 .\.venv\Scripts\python.exe .\evaluations\run_evaluations.py --timing
 ```
+
+Timed evaluations now distinguish timeout-budget failures from contract failures. On slower local Ollama models, successful prompts can still exceed aggressive timeout budgets.
 
 ---
 
@@ -419,6 +427,7 @@ Notes:
 - `WEEKEND_WIZARD_API_HOST` and `WEEKEND_WIZARD_API_PORT` control where FastAPI binds at runtime
 - `WEEKEND_WIZARD_PREFERRED_MODELS` controls the ordered model resolution preference
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
+- local Ollama planner/reflection calls can be noticeably slow, so evaluation timeout budgets should be interpreted separately from correctness failures
 - `WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT` separately bounds external tool API calls so slow upstream services do not inherit the longer model timeout
 
 ---
@@ -447,6 +456,8 @@ Returns:
 - `response_status` with `success` or `degraded`
 
 `response_status` is the backend-facing degraded/success contract field. It is intended for logs, tests, and operator tooling rather than customer-facing UI messaging.
+
+`degraded` means the request completed, but planner fallback, required-tool failure, or final grounded fallback behavior affected the result.
 
 ---
 
@@ -534,6 +545,7 @@ This implementation is a strong local L2 prototype, but a few practical tradeoff
 Limitations:
 
 - local-model latency is still noticeable, especially for planning and reflection on larger models
+- local-model latency can cause timed evaluations to fail on budget even when the request is otherwise functionally correct
 - runtime quality is model-sensitive, with stronger local models producing better plans at the cost of slower responses
 - the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
 - degraded outcomes are surfaced through the backend contract, but not yet shown in the customer UI

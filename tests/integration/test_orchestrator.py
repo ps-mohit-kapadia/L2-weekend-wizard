@@ -389,6 +389,60 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value=ReflectionResult(
+            answer=(
+                "Here are 3 adventure books to try: Treasure Island by Robert Louis Stevenson, "
+                "King Solomon's Mines by H. Rider Haggard, and The Lost World by Arthur Conan Doyle."
+            )
+        ),
+    )
+    @patch("agent.orchestrator.llm_plan_json")
+    async def test_books_only_prompt_executes_only_book_recs(
+        self,
+        mock_plan: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_plan.return_value = validate_execution_plan(
+            {
+                "goal": "book_suggestions",
+                "execution_steps": [{"tool": "book_recs", "args": {"topic": "adventure", "limit": 3}}],
+            }
+        )
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "topic": "adventure",
+                    "count": 3,
+                    "results": [
+                        {"title": "Treasure Island", "author": "Robert Louis Stevenson"},
+                        {"title": "King Solomon's Mines", "author": "H. Rider Haggard"},
+                        {"title": "The Lost World", "author": "Arthur Conan Doyle"},
+                    ],
+                }
+            )
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["book_recs", "get_weather", "city_to_coords", "random_joke", "random_dog", "trivia"],
+            model_name="demo-model",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Recommend 3 adventure books.",
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual([observation.tool_name for observation in result.tool_observations], ["book_recs"])
+        self.assertNotIn("couldn't build a reliable weekend plan", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+
     @patch("agent.orchestrator.llm_plan_json")
     async def test_invalid_plan_returns_planner_failure_message(self, mock_plan: Mock) -> None:
         mock_plan.return_value = validate_execution_plan(

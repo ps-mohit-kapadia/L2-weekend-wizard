@@ -52,6 +52,12 @@ class _BrokenWizardApp(_FakeWizardApp):
         raise RuntimeError("startup boom")
 
 
+class _CrashingWizardApp(_FakeWizardApp):
+    def __init__(self, *_args, **_kwargs) -> None:
+        super().__init__(*_args, **_kwargs)
+        self.run_interaction = AsyncMock(side_effect=RuntimeError("internal trace path C:/secret/model.sock"))
+
+
 class ApiTests(unittest.TestCase):
     def test_health_endpoint_returns_ok(self) -> None:
         with (
@@ -96,7 +102,7 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["status"], "not_ready")
-        self.assertIn("startup boom", response.json()["details"])
+        self.assertEqual(response.json()["details"], api.GENERIC_READINESS_ERROR_DETAIL)
 
     def test_discover_model_failure_still_serves_health_and_not_ready(self) -> None:
         with (
@@ -112,7 +118,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(health_response.json(), {"status": "ok"})
         self.assertEqual(ready_response.status_code, 503)
         self.assertEqual(ready_response.json()["status"], "not_ready")
-        self.assertIn("ollama offline", ready_response.json()["details"])
+        self.assertEqual(ready_response.json()["details"], api.GENERIC_READINESS_ERROR_DETAIL)
 
     def test_chat_endpoint_returns_structured_response(self) -> None:
         fake_app = _FakeWizardApp()
@@ -181,7 +187,23 @@ class ApiTests(unittest.TestCase):
             response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "test-key"})
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["detail"], "startup boom")
+        self.assertEqual(response.json()["detail"], api.GENERIC_READINESS_ERROR_DETAIL)
+
+    def test_chat_endpoint_sanitizes_unexpected_server_errors(self) -> None:
+        fake_app = _CrashingWizardApp()
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "test-key"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], api.GENERIC_CHAT_ERROR_DETAIL)
 
     def test_chat_endpoint_does_not_recompute_full_readiness_per_request(self) -> None:
         fake_app = _FakeWizardApp()
