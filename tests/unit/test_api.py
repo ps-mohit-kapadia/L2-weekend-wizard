@@ -90,6 +90,38 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(response.json()["checks"]["mcp_session_ready"])
         self.assertTrue(response.json()["checks"]["model_available"])
 
+    def test_ready_endpoint_offloads_live_recomputation_from_async_path(self) -> None:
+        fake_app = _FakeWizardApp()
+        ready_response = ReadinessResponse(
+            status="ready",
+            model_name="llama3.2:latest",
+            tool_count=1,
+            checks=ReadinessChecks(
+                model_resolved=True,
+                model_available=True,
+                server_path_exists=True,
+                ollama_reachable=True,
+                mcp_session_ready=True,
+                tools_discovered=True,
+            ),
+            details=None,
+        )
+
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings", return_value=_SETTINGS_WITH_KEY),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", return_value=fake_app),
+            patch("api.evaluate_runtime_readiness", return_value=ready_response) as evaluate_mock,
+            patch("api.asyncio.to_thread", new_callable=AsyncMock) as to_thread_mock,
+            TestClient(api.create_api()) as client,
+        ):
+            to_thread_mock.return_value = ready_response
+            response = client.get("/ready", headers={"X-API-Key": "test-key"})
+
+        self.assertEqual(response.status_code, 200)
+        to_thread_mock.assert_awaited_once_with(evaluate_mock, fake_app)
+
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),

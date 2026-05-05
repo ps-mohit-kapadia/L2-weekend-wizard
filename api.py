@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """HTTP API interface for Weekend Wizard."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 import time
@@ -196,7 +197,11 @@ def create_api() -> FastAPI:
         try:
             require_api_key(x_api_key)
             wizard = getattr(app.state, "wizard", None)
-            response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
+            response = (
+                await asyncio.to_thread(evaluate_runtime_readiness, wizard)
+                if wizard is not None
+                else app.state.readiness
+            )
             app.state.readiness = response
 
             status_code = 200 if response.status == "ready" else 503

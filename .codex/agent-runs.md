@@ -124,3 +124,14 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Unexpected /chat failures now return a stable generic 500 message, and startup/not-ready responses no longer expose raw internal exception strings while detailed server logs are preserved.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-05 - Offload live /ready recomputation from async request path
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: api.py, tests/unit/test_api.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_api
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: The /ready endpoint now offloads live readiness recomputation to a worker thread, preserving startup behavior and response shape while avoiding blocking Ollama I/O on the async request path.
+FOLLOW_UP_NEEDED: None.
