@@ -7,6 +7,7 @@ This repo uses a custom Codex delivery workflow to reduce repeated prompting, pr
 ```text
 .codex/
   agent-runs.md
+  work-sessions.md
   README.md
   agents/
     delivery-agent.toml
@@ -129,6 +130,28 @@ The log should not update for:
 - failed or aborted implementation
 - unapproved non-trivial work
 
+
+## Work Session Logging
+
+Session snapshots are logged in:
+
+```text
+.codex/work-sessions.md
+```
+
+Use this file only for:
+
+- start-of-session snapshots
+- end-of-session snapshots
+- handoff snapshots
+
+Use:
+
+- `.codex/agent-runs.md` for completed implementation runs
+- `.codex/work-sessions.md` for session context, blockers, risks, and next steps
+
+Do not update `work-sessions.md` for every chat message.
+
 ## Final Implementation Response Format
 
 After approved implementation or completed trivial fix, Codex must respond with:
@@ -220,6 +243,77 @@ Review .codex/agent-runs.md and tell me whether the delivery-agent workflow is h
 
 Do not edit files.
 ```
+
+### Handoff Snapshot
+
+Use this when handing context to a new chat, another agent, a teammate, or future-you.
+
+```text
+Follow the repository delivery-agent instructions.
+
+Task:
+Create a handoff snapshot for the current repo state.
+
+Do not edit files.
+
+Include:
+- current branch/status summary
+- important changes made recently
+- tests/evals last run
+- known blockers
+- known risks
+- next recommended task
+- files likely involved
+```
+
+### Start-of-Session Snapshot
+
+Use this at the beginning of a work session.
+
+```text
+Follow the repository delivery-agent instructions.
+
+Task:
+Create a start-of-session snapshot.
+
+Do not edit files.
+Do not update .codex/agent-runs.md.
+
+Check:
+- current git status
+- current branch
+- recent .codex/agent-runs.md entries
+- recent .codex/work-sessions.md entries if present
+- known blockers
+- recommended first task
+
+Then append a short entry to .codex/work-sessions.md using the Start Snapshot format.
+```
+
+### End-of-Session Snapshot
+
+Use this before stopping work for the day.
+
+```text
+Follow the repository delivery-agent instructions.
+
+Task:
+Create an end-of-session snapshot.
+
+Do not edit code.
+Do not update .codex/agent-runs.md.
+
+Summarize:
+- what changed this session
+- tests/evals run
+- current known blockers
+- current known risks
+- next recommended task
+- files likely involved next
+
+Then append a short entry to .codex/work-sessions.md using the End Snapshot format.
+```
+
 
 ## How To Test The Workflow
 
@@ -398,10 +492,11 @@ AGENTS.md
 .codex/
   README.md
   agent-runs.md
+  work-sessions.md
   agents/
     *.toml
 ```
 
-Start the new repo with a fresh `.codex/agent-runs.md`.
+Start the new repo with fresh `.codex/agent-runs.md` and `.codex/work-sessions.md`.
 
-Do not copy old run history into a new repo.
+Do not copy old run history or old session history into a new repo.

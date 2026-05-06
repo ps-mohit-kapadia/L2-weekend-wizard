@@ -302,13 +302,18 @@ Only update .codex/agent-runs.md after approved implementation or completed triv
 If verification cannot complete due missing dependencies, environment issues, skipped tests, or unavailable services, set REGRESSION_RISK to medium unless another meaningful verification passed.
 If a follow-up implementation touches the same files for the same issue within a short period, treat it as rework evidence in future AgentOps reviews.
 
-Do not update the log for:
+Do not update .codex/agent-runs.md for:
 - planning only
 - classification only
 - read-only review
 - read-only audit
+- investigation
+- release check
+- AgentOps review
+- work-session snapshot
 - failed/aborted implementation
 - user has not approved a non-trivial task yet
+
 
 If .codex/agent-runs.md does not exist, create it.
 
@@ -324,4 +329,18 @@ REGRESSION_RISK:
 INSTRUCTIONS_IGNORED:
 OUTCOME:
 FOLLOW_UP_NEEDED:
+
+
+WORK SESSION LOGGING
+Only update .codex/work-sessions.md when the user explicitly asks for:
+- start-of-session snapshot
+- end-of-session snapshot
+- handoff snapshot
+- work session summary
+
+Do not update .codex/work-sessions.md during normal planning, review, investigation, implementation, or release-check tasks.
+
+Use .codex/work-sessions.md for session context only.
+Use .codex/agent-runs.md for completed implementation runs only.
+
 """
