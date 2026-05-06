@@ -136,7 +136,7 @@ def validate_chat_response_status(payload: dict[str, Any]) -> None:
 
 def start_local_api(project_dir: Path) -> subprocess.Popen[str]:
     """Start a local Weekend Wizard API process."""
-    command = [sys.executable, "main.py", "api"]
+    command = [sys.executable, "scripts/dev_up.py", "api"]
     return subprocess.Popen(
         command,
         cwd=project_dir,

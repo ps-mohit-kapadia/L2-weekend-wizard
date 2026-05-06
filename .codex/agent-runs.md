@@ -179,3 +179,14 @@ REGRESSION_RISK: low
 INSTRUCTIONS_IGNORED: none
 OUTCOME: Added a short demo checklist, clarified how to interpret timeout-budget-heavy eval failures, and documented the shared MCP session serialization limit for local single-process runtime demos.
 FOLLOW_UP_NEEDED: None.
+
+## 2026-05-06 - Align smoke auto-start with operator startup path
+MODE_USED: SURGICAL FIX
+SUBAGENTS_USED: none
+APPROVAL_WAITED: yes
+FILES_CHANGED: tests/smoke/smoke_test.py, tests/unit/test_smoke_test.py
+VERIFICATION_RUN: .\.venv\Scripts\python.exe -m unittest tests.unit.test_smoke_test
+REGRESSION_RISK: low
+INSTRUCTIONS_IGNORED: none
+OUTCOME: Smoke auto-start now launches the API through scripts/dev_up.py api, aligning its startup path with the documented operator flow and the evaluation runner while preserving readiness polling and smoke request behavior.
+FOLLOW_UP_NEEDED: None.
