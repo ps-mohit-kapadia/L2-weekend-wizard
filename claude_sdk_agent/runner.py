@@ -26,12 +26,16 @@ def build_agent_options(config: ClaudeSdkAgentConfig) -> ClaudeAgentOptions:
 
 def build_dry_run_summary(config: ClaudeSdkAgentConfig) -> dict[str, Any]:
     """Return a non-network summary of the configured SDK agent slice."""
+    system_prompt = build_system_prompt()
     return {
+        "mode": "no-live-call",
         "server_key": config.server_key,
         "server_name": config.server_name,
+        "model": config.model,
         "allowed_tools": config.allowed_tool_names,
         "max_turns": config.max_turns,
         "cwd": str(config.cwd),
+        "system_prompt": system_prompt,
     }
 
 

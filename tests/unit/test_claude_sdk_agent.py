@@ -5,7 +5,9 @@ import unittest
 from unittest.mock import patch
 
 from claude_sdk_agent.config import get_default_config
+from claude_sdk_agent.prompts import build_system_prompt
 from claude_sdk_agent.runner import build_agent_options, run_claude_sdk_prompt
+from claude_sdk_agent.smoke import get_smoke_scenarios, run_smoke_scenarios
 from claude_sdk_agent.tools import (
     book_recs_tool,
     build_sdk_server,
@@ -18,6 +20,26 @@ from claude_sdk_agent.tools import (
 
 
 class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
+    def test_get_smoke_scenarios_returns_two_representative_cases(self) -> None:
+        scenarios = get_smoke_scenarios()
+
+        self.assertEqual(len(scenarios), 2)
+        self.assertEqual(scenarios[0].label, "joke-only")
+        self.assertEqual(scenarios[0].prompt, "Tell me a joke.")
+        self.assertEqual(scenarios[1].label, "weekend-multi-tool")
+        self.assertIn("New York", scenarios[1].prompt)
+        self.assertIn("mystery books", scenarios[1].prompt)
+
+    def test_build_system_prompt_covers_minimality_and_key_tool_rules(self) -> None:
+        prompt = build_system_prompt()
+
+        self.assertIn("Use tools only when needed", prompt)
+        self.assertIn("If the user asks for one joke, one dog photo, or one trivia question, call that tool once and then answer.", prompt)
+        self.assertIn("use city_to_coords before get_weather", prompt)
+        self.assertIn("If the request is only for books, use only book_recs.", prompt)
+        self.assertIn("include the fetched requested items", prompt)
+        self.assertIn("Do not invent tools or unsupported capabilities.", prompt)
+
     def test_build_agent_options_uses_explicit_weekend_wizard_toolset(self) -> None:
         config = get_default_config()
 
@@ -26,14 +48,39 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options.allowed_tools, config.allowed_tool_names)
         self.assertEqual(options.max_turns, 4)
         self.assertEqual(str(options.cwd), str(config.cwd))
+        self.assertIn("Weekend Wizard", options.system_prompt)
 
     async def test_run_claude_sdk_prompt_supports_dry_run_without_network(self) -> None:
         result = await run_claude_sdk_prompt("Tell me a joke.", dry_run=True)
 
         self.assertEqual(result["mode"], "dry-run")
         self.assertEqual(result["prompt"], "Tell me a joke.")
+        self.assertEqual(result["config"]["mode"], "no-live-call")
         self.assertIn("allowed_tools", result["config"])
+        self.assertIn("system_prompt", result["config"])
+        self.assertIsNone(result["config"]["model"])
         self.assertEqual(result["config"]["allowed_tools"], get_default_config().allowed_tool_names)
+
+    @patch("claude_sdk_agent.smoke.run_claude_sdk_prompt")
+    async def test_run_smoke_scenarios_dry_run_reports_labels_prompts_and_config(self, mock_run_prompt) -> None:
+        mock_run_prompt.side_effect = [
+            {"mode": "dry-run", "prompt": "Tell me a joke.", "config": {"mode": "no-live-call"}},
+            {
+                "mode": "dry-run",
+                "prompt": "Plan a cozy Saturday in New York with today's weather, 3 mystery books, one joke, and a dog pic.",
+                "config": {"mode": "no-live-call"},
+            },
+        ]
+
+        results = await run_smoke_scenarios(dry_run=True)
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["label"], "joke-only")
+        self.assertEqual(results[0]["prompt"], "Tell me a joke.")
+        self.assertEqual(results[0]["mode"], "dry-run")
+        self.assertIn("config", results[0])
+        self.assertEqual(results[1]["label"], "weekend-multi-tool")
+        self.assertIn("config", results[1])
 
     @patch("claude_sdk_agent.tools.l2_random_joke", return_value={"joke": "A fetched joke."})
     async def test_random_joke_tool_wraps_existing_l2_behavior(self, _mock_joke) -> None:
