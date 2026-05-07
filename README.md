@@ -20,6 +20,8 @@ This branch is intentionally aligned to the original L2 assignment:
 
 The agent decides one next step at a time, calls MCP tools when needed, observes the result, and stops when it has enough information to answer.
 
+For the parallel Level 3 Claude Agent SDK migration path, see [docs/sdk-migration.md](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/docs/sdk-migration.md).
+
 ---
 
 ## Architecture Overview
