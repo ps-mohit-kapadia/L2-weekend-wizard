@@ -20,6 +20,9 @@ from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChec
 
 logger = get_logger("agent.api")
 
+UNEXPECTED_CHAT_ERROR_DETAIL = "Weekend Wizard could not complete that request."
+UNEXPECTED_READINESS_ERROR_DETAIL = "Weekend Wizard runtime failed to start."
+
 
 def build_not_ready_response(
     server_path: Path,
@@ -40,6 +43,18 @@ def build_not_ready_response(
             tools_discovered=False,
         ),
         details=details,
+    )
+
+
+def build_unexpected_not_ready_response(
+    server_path: Path,
+    model_name: str,
+) -> ReadinessResponse:
+    """Build a sanitized readiness payload for unexpected startup/runtime failures."""
+    return build_not_ready_response(
+        server_path,
+        model_name,
+        UNEXPECTED_READINESS_ERROR_DETAIL,
     )
 
 
@@ -108,7 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await wizard.__aenter__()
     except Exception as exc:
         logger.exception("API runtime startup failed: %s", exc)
-        app.state.readiness = build_not_ready_response(server_path, model_name, str(exc))
+        app.state.readiness = build_unexpected_not_ready_response(server_path, model_name)
         yield
         return
 
@@ -184,7 +199,7 @@ def create_api() -> FastAPI:
             raise
         except Exception as exc:
             logger.exception("Chat request failed: %s", exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail=UNEXPECTED_CHAT_ERROR_DETAIL) from exc
 
         logger.info(
             "Completed /chat request with %d observations, fallback=%s, answer length=%d",
