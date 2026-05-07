@@ -11,7 +11,7 @@ from config.config import get_settings
 from logger.logging import get_logger
 from schemas.agent import validate_react_decision, validate_reflection_result
 
-MODEL_REQUEST_TIMEOUT_SECONDS = 600
+MODEL_REQUEST_TIMEOUT_SECONDS = 1200
 logger = get_logger("llm_client")
 
 
@@ -75,10 +75,14 @@ def discover_model(cli_model: Optional[str]) -> str:
     try:
         names = list_available_models(timeout=5)
     except requests.RequestException as exc:
-        raise RuntimeError(f"Could not reach Ollama to validate model '{configured_model}': {exc}") from exc
+        raise RuntimeError(
+            f"Could not reach Ollama to validate model '{configured_model}': {exc}"
+        ) from exc
 
     if configured_model not in names:
-        raise RuntimeError(f"Configured Ollama model is not available: {configured_model}")
+        raise RuntimeError(
+            f"Configured Ollama model is not available: {configured_model}"
+        )
 
     return configured_model
 
@@ -129,7 +133,9 @@ def llm_react_json(
     try:
         return _extract_valid_decision_json(raw)
     except Exception:
-        logger.warning("Model returned invalid ReAct decision payload; attempting one repair pass")
+        logger.warning(
+            "Model returned invalid ReAct decision payload; attempting one repair pass"
+        )
         repair_messages = [
             {
                 "role": "system",
@@ -162,7 +168,9 @@ def llm_reflection_json(
     try:
         return _extract_valid_reflection_json(raw)
     except Exception:
-        logger.warning("Model returned invalid reflection payload; attempting one repair pass")
+        logger.warning(
+            "Model returned invalid reflection payload; attempting one repair pass"
+        )
         repair_messages = [
             {
                 "role": "system",
