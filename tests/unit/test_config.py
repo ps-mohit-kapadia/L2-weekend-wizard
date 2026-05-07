@@ -54,6 +54,43 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.request_timeout, 1200)
         self.assertEqual(settings.tool_http_timeout, 20)
+        self.assertEqual(settings.http_max_retries, 2)
+        self.assertEqual(settings.http_retry_backoff_seconds, 0.5)
+        self.assertEqual(settings.log_level, "WARNING")
+
+    def test_get_settings_rejects_non_numeric_request_timeout(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_REQUEST_TIMEOUT": "slow"}, clear=True):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(ValueError, "WEEKEND_WIZARD_REQUEST_TIMEOUT"):
+                get_settings()
+
+    def test_get_settings_rejects_zero_or_negative_positive_timeouts(self) -> None:
+        for name, value in (
+            ("WEEKEND_WIZARD_REQUEST_TIMEOUT", "0"),
+            ("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", "-1"),
+        ):
+            with self.subTest(name=name, value=value):
+                with patch.dict(os.environ, {name: value}, clear=True):
+                    get_settings.cache_clear()
+                    with self.assertRaisesRegex(ValueError, name):
+                        get_settings()
+
+    def test_get_settings_rejects_negative_retry_values(self) -> None:
+        for name, value in (
+            ("WEEKEND_WIZARD_HTTP_MAX_RETRIES", "-1"),
+            ("WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS", "-0.5"),
+        ):
+            with self.subTest(name=name, value=value):
+                with patch.dict(os.environ, {name: value}, clear=True):
+                    get_settings.cache_clear()
+                    with self.assertRaisesRegex(ValueError, name):
+                        get_settings()
+
+    def test_get_settings_rejects_invalid_log_level(self) -> None:
+        with patch.dict(os.environ, {"WEEKEND_WIZARD_LOG_LEVEL": "TRACE"}, clear=True):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(ValueError, "WEEKEND_WIZARD_LOG_LEVEL"):
+                get_settings()
 
 
 if __name__ == "__main__":
