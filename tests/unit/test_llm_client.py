@@ -38,7 +38,11 @@ class LlmClientTests(unittest.TestCase):
         return_value='{"thought":"Need a joke.","action":"tool","tool":"random_joke","args":{}}',
     )
     def test_llm_react_json_returns_model_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
+        result = llm_client.llm_react_json(
+            [{"role": "user", "content": "hello"}],
+            "demo-model",
+            allowed_tools=["random_joke"],
+        )
 
         self.assertEqual(result["action"], "tool")
         self.assertEqual(result["tool"], "random_joke")
@@ -57,14 +61,22 @@ class LlmClientTests(unittest.TestCase):
         ],
     )
     def test_llm_react_json_repairs_schema_invalid_json(self, _call_model: Mock) -> None:
-        result = llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
+        result = llm_client.llm_react_json(
+            [{"role": "user", "content": "hello"}],
+            "demo-model",
+            allowed_tools=["random_joke"],
+        )
 
         self.assertEqual(result["action"], "finish")
 
     @patch("llm_client.call_model", side_effect=requests.RequestException("offline"))
     def test_llm_react_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_react_json(
+                [{"role": "user", "content": "hello"}],
+                "demo-model",
+                allowed_tools=["random_joke"],
+            )
 
     @patch(
         "llm_client.call_model",
@@ -75,7 +87,11 @@ class LlmClientTests(unittest.TestCase):
     )
     def test_llm_react_json_raises_when_repair_fails_in_normal_mode(self, _call_model: Mock) -> None:
         with self.assertRaises(requests.RequestException):
-            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_react_json(
+                [{"role": "user", "content": "hello"}],
+                "demo-model",
+                allowed_tools=["random_joke"],
+            )
 
     @patch(
         "llm_client.call_model",
@@ -86,7 +102,40 @@ class LlmClientTests(unittest.TestCase):
     )
     def test_llm_react_json_raises_when_schema_repair_still_fails(self, _call_model: Mock) -> None:
         with self.assertRaisesRegex(ValueError, "invalid ReAct decision JSON"):
-            llm_client.llm_react_json([{"role": "user", "content": "hello"}], "demo-model")
+            llm_client.llm_react_json(
+                [{"role": "user", "content": "hello"}],
+                "demo-model",
+                allowed_tools=["random_joke"],
+            )
+
+    @patch(
+        "llm_client.call_model",
+        side_effect=[
+            '{"unexpected":"shape"}',
+            '{"thought":"I have enough information.","action":"finish","final_answer":"Here is your joke."}',
+        ],
+    )
+    def test_llm_react_json_repair_includes_original_context_and_allowed_tools(self, mock_call_model: Mock) -> None:
+        messages = [
+            {"role": "system", "content": "react rules"},
+            {"role": "user", "content": "Tell me a joke."},
+            {"role": "assistant", "content": '[tool:random_joke] {"joke":"A fetched joke."}'},
+        ]
+
+        llm_client.llm_react_json(messages, "demo-model", allowed_tools=["random_joke", "random_dog"])
+
+        repair_messages = mock_call_model.call_args_list[1].args[0]
+        repair_system = repair_messages[0]["content"]
+        repair_user = repair_messages[-1]["content"]
+
+        self.assertIn("Allowed tools:", repair_system)
+        self.assertIn("- random_joke", repair_system)
+        self.assertIn("- random_dog", repair_system)
+        self.assertIn("Never invent tools.", repair_system)
+        self.assertIn("If prior observations already satisfy the request, return finish.", repair_system)
+        self.assertIn("one successful random_joke, random_dog, or trivia observation already satisfies the request", repair_system)
+        self.assertIn('[tool:random_joke] {"joke":"A fetched joke."}', str(repair_messages))
+        self.assertIn("Invalid output:", repair_user)
 
     @patch(
         "llm_client.call_model",

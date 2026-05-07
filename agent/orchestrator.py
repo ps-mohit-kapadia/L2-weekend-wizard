@@ -253,7 +253,11 @@ async def orchestrate_interaction(
             max_steps=MAX_REACT_STEPS,
         )
         try:
-            raw_decision = llm_react_json(react_messages, context.model_name)
+            raw_decision = llm_react_json(
+                react_messages,
+                context.model_name,
+                allowed_tools=context.tool_names,
+            )
             decision = validate_react_decision(raw_decision)
             validate_react_decision_semantics(decision, context.tool_names)
         except Exception as exc:

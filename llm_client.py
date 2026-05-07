@@ -125,6 +125,8 @@ def _extract_valid_reflection_json(text: str) -> Dict[str, Any]:
 def llm_react_json(
     messages: List[Dict[str, str]],
     model: str,
+    *,
+    allowed_tools: List[str],
 ) -> Dict[str, Any]:
     """Return one bounded ReAct decision from Ollama."""
     raw = call_model(messages, model, temperature=0.2, json_mode=True)
@@ -135,16 +137,32 @@ def llm_react_json(
         logger.warning(
             "Model returned invalid ReAct decision payload; attempting one repair pass"
         )
+        allowed_tool_lines = "\n".join(f"- {tool_name}" for tool_name in allowed_tools)
         repair_messages = [
             {
                 "role": "system",
                 "content": (
                     "Return only one valid Weekend Wizard decision JSON object. "
                     'Use either {"thought":"...","action":"tool","tool":"...","args":{}} '
-                    'or {"thought":"...","action":"finish","final_answer":"..."}'
+                    'or {"thought":"...","action":"finish","final_answer":"..."}.\n'
+                    "You are repairing a prior Weekend Wizard ReAct decision.\n"
+                    "Use the original request and prior tool observations below.\n"
+                    "Allowed tools:\n"
+                    f"{allowed_tool_lines}\n"
+                    "Never invent tools.\n"
+                    "If prior observations already satisfy the request, return finish.\n"
+                    "If one successful random_joke, random_dog, or trivia observation already satisfies the request, return finish."
                 ),
             },
-            {"role": "user", "content": raw},
+            *messages,
+            {
+                "role": "user",
+                "content": (
+                    "The previous model output was invalid or unsupported.\n"
+                    "Repair it into one valid Weekend Wizard decision JSON object only.\n\n"
+                    f"Invalid output:\n{raw}"
+                ),
+            },
         ]
         repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
         try:

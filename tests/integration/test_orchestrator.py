@@ -124,6 +124,29 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is your joke."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_post_joke_invalid_output_can_be_repaired_to_finish(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "I should fetch a joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "I have enough information.", "action": "finish", "final_answer": "Here is your joke."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
+
+        context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
+        result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
+
+        self.assertFalse(result.used_fallback)
+        self.assertEqual(len(result.tool_observations), 1)
+        self.assertIn("A fetched joke.", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+
     @patch("agent.orchestrator.llm_react_json")
     async def test_invalid_decision_returns_failure_message(self, mock_react: Mock) -> None:
         mock_react.return_value = {
