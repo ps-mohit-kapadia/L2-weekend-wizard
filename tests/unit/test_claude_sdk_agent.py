@@ -6,16 +6,24 @@ from unittest.mock import patch
 
 from claude_sdk_agent.config import get_default_config
 from claude_sdk_agent.runner import build_agent_options, run_claude_sdk_prompt
-from claude_sdk_agent.tools import random_joke_tool
+from claude_sdk_agent.tools import (
+    book_recs_tool,
+    build_sdk_server,
+    city_to_coords_tool,
+    get_weather_tool,
+    random_dog_tool,
+    random_joke_tool,
+    trivia_tool,
+)
 
 
 class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
-    def test_build_agent_options_uses_explicit_allowed_joke_tool(self) -> None:
+    def test_build_agent_options_uses_explicit_weekend_wizard_toolset(self) -> None:
         config = get_default_config()
 
         options = build_agent_options(config)
 
-        self.assertEqual(options.allowed_tools, [config.joke_tool_name])
+        self.assertEqual(options.allowed_tools, config.allowed_tool_names)
         self.assertEqual(options.max_turns, 4)
         self.assertEqual(str(options.cwd), str(config.cwd))
 
@@ -25,6 +33,7 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["mode"], "dry-run")
         self.assertEqual(result["prompt"], "Tell me a joke.")
         self.assertIn("allowed_tools", result["config"])
+        self.assertEqual(result["config"]["allowed_tools"], get_default_config().allowed_tool_names)
 
     @patch("claude_sdk_agent.tools.l2_random_joke", return_value={"joke": "A fetched joke."})
     async def test_random_joke_tool_wraps_existing_l2_behavior(self, _mock_joke) -> None:
@@ -32,6 +41,97 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result["is_error"])
         self.assertEqual(json.loads(result["content"][0]["text"])["joke"], "A fetched joke.")
+
+    @patch("claude_sdk_agent.tools.l2_random_dog", return_value={"status": "success", "image_url": "https://example.com/dog.jpg"})
+    async def test_random_dog_tool_wraps_existing_l2_behavior(self, _mock_dog) -> None:
+        result = await random_dog_tool.handler({})
+
+        self.assertFalse(result["is_error"])
+        self.assertEqual(json.loads(result["content"][0]["text"])["image_url"], "https://example.com/dog.jpg")
+
+    @patch(
+        "claude_sdk_agent.tools.l2_trivia",
+        return_value={
+            "category": "General Knowledge",
+            "difficulty": "easy",
+            "question": "What is 2+2?",
+            "correct_answer": "4",
+            "incorrect_answers": ["1", "2", "3"],
+        },
+    )
+    async def test_trivia_tool_wraps_existing_l2_behavior(self, _mock_trivia) -> None:
+        result = await trivia_tool.handler({})
+
+        self.assertFalse(result["is_error"])
+        self.assertEqual(json.loads(result["content"][0]["text"])["correct_answer"], "4")
+
+    @patch(
+        "claude_sdk_agent.tools.l2_book_recs",
+        return_value={
+            "topic": "mystery",
+            "count": 1,
+            "results": [{"title": "Dune", "author": "Frank Herbert"}],
+        },
+    )
+    async def test_book_recs_tool_wraps_existing_l2_behavior(self, _mock_books) -> None:
+        result = await book_recs_tool.handler({"topic": "mystery", "limit": 1})
+
+        self.assertFalse(result["is_error"])
+        payload = json.loads(result["content"][0]["text"])
+        self.assertEqual(payload["topic"], "mystery")
+        self.assertEqual(payload["count"], 1)
+
+    @patch(
+        "claude_sdk_agent.tools.l2_city_to_coords",
+        return_value={"city": "New York", "latitude": 40.7128, "longitude": -74.0060},
+    )
+    async def test_city_to_coords_tool_wraps_existing_l2_behavior(self, _mock_geo) -> None:
+        result = await city_to_coords_tool.handler({"city": "New York"})
+
+        self.assertFalse(result["is_error"])
+        self.assertEqual(json.loads(result["content"][0]["text"])["city"], "New York")
+
+    @patch(
+        "claude_sdk_agent.tools.l2_get_weather",
+        return_value={"temperature": 22.5, "weather_summary": "mainly clear"},
+    )
+    async def test_get_weather_tool_wraps_existing_l2_behavior(self, _mock_weather) -> None:
+        result = await get_weather_tool.handler({"latitude": 12.97, "longitude": 77.59})
+
+        self.assertFalse(result["is_error"])
+        self.assertEqual(json.loads(result["content"][0]["text"])["weather_summary"], "mainly clear")
+
+    def test_build_sdk_server_exposes_only_weekend_wizard_tools(self) -> None:
+        config = get_default_config()
+
+        server = build_sdk_server(config)
+
+        self.assertEqual(server["name"], config.server_name)
+        self.assertEqual(server["type"], "sdk")
+        tool_names = sorted(
+            tool_def.name
+            for tool_def in [
+                random_joke_tool,
+                random_dog_tool,
+                trivia_tool,
+                book_recs_tool,
+                city_to_coords_tool,
+                get_weather_tool,
+            ]
+        )
+        self.assertEqual(
+            tool_names,
+            sorted(
+                [
+                    "random_joke",
+                    "random_dog",
+                    "trivia",
+                    "book_recs",
+                    "city_to_coords",
+                    "get_weather",
+                ]
+            ),
+        )
 
 
 if __name__ == "__main__":

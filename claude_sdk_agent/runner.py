@@ -17,7 +17,7 @@ def build_agent_options(config: ClaudeSdkAgentConfig) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         system_prompt=build_system_prompt(),
         mcp_servers={config.server_key: sdk_server},
-        allowed_tools=[config.joke_tool_name],
+        allowed_tools=config.allowed_tool_names,
         max_turns=config.max_turns,
         model=config.model,
         cwd=config.cwd,
@@ -29,7 +29,7 @@ def build_dry_run_summary(config: ClaudeSdkAgentConfig) -> dict[str, Any]:
     return {
         "server_key": config.server_key,
         "server_name": config.server_name,
-        "allowed_tools": [config.joke_tool_name],
+        "allowed_tools": config.allowed_tool_names,
         "max_turns": config.max_turns,
         "cwd": str(config.cwd),
     }

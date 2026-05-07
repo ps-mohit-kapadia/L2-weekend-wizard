@@ -22,6 +22,19 @@ class ClaudeSdkAgentConfig:
         """Return the fully-qualified Claude SDK MCP tool name for the joke tool."""
         return f"mcp__{self.server_key}__random_joke"
 
+    @property
+    def allowed_tool_names(self) -> list[str]:
+        """Return the explicit Claude SDK MCP tool names exposed by Weekend Wizard."""
+        prefix = f"mcp__{self.server_key}__"
+        return [
+            f"{prefix}random_joke",
+            f"{prefix}random_dog",
+            f"{prefix}trivia",
+            f"{prefix}book_recs",
+            f"{prefix}city_to_coords",
+            f"{prefix}get_weather",
+        ]
+
 
 def get_default_config() -> ClaudeSdkAgentConfig:
     """Return the deterministic default SDK configuration for this repo."""
