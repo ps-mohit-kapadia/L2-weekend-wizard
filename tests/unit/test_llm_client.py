@@ -10,6 +10,23 @@ import llm_client
 
 
 class LlmClientTests(unittest.TestCase):
+    @patch("llm_client.requests.post")
+    @patch("llm_client.get_settings")
+    def test_call_model_uses_request_timeout_setting(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            ollama_url="http://127.0.0.1:11434/api/chat",
+            request_timeout=777,
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"message": {"content": '{"answer":"ok"}'}}
+        mock_post.return_value = response
+
+        llm_client.call_model([{"role": "user", "content": "hello"}], "demo-model", temperature=0.2)
+
+        mock_post.assert_called_once()
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 777)
+
     def test_extract_json_handles_wrapped_text(self) -> None:
         parsed = llm_client.extract_json('Result: {"action":"finish","final_answer":"hi"} thanks')
 

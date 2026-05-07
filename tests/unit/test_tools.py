@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 import requests
 from unittest.mock import Mock, patch
 
@@ -58,7 +59,13 @@ class ToolTests(unittest.TestCase):
 
     @patch("tools.shared.time.sleep", return_value=None)
     @patch("tools.shared.requests.get")
-    def test_get_json_retries_and_recovers(self, mock_get: Mock, _sleep: Mock) -> None:
+    @patch("tools.shared.get_settings")
+    def test_get_json_retries_and_recovers(self, mock_settings: Mock, mock_get: Mock, _sleep: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            tool_http_timeout=22,
+            http_max_retries=1,
+            http_retry_backoff_seconds=0.5,
+        )
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {"ok": True}
@@ -72,10 +79,17 @@ class ToolTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True})
         self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], 22)
 
     @patch("tools.shared.time.sleep", return_value=None)
     @patch("tools.shared.requests.get")
-    def test_get_json_raises_after_retry_exhaustion(self, mock_get: Mock, _sleep: Mock) -> None:
+    @patch("tools.shared.get_settings")
+    def test_get_json_raises_after_retry_exhaustion(self, mock_settings: Mock, mock_get: Mock, _sleep: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            tool_http_timeout=9,
+            http_max_retries=0,
+            http_retry_backoff_seconds=0.5,
+        )
         mock_get.side_effect = requests.RequestException("still failing")
 
         with self.assertRaises(requests.RequestException):

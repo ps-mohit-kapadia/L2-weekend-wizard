@@ -9,6 +9,7 @@ from typing import Any
 import requests
 import streamlit as st
 
+from config.config import get_settings
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
 
@@ -16,7 +17,6 @@ from schemas.api import ChatResponse, ReadinessResponse
 logger = get_logger("agent.streamlit")
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
-CHAT_REQUEST_TIMEOUT_SECONDS = 600
 
 
 @dataclass
@@ -86,7 +86,7 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": prompt},
-            timeout=CHAT_REQUEST_TIMEOUT_SECONDS,
+            timeout=get_settings().request_timeout,
         )
     except requests.RequestException as exc:
         raise RuntimeError(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
@@ -47,7 +48,9 @@ class StreamlitAppTests(unittest.TestCase):
             streamlit_app.load_readiness()
 
     @patch("streamlit_app.requests.post")
-    def test_send_chat_prompt_returns_structured_response(self, mock_post: Mock) -> None:
+    @patch("streamlit_app.get_settings")
+    def test_send_chat_prompt_returns_structured_response(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(request_timeout=888)
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
@@ -60,9 +63,12 @@ class StreamlitAppTests(unittest.TestCase):
 
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 888)
 
     @patch("streamlit_app.requests.post")
-    def test_send_chat_prompt_raises_with_api_error_detail(self, mock_post: Mock) -> None:
+    @patch("streamlit_app.get_settings")
+    def test_send_chat_prompt_raises_with_api_error_detail(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(request_timeout=888)
         response = Mock()
         response.status_code = 503
         response.json.return_value = {"detail": "Service is not ready."}

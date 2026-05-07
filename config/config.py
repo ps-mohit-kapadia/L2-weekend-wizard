@@ -29,6 +29,7 @@ class Settings:
     """Typed application settings for the Weekend Wizard runtime."""
 
     request_timeout: int
+    tool_http_timeout: int
     http_max_retries: int
     http_retry_backoff_seconds: float
     ollama_url: str
@@ -40,7 +41,8 @@ class Settings:
 def get_settings() -> Settings:
     """Load and cache application settings from environment variables."""
     return Settings(
-        request_timeout=_env_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 20),
+        request_timeout=_env_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 1200),
+        tool_http_timeout=_env_int("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", 20),
         http_max_retries=_env_int("WEEKEND_WIZARD_HTTP_MAX_RETRIES", 2),
         http_retry_backoff_seconds=_env_float(
             "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS",

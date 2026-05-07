@@ -16,7 +16,7 @@ import requests
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 DEFAULT_PROMPT = "Tell me a joke."
-DEFAULT_CHAT_TIMEOUT_SECONDS = 120
+DEFAULT_CHAT_TIMEOUT_SECONDS = 1200
 
 
 def parse_args() -> argparse.Namespace:

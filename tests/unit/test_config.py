@@ -15,6 +15,8 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "WEEKEND_WIZARD_REQUEST_TIMEOUT": "900",
+                "WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT": "15",
                 "WEEKEND_WIZARD_HTTP_MAX_RETRIES": "4",
                 "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS": "0.25",
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
@@ -25,6 +27,8 @@ class ConfigTests(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
+        self.assertEqual(settings.request_timeout, 900)
+        self.assertEqual(settings.tool_http_timeout, 15)
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
@@ -42,6 +46,14 @@ class ConfigTests(unittest.TestCase):
             settings = get_settings()
 
             self.assertEqual(settings.http_max_retries, 6)
+
+    def test_get_settings_uses_timeout_defaults_for_separate_domains(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.request_timeout, 1200)
+        self.assertEqual(settings.tool_http_timeout, 20)
 
 
 if __name__ == "__main__":
