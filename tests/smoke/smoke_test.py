@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -15,6 +16,7 @@ import requests
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 DEFAULT_PROMPT = "Tell me a joke."
+DEFAULT_CHAT_TIMEOUT_SECONDS = 120
 
 
 def parse_args() -> argparse.Namespace:
@@ -116,6 +118,19 @@ def validate_chat_payload(payload: dict[str, Any]) -> None:
         raise RuntimeError("Smoke test failed: /chat response did not include a tool_observations list.")
 
 
+def resolve_chat_timeout_seconds() -> int:
+    """Resolve the smoke-test /chat timeout from env or default."""
+    value = os.getenv("WEEKEND_WIZARD_REQUEST_TIMEOUT")
+    if value is None:
+        return DEFAULT_CHAT_TIMEOUT_SECONDS
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RuntimeError(
+            "Smoke test configuration error: WEEKEND_WIZARD_REQUEST_TIMEOUT must be a valid integer."
+        ) from exc
+
+
 def start_local_api(project_dir: Path) -> subprocess.Popen[str]:
     """Start a local Weekend Wizard API process."""
     command = [sys.executable, "main.py", "api"]
@@ -169,7 +184,11 @@ def main() -> None:
             f" model={readiness.get('model_name')} tool_count={readiness.get('tool_count')}"
         )
 
-        response = requests.post(f"{base_url}/chat", json={"prompt": args.prompt}, timeout=120)
+        response = requests.post(
+            f"{base_url}/chat",
+            json={"prompt": args.prompt},
+            timeout=resolve_chat_timeout_seconds(),
+        )
         try:
             payload = response.json()
         except ValueError as exc:
