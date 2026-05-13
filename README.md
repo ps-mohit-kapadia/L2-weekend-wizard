@@ -20,7 +20,28 @@ This branch is intentionally aligned to the original L2 assignment:
 
 The agent decides one next step at a time, calls MCP tools when needed, observes the result, and stops when it has enough information to answer.
 
-For the parallel Level 3 Claude Agent SDK migration path, see [docs/sdk-migration.md](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/docs/sdk-migration.md).
+For the parallel Level 3 Claude Agent SDK migration path, see [docs/sdk-migration.md](docs/sdk-migration.md).
+
+## L3 Claude SDK Path
+
+This branch also includes a parallel Claude Agent SDK implementation under `claude_sdk_agent/`.
+
+Migration details live in [docs/sdk-migration.md](docs/sdk-migration.md).
+
+Useful SDK dry-run commands:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\run_claude_sdk_agent.py --dry-run --prompt "Tell me a joke."
+.\.venv\Scripts\python.exe .\scripts\smoke_claude_sdk_agent.py --dry-run
+```
+
+Notes:
+
+- the original L2 ReAct implementation and entrypoints below remain intact
+- live Claude SDK behavior has not yet been verified on this branch
+- the live runner requires valid Claude SDK / Claude Code authentication available in the environment
+- the live smoke harness currently pre-checks `ANTHROPIC_API_KEY`
+- alternative company Claude Code auth paths are still pending clarification
 
 ---
 
@@ -105,6 +126,13 @@ weekend-wizard/
 |- requirements.txt
 |- README.md
 |
+|- claude_sdk_agent/        # parallel L3 Claude SDK path
+|  |- config.py
+|  |- prompts.py
+|  |- runner.py
+|  |- smoke.py
+|  |- tools.py
+|
 |- application/
 |  |- service.py
 |
@@ -136,6 +164,13 @@ weekend-wizard/
 |  |- geo.py
 |  |- shared.py
 |  |- weather.py
+|
+|- docs/                    # parallel L3 Claude SDK migration docs
+|  |- sdk-migration.md
+|
+|- scripts/                 # parallel L3 Claude SDK runner/smoke entrypoints
+|  |- run_claude_sdk_agent.py
+|  |- smoke_claude_sdk_agent.py
 |
 |- tests/
 |  |- smoke/
@@ -344,7 +379,7 @@ WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 
 Notes:
 
-- the active runtime model is configured in [config/config.py](C:/Users/MohitKapadiya/Desktop/New%20folder/genai/L2_agents/weekend-wizard/config/config.py)
+- the active runtime model is configured in [config/config.py](config/config.py)
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 
