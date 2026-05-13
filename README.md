@@ -290,7 +290,7 @@ Responsibilities:
 ### 1. Install dependencies
 
 ```powershell
-cd "C:\Users\MohitKapadiya\Desktop\New folder\genai\L2_agents\weekend-wizard"
+cd <path-to-weekend-wizard>
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r .\requirements.txt
