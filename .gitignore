@@ -31,3 +31,7 @@ jira.md
 /review
 
 .env
+
+# Local Codex workflow files
+AGENTS.md
+.codex/
