@@ -49,7 +49,7 @@ The SDK path is intentionally separate so it does not rewrite the original L2 ar
 Install dependencies:
 
 ```powershell
-cd "C:\Users\MohitKapadiya\Desktop\New folder\genai\L2_agents\weekend-wizard"
+cd <path-to-weekend-wizard>
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r .\requirements.txt
@@ -101,7 +101,13 @@ Attempt a live SDK smoke run:
 .\.venv\Scripts\python.exe .\scripts\smoke_claude_sdk_agent.py
 ```
 
-Live SDK runs require Claude authentication such as `ANTHROPIC_API_KEY`.
+SDK `--dry-run` commands do not require Claude authentication.
+
+Live SDK runner commands require valid Claude SDK / Claude Code authentication available in the environment.
+
+Live SDK smoke currently pre-checks `ANTHROPIC_API_KEY`.
+
+Alternative company Claude Code auth paths are still pending clarification on this branch.
 
 Do not commit real API keys into the repository.
 
@@ -123,6 +129,7 @@ The current SDK runner assumes:
 - a Claude SDK installation is present in the repo virtual environment
 - any live Claude run has valid authentication in the environment
 - dry-run mode should work without Claude authentication
+- live smoke currently pre-checks `ANTHROPIC_API_KEY`
 
 ## Context management
 
