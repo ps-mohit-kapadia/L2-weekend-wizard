@@ -124,7 +124,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
-        self.assertFalse(result.used_fallback)
+        self.assertTrue(result.used_fallback)
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
@@ -176,6 +176,27 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.tool_observations, [])
         self.assertIn("couldn't complete a reliable weekend wizard turn", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 0)
+
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_planning_failure_after_tool_success_preserves_observations(
+        self,
+        mock_react: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Fetch a joke first.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "I should use a tool.", "action": "tool", "args": {}},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
+
+        context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
+        result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
+
+        self.assertTrue(result.used_fallback)
+        self.assertEqual(len(result.tool_observations), 1)
+        self.assertIn("A fetched joke.", result.answer)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
     @patch(
         "agent.orchestrator.llm_reflection_json",

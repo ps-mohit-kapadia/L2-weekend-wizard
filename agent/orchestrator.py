@@ -191,15 +191,15 @@ def run_reflection(
     user_prompt: str,
     tool_observations: List[ToolObservation],
     draft_answer: str,
-) -> str:
+) -> Tuple[str, bool]:
     """Run one reflection pass and fall back to the grounded draft on failure."""
     messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name)
-        return reflected["answer"].strip()
+        return reflected["answer"].strip(), False
     except Exception as exc:
         logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
-        return draft_answer
+        return draft_answer, True
 
 
 def build_react_failure_answer() -> str:
@@ -220,13 +220,13 @@ def finalize_after_execution(
 ) -> InteractionResult:
     """Build, reflect, and persist the final answer after execution."""
     grounded = draft_answer or build_grounded_draft(user_prompt, tool_observations)
-    final_answer = run_reflection(context, user_prompt, tool_observations, grounded)
+    final_answer, reflection_used_fallback = run_reflection(context, user_prompt, tool_observations, grounded)
     final_answer = compose_grounded_answer_from_observations(user_prompt, final_answer, tool_observations)
     return build_interaction_result(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
-        used_fallback=used_fallback,
+        used_fallback=used_fallback or reflection_used_fallback,
     )
 
 
@@ -263,6 +263,14 @@ async def orchestrate_interaction(
             validate_react_decision_semantics(decision, context.tool_names)
         except Exception as exc:
             logger.exception("ReAct decision failed: %s", exc)
+            if state.tool_observations:
+                return finalize_after_execution(
+                    context,
+                    user_prompt,
+                    state.tool_observations,
+                    build_react_failure_answer(),
+                    used_fallback=True,
+                )
             return build_interaction_result(
                 context.history,
                 answer=build_react_failure_answer(),
