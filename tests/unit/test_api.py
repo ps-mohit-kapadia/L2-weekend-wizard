@@ -57,6 +57,18 @@ class _ExplodingWizardApp(_FakeWizardApp):
 
 
 class ApiTests(unittest.TestCase):
+    def test_ready_endpoint_returns_503_when_model_discovery_fails_during_startup(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", side_effect=RuntimeError("offline")),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.get("/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+
     def test_health_endpoint_returns_ok(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
@@ -127,6 +139,17 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _BrokenWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+
+    def test_chat_endpoint_returns_sanitized_not_ready_detail_after_startup_discovery_failure(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", side_effect=RuntimeError("offline")),
             TestClient(api.create_api()) as client,
         ):
             response = client.post("/chat", json={"prompt": "hello"})

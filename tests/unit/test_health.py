@@ -6,7 +6,12 @@ from unittest.mock import patch
 
 import requests
 
-from api import build_not_ready_response, evaluate_runtime_readiness
+from api import (
+    MODEL_UNAVAILABLE_DETAIL,
+    OLLAMA_UNREACHABLE_DETAIL,
+    build_not_ready_response,
+    evaluate_runtime_readiness,
+)
 
 
 class _FakeReadyApp:
@@ -50,7 +55,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(response.status, "not_ready")
         self.assertTrue(response.checks.ollama_reachable)
         self.assertFalse(response.checks.model_available)
-        self.assertIn("Resolved model is not available", response.details or "")
+        self.assertEqual(response.details, MODEL_UNAVAILABLE_DETAIL)
 
     def test_evaluate_runtime_readiness_returns_not_ready_when_ollama_is_unreachable(self) -> None:
         with patch("api.list_available_models", side_effect=requests.RequestException("offline")):
@@ -59,7 +64,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(response.status, "not_ready")
         self.assertFalse(response.checks.ollama_reachable)
         self.assertFalse(response.checks.model_available)
-        self.assertIn("Ollama is not reachable", response.details or "")
+        self.assertEqual(response.details, OLLAMA_UNREACHABLE_DETAIL)
 
 
 if __name__ == "__main__":

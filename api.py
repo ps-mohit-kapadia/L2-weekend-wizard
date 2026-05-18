@@ -22,6 +22,9 @@ logger = get_logger("agent.api")
 
 UNEXPECTED_CHAT_ERROR_DETAIL = "Weekend Wizard could not complete that request."
 UNEXPECTED_READINESS_ERROR_DETAIL = "Weekend Wizard runtime failed to start."
+OLLAMA_UNREACHABLE_DETAIL = "Ollama is not reachable."
+MODEL_UNAVAILABLE_DETAIL = "Resolved model is not available in Ollama."
+MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
 
 
 def build_not_ready_response(
@@ -73,7 +76,7 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
     if not checks.model_resolved:
         details = "No Ollama model was resolved for this session."
     elif not checks.server_path_exists:
-        details = f"MCP server file not found: {app.server_path}"
+        details = MCP_SERVER_MISSING_DETAIL
     elif not checks.mcp_session_ready:
         details = "Application runtime is not initialized."
     elif not checks.tools_discovered:
@@ -85,9 +88,10 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
             checks.ollama_reachable = True
             checks.model_available = app.model_name in available_models
             if not checks.model_available:
-                details = f"Resolved model is not available in Ollama: {app.model_name}"
+                details = MODEL_UNAVAILABLE_DETAIL
         except requests.RequestException as exc:
-            details = f"Ollama is not reachable: {exc}"
+            logger.warning("Ollama readiness check failed: %s", exc)
+            details = OLLAMA_UNREACHABLE_DETAIL
 
     status = "ready" if details is None and all(checks.model_dump().values()) else "not_ready"
     return ReadinessResponse(
@@ -110,8 +114,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Control back to FastAPI while the shared runtime is available.
     """
     project_dir = Path(__file__).resolve().parent
-    server_path, model_name = project_dir / "main.py", discover_model(None)
-    wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
+    server_path = project_dir / "main.py"
+    model_name = ""
     app.state.wizard = None
     app.state.readiness = build_not_ready_response(
         server_path,
@@ -120,6 +124,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     try:
+        model_name = discover_model(None)
+        app.state.readiness = build_not_ready_response(
+            server_path,
+            model_name,
+            "API runtime has not started yet.",
+        )
+        wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
         await wizard.__aenter__()
     except Exception as exc:
         logger.exception("API runtime startup failed: %s", exc)
