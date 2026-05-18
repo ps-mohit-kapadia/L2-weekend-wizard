@@ -18,6 +18,7 @@ from schemas.tools import GeoResult, ToolError
 
 logger = get_logger("agent.orchestrator")
 MAX_REACT_STEPS = 6
+SAFE_TOOL_INVOCATION_DETAIL = "tool execution failed"
 
 
 @dataclass
@@ -111,7 +112,7 @@ async def execute_tool_call(
         return payload
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
-        return _tool_error_payload(tool_name, str(exc))
+        return _tool_error_payload(tool_name, SAFE_TOOL_INVOCATION_DETAIL)
 
 
 def normalize_tool_args(

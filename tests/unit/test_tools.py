@@ -6,7 +6,7 @@ import requests
 from unittest.mock import Mock, patch
 
 from tools.books import book_recs
-from tools.shared import error_payload, get_json
+from tools.shared import SAFE_TOOL_ERROR_DETAIL, error_payload, get_json
 from tools.weather import get_weather
 
 
@@ -52,10 +52,11 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(result["wind_speed_unit"], "km/h")
 
     def test_error_payload_returns_consistent_shape(self) -> None:
-        payload = error_payload("weather", RuntimeError("boom"))
+        payload = error_payload("weather", RuntimeError("https://internal.example.local boom"))
 
         self.assertEqual(payload["error"], "weather request failed")
-        self.assertIn("boom", payload["details"])
+        self.assertEqual(payload["details"], SAFE_TOOL_ERROR_DETAIL)
+        self.assertNotIn("internal.example.local", payload["details"])
 
     @patch("tools.shared.time.sleep", return_value=None)
     @patch("tools.shared.requests.get")

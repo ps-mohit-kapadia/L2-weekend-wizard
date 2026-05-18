@@ -5,7 +5,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from agent.orchestrator import orchestrate_interaction, validate_react_decision_semantics
+from agent.orchestrator import (
+    SAFE_TOOL_INVOCATION_DETAIL,
+    orchestrate_interaction,
+    validate_react_decision_semantics,
+)
 from mcp_runtime.client import ToolInvocationError
 from schemas.agent import OrchestratorContext, validate_react_decision
 
@@ -197,7 +201,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         tool_gateway = AsyncMock()
         tool_gateway.call_tool.side_effect = [
-            ToolInvocationError("weather request failed"),
+            ToolInvocationError("GET https://internal.example.local/weather?token=secret timed out"),
             fake_tool_result({"joke": "A fetched joke."}),
         ]
 
@@ -216,6 +220,14 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertIn("A fetched joke.", result.answer)
+        self.assertIn(SAFE_TOOL_INVOCATION_DETAIL, result.answer)
+        self.assertNotIn("internal.example.local", result.answer)
+        self.assertNotIn("token=secret", result.answer)
+        self.assertEqual(
+            result.tool_observations[0].payload,
+            '{"error": "get_weather failed", "details": "' + SAFE_TOOL_INVOCATION_DETAIL + '"}',
+        )
+        self.assertNotIn("internal.example.local", result.tool_observations[0].payload)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
 
     def test_validate_react_decision_semantics_rejects_unknown_tool(self) -> None:

@@ -12,6 +12,7 @@ from logger.logging import get_logger
 
 
 logger = get_logger("tools.shared")
+SAFE_TOOL_ERROR_DETAIL = "temporary upstream failure"
 
 
 def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -67,4 +68,4 @@ def error_payload(source: str, exc: Exception) -> Dict[str, str]:
         A serializable error payload for tool responses.
     """
     logger.warning("%s request failed: %s", source, exc)
-    return {"error": f"{source} request failed", "details": str(exc)}
+    return {"error": f"{source} request failed", "details": SAFE_TOOL_ERROR_DETAIL}
