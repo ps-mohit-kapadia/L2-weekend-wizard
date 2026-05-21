@@ -118,8 +118,11 @@ class LlmClientTests(unittest.TestCase):
     def test_llm_react_json_repair_includes_original_context_and_allowed_tools(self, mock_call_model: Mock) -> None:
         messages = [
             {"role": "system", "content": "react rules"},
+            {
+                "role": "user",
+                "content": "Structured observation summary:\n- random_joke: fetched one joke",
+            },
             {"role": "user", "content": "Tell me a joke."},
-            {"role": "assistant", "content": '[tool:random_joke] {"joke":"A fetched joke."}'},
         ]
 
         llm_client.llm_react_json(messages, "demo-model", allowed_tools=["random_joke", "random_dog"])
@@ -134,7 +137,9 @@ class LlmClientTests(unittest.TestCase):
         self.assertIn("Never invent tools.", repair_system)
         self.assertIn("If prior observations already satisfy the request, return finish.", repair_system)
         self.assertIn("one successful random_joke, random_dog, or trivia observation already satisfies the request", repair_system)
-        self.assertIn('[tool:random_joke] {"joke":"A fetched joke."}', str(repair_messages))
+        self.assertIn("Structured observation summary:", str(repair_messages))
+        self.assertIn("- random_joke: fetched one joke", str(repair_messages))
+        self.assertNotIn('[tool:random_joke] {"joke":"A fetched joke."}', str(repair_messages))
         self.assertIn("Invalid output:", repair_user)
 
     @patch(

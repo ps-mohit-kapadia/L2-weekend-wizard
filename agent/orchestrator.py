@@ -87,13 +87,12 @@ def _tool_error_payload(tool_name: str, details: str) -> str:
 
 
 def record_tool_observation(
-    history: List[Dict[str, str]],
     tool_observations: List[ToolObservation],
     tool_name: str,
     args: Dict[str, Any],
     payload: str,
 ) -> None:
-    """Record a tool observation in both free-form and structured interaction state."""
+    """Record one structured tool observation for downstream summaries and grounding."""
     tool_observations.append(ToolObservation(tool_name=tool_name, args=args, payload=payload))
 
 
@@ -343,7 +342,6 @@ async def orchestrate_interaction(
         else:
             payload = await execute_tool_call(tool_gateway, decision.tool, normalized_args)
         record_tool_observation(
-            context.history,
             state.tool_observations,
             decision.tool,
             normalized_args or decision.args,
