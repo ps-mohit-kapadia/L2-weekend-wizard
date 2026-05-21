@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable, List
 
+from agent.grounding import render_compact_observation_summaries
 from schemas.agent import ToolObservation
 
 
@@ -97,10 +98,7 @@ def build_reflection_messages(
     draft_answer: str,
 ) -> List[dict[str, str]]:
     """Build the one-shot reflection prompt."""
-    observation_lines = [
-        f"- {observation.tool_name} args={observation.args} payload={observation.payload}"
-        for observation in tool_observations
-    ]
+    observation_lines = render_compact_observation_summaries(user_prompt, tool_observations)
     observation_block = "\n".join(observation_lines) if observation_lines else "- none"
 
     return [

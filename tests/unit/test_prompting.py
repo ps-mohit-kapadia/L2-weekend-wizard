@@ -54,8 +54,45 @@ class PromptingTests(unittest.TestCase):
 
         self.assertEqual(len(messages), 2)
         self.assertIn('{"answer":"..."}', messages[0]["content"])
-        self.assertIn("random_joke", messages[1]["content"])
+        self.assertIn("- Joke: Hi", messages[1]["content"])
         self.assertIn("Joke: Hi", messages[1]["content"])
+        self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
+
+    def test_build_reflection_messages_use_compact_error_detail_without_raw_payload_blob(self) -> None:
+        messages = build_reflection_messages(
+            "Give me the weather and a joke.",
+            [
+                ToolObservation(
+                    tool_name="get_weather",
+                    args={"latitude": 40.7128, "longitude": -74.0060},
+                    payload='{"error":"get_weather failed","details":"tool execution failed"}',
+                ),
+                ToolObservation(tool_name="random_joke", args={}, payload='{"joke":"Hi"}'),
+            ],
+            "Weather failed, but here is a joke.",
+        )
+
+        self.assertIn("- Weather: unavailable (tool execution failed)", messages[1]["content"])
+        self.assertIn("- Joke: Hi", messages[1]["content"])
+        self.assertNotIn('{"error":"get_weather failed"', messages[1]["content"])
+        self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
+
+    def test_build_reflection_messages_avoid_raw_url_payload_rendering(self) -> None:
+        messages = build_reflection_messages(
+            "Plan a cozy Saturday with a dog pic.",
+            [
+                ToolObservation(
+                    tool_name="random_dog",
+                    args={},
+                    payload='{"status":"success","image_url":"https://example.com/dog.jpg"}',
+                ),
+            ],
+            "Here is a dog pic.",
+        )
+
+        self.assertIn("- Dog Pic: fetched one dog image", messages[1]["content"])
+        self.assertNotIn('{"status":"success","image_url"', messages[1]["content"])
+        self.assertNotIn("https://example.com/dog.jpg", messages[1]["content"])
 
     def test_compose_grounded_answer_returns_single_tool_fact(self) -> None:
         tool_observations = [

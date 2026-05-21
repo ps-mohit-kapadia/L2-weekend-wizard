@@ -179,6 +179,22 @@ def render_grounded_sections(items: List[GroundedItem]) -> List[str]:
     return [f"- {item.title}: {item.detail}" for item in items]
 
 
+def render_compact_observation_summaries(
+    user_prompt: str,
+    tool_observations: List[ToolObservation],
+) -> List[str]:
+    """Render compact grounded observation summaries for prompts."""
+    payloads = parse_tool_observations(tool_observations)
+    grounded_items = build_grounded_items(user_prompt, payloads)
+    rendered: List[str] = []
+    for item in grounded_items:
+        detail = item.detail
+        if item.title == "Dog Pic":
+            detail = "fetched one dog image"
+        rendered.append(f"- {item.title}: {detail}")
+    return rendered
+
+
 def compose_grounded_answer_from_payloads(
     user_prompt: str,
     answer: str,
