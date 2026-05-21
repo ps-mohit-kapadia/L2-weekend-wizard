@@ -13,7 +13,7 @@ from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import InteractionResult, OrchestratorContext, ReactDecision, ToolObservation, validate_react_decision
-from schemas.tools import GeoResult, ToolError
+from schemas.tools import BookResults, DogResult, GeoResult, JokeResult, ToolError, TriviaResult, WeatherResult
 
 
 logger = get_logger("agent.orchestrator")
@@ -95,7 +95,59 @@ def record_tool_observation(
 ) -> None:
     """Record a tool observation in both free-form and structured interaction state."""
     tool_observations.append(ToolObservation(tool_name=tool_name, args=args, payload=payload))
-    history.append({"role": "assistant", "content": f"[tool:{tool_name}] {payload}"})
+
+
+def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
+    """Build a compact structured summary for intermediate ReAct steps."""
+    summary_lines: List[str] = []
+
+    for observation in tool_observations:
+        parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
+        tool_name = observation.tool_name
+
+        if isinstance(parsed, ToolError):
+            detail = parsed.details or parsed.error
+            summary_lines.append(f"- {tool_name}: failed ({detail})")
+            continue
+
+        if tool_name == "city_to_coords" and isinstance(parsed, GeoResult):
+            summary_lines.append(
+                f"- city_to_coords: resolved {parsed.city} to {parsed.latitude}, {parsed.longitude}"
+            )
+            continue
+
+        if tool_name == "get_weather" and isinstance(parsed, WeatherResult):
+            detail = parsed.weather_summary or "weather fetched"
+            temp = (
+                f" at {parsed.temperature}{parsed.temperature_unit or ''}"
+                if parsed.temperature is not None
+                else ""
+            )
+            summary_lines.append(f"- get_weather: {detail}{temp}")
+            continue
+
+        if tool_name == "book_recs" and isinstance(parsed, BookResults):
+            result_count = len(parsed.results)
+            summary_lines.append(
+                f"- book_recs: fetched {result_count} book recommendations for {parsed.topic}"
+            )
+            continue
+
+        if tool_name == "random_joke" and isinstance(parsed, JokeResult):
+            summary_lines.append("- random_joke: fetched one joke")
+            continue
+
+        if tool_name == "random_dog" and isinstance(parsed, DogResult):
+            summary_lines.append("- random_dog: fetched one dog image")
+            continue
+
+        if tool_name == "trivia" and isinstance(parsed, TriviaResult):
+            summary_lines.append("- trivia: fetched one trivia question")
+            continue
+
+        summary_lines.append(f"- {tool_name}: completed")
+
+    return "\n".join(summary_lines)
 
 
 async def execute_tool_call(
@@ -252,6 +304,7 @@ async def orchestrate_interaction(
             context.tool_names,
             step_number=step_number,
             max_steps=MAX_REACT_STEPS,
+            observation_summary=build_observation_summary(state.tool_observations),
         )
         try:
             raw_decision = llm_react_json(

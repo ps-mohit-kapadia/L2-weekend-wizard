@@ -28,9 +28,10 @@ def build_react_messages(
     tool_names: List[str],
     step_number: int,
     max_steps: int,
+    observation_summary: str | None = None,
 ) -> List[dict[str, str]]:
     """Build one bounded ReAct decision prompt for the LLM."""
-    return [
+    messages = [
         {
             "role": "system",
             "content": (
@@ -72,14 +73,22 @@ def build_react_messages(
                 '- For "Plan a cozy Saturday in New York with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is a cozy weekend plan for you..."}\n'
-                "Any assistant message in the form [tool:name] payload is a previous tool observation.\n"
-                "Use those observations before deciding the next step.\n"
+                "A compact structured observation summary may be provided below after tools run.\n"
+                "Use that summary before deciding the next step.\n"
                 "Supported tools:\n"
                 f"{_tool_lines(tool_names)}"
             ),
         },
-        *history,
     ]
+    if observation_summary:
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Structured observation summary:\n{observation_summary}",
+            }
+        )
+    messages.extend(history)
+    return messages
 
 
 def build_reflection_messages(
