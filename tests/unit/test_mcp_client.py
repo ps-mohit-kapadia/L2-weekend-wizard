@@ -20,7 +20,19 @@ class McpServiceTests(unittest.IsolatedAsyncioTestCase):
         service = McpService(Path("mcp_server.py"))
         service._tools = [SimpleNamespace(name="get_weather"), SimpleNamespace(name="random_joke")]
 
-        self.assertEqual(service.tool_names, ["get_weather", "random_joke"])
+        self.assertEqual(service.tool_names, ("get_weather", "random_joke"))
+
+    async def test_tools_accessor_returns_immutable_snapshot(self) -> None:
+        service = McpService(Path("mcp_server.py"))
+        weather = SimpleNamespace(name="get_weather")
+        service._tools = [weather]
+
+        tools = service.tools
+
+        self.assertEqual(tools, (weather,))
+        with self.assertRaises(AttributeError):
+            tools.append(SimpleNamespace(name="random_joke"))  # type: ignore[attr-defined]
+        self.assertEqual(service.tools, (weather,))
 
     async def test_server_args_are_retained_for_spawn(self) -> None:
         service = McpService(Path("main.py"), server_args=["mcp-server"])

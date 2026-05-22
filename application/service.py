@@ -46,13 +46,13 @@ class WeekendWizardApp:
         return self._model_name
 
     @property
-    def tool_names(self) -> List[str]:
+    def tool_names(self) -> tuple[str, ...]:
         """Return MCP tool names discovered during startup.
 
         Returns:
-            Tool names exposed by the MCP server.
+            An immutable snapshot of the tool names exposed by the MCP server.
         """
-        return self._tool_names
+        return tuple(self._tool_names)
 
     @property
     def server_path(self) -> Path:
@@ -89,7 +89,7 @@ class WeekendWizardApp:
         )
         try:
             await self._mcp_service.__aenter__()
-            self._tool_names = self._mcp_service.tool_names
+            self._tool_names = list(self._mcp_service.tool_names)
             self._validate_startup()
             self._is_initialized = True
             logger.info("App session ready with model %s and %d tools", self._model_name, len(self._tool_names))

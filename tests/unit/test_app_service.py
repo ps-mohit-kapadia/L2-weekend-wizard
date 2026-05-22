@@ -32,9 +32,23 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
 
-        self.assertEqual(app.tool_names, ["get_weather"])
+        self.assertEqual(app.tool_names, ("get_weather",))
         self.assertEqual(app.model_name, "llama3.2:latest")
         self.assertTrue(app.is_initialized)
+
+        await app.__aexit__(None, None, None)
+
+    async def test_tool_names_accessor_returns_immutable_snapshot(self) -> None:
+        with patch("application.service.McpService", _FakeMcpService):
+            app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
+            await app.__aenter__()
+
+        tool_names = app.tool_names
+
+        self.assertEqual(tool_names, ("get_weather",))
+        with self.assertRaises(AttributeError):
+            tool_names.append("random_joke")  # type: ignore[attr-defined]
+        self.assertEqual(app.tool_names, ("get_weather",))
 
         await app.__aexit__(None, None, None)
 

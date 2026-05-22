@@ -52,22 +52,22 @@ class McpService:
         self._tools: List[Any] = []
 
     @property
-    def tools(self) -> List[Any]:
+    def tools(self) -> tuple[Any, ...]:
         """Return MCP tool descriptors discovered during initialization.
 
         Returns:
-            The discovered MCP tool descriptors.
+            An immutable snapshot of the discovered MCP tool descriptors.
         """
-        return self._tools
+        return tuple(self._tools)
 
     @property
-    def tool_names(self) -> List[str]:
+    def tool_names(self) -> tuple[str, ...]:
         """Return discovered tool names.
 
         Returns:
-            Tool names exposed by the MCP server.
+            An immutable snapshot of the tool names exposed by the MCP server.
         """
-        return [tool.name for tool in self._tools]
+        return tuple(tool.name for tool in self._tools)
 
     async def __aenter__(self) -> McpService:
         """Start the MCP server and initialize the client session.
