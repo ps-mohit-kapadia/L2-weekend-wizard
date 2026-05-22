@@ -269,10 +269,18 @@ def finalize_after_execution(
     *,
     used_fallback: bool = False,
 ) -> InteractionResult:
-    """Build, reflect, and persist the final answer after execution."""
-    grounded = draft_answer or build_grounded_draft(user_prompt, tool_observations)
+    """Build the grounded draft, reflect once, and persist the final answer.
+
+    Reflection is the final natural-language writer. The grounded draft exists
+    only to provide a safe evidence-based input and fallback when reflection
+    fails.
+    """
+    grounded = (
+        build_grounded_draft(user_prompt, tool_observations)
+        if tool_observations
+        else draft_answer
+    )
     final_answer, reflection_used_fallback = run_reflection(context, user_prompt, tool_observations, grounded)
-    final_answer = compose_grounded_answer_from_observations(user_prompt, final_answer, tool_observations)
     return build_interaction_result(
         context.history,
         answer=final_answer,

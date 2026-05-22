@@ -148,7 +148,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 1)
-        self.assertIn("A fetched joke.", result.answer)
+        self.assertEqual(result.answer, "Here is your joke.")
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
         second_call_messages = mock_react.call_args_list[1].args[0]
         combined = "\n".join(message["content"] for message in second_call_messages)
@@ -383,8 +383,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 2)
-        self.assertIn("A fetched joke.", result.answer)
-        self.assertIn(SAFE_TOOL_INVOCATION_DETAIL, result.answer)
+        self.assertEqual(
+            result.answer,
+            "Weekend Wizard Plan\n- Weather: unavailable (weather request failed)\n- Joke: A fetched joke.",
+        )
         self.assertNotIn("internal.example.local", result.answer)
         self.assertNotIn("token=secret", result.answer)
         self.assertEqual(
@@ -393,6 +395,27 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("internal.example.local", result.tool_observations[0].payload)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Polished final answer."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_reflection_output_is_preserved_as_final_answer(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "I should fetch a joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is a joke for you."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [fake_tool_result({"joke": "A fetched joke."})]
+
+        context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
+        result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
+
+        self.assertEqual(result.answer, "Polished final answer.")
+        self.assertNotIn("A fetched joke.", result.answer)
 
     def test_validate_react_decision_semantics_rejects_unknown_tool(self) -> None:
         decision = {
