@@ -87,7 +87,7 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            patch("api.list_available_models", return_value=["llama3.2:latest"]) as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             response = client.get("/ready")
@@ -97,6 +97,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["tool_count"], 1)
         self.assertTrue(response.json()["checks"]["mcp_session_ready"])
         self.assertTrue(response.json()["checks"]["model_available"])
+        self.assertTrue(response.json()["checks"]["ollama_reachable"])
+        mock_list_models.assert_called_once_with(timeout=5)
 
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
         with (
@@ -118,7 +120,7 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", return_value=fake_app),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            patch("api.list_available_models") as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
@@ -130,6 +132,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(fake_app.created_contexts), 1)
         created_context = fake_app.created_contexts[0]
         fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
+        mock_list_models.assert_not_called()
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
@@ -162,13 +165,14 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _ExplodingWizardApp),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]),
+            patch("api.list_available_models") as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"], api.UNEXPECTED_CHAT_ERROR_DETAIL)
+        mock_list_models.assert_not_called()
 
     def test_chat_endpoint_does_not_recompute_full_readiness_per_request(self) -> None:
         fake_app = _FakeWizardApp()

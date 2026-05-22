@@ -103,6 +103,41 @@ def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
     )
 
 
+def build_startup_ready_response(app: WeekendWizardApp) -> ReadinessResponse:
+    """Build the initial startup readiness snapshot from validated startup state.
+
+    This reuses the just-completed startup model validation instead of issuing an
+    immediate second Ollama model-listing call during the same startup path.
+    """
+    checks = ReadinessChecks(
+        model_resolved=bool(app.model_name.strip()),
+        model_available=True,
+        server_path_exists=app.server_path.exists(),
+        ollama_reachable=True,
+        mcp_session_ready=app.is_initialized,
+        tools_discovered=bool(app.tool_names),
+    )
+    details: str | None = None
+
+    if not checks.model_resolved:
+        details = "No Ollama model was resolved for this session."
+    elif not checks.server_path_exists:
+        details = MCP_SERVER_MISSING_DETAIL
+    elif not checks.mcp_session_ready:
+        details = "Application runtime is not initialized."
+    elif not checks.tools_discovered:
+        details = "Startup check could not discover any MCP tools."
+
+    status = "ready" if details is None and all(checks.model_dump().values()) else "not_ready"
+    return ReadinessResponse(
+        status=status,
+        model_name=app.model_name,
+        tool_count=len(app.tool_names),
+        checks=checks,
+        details=details,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage the shared Weekend Wizard runtime for the API process.
@@ -138,7 +173,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
         return
 
-    readiness = evaluate_runtime_readiness(wizard)
+    readiness = build_startup_ready_response(wizard)
     if readiness.status != "ready":
         logger.warning("API runtime is not ready: %s", readiness.details)
         app.state.readiness = readiness
