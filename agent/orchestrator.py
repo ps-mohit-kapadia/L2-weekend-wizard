@@ -96,6 +96,21 @@ def record_tool_observation(
     tool_observations.append(ToolObservation(tool_name=tool_name, args=args, payload=payload))
 
 
+def has_successful_duplicate_observation(
+    tool_observations: List[ToolObservation],
+    tool_name: str,
+    args: Dict[str, Any],
+) -> bool:
+    """Return whether an identical successful observation already exists."""
+    for observation in tool_observations:
+        if observation.tool_name != tool_name or observation.args != args:
+            continue
+        parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
+        if not isinstance(parsed, ToolError):
+            return True
+    return False
+
+
 def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
     """Build a compact structured summary for intermediate ReAct steps."""
     summary_lines: List[str] = []
@@ -347,6 +362,19 @@ async def orchestrate_interaction(
         normalized_args, error = normalize_tool_args(decision.tool, decision.args, state)
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
+        elif has_successful_duplicate_observation(state.tool_observations, decision.tool, normalized_args):
+            logger.info(
+                "Skipping duplicate successful tool call for %s with args=%s and finalizing",
+                decision.tool,
+                normalized_args,
+            )
+            return finalize_after_execution(
+                context,
+                user_prompt,
+                state.tool_observations,
+                draft_answer,
+                used_fallback=False,
+            )
         else:
             payload = await execute_tool_call(tool_gateway, decision.tool, normalized_args)
         record_tool_observation(

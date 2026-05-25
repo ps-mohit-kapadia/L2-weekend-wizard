@@ -209,6 +209,109 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('"latitude": 40.71427', combined)
         self.assertNotIn('"longitude": -74.00597', combined)
 
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_duplicate_successful_get_weather_executes_only_once(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Get weather again.", "action": "tool", "tool": "get_weather", "args": {}},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather in Chicago?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(len(result.tool_observations), 2)
+        self.assertEqual(result.answer, "Here is the weather.")
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_implicit_and_explicit_equivalent_weather_args_count_as_duplicate(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {
+                "thought": "Get weather again explicitly.",
+                "action": "tool",
+                "tool": "get_weather",
+                "args": {"latitude": 41.85003, "longitude": -87.65005},
+            },
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather in Chicago?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(len(result.tool_observations), 2)
+        self.assertEqual(result.answer, "Here is the weather.")
+
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
     @patch("agent.orchestrator.llm_react_json")
     async def test_book_recs_follow_up_planning_sees_compact_summary_context(
@@ -293,6 +396,98 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("internal.example.local", combined)
         self.assertNotIn("token=secret", combined)
         self.assertNotIn('{"error": "get_weather failed"', combined)
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Weather retried."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_failed_duplicate_call_remains_retryable(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Fetch weather first.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "Retry weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            ToolInvocationError("timeout"),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather for 41.85003, -87.65005?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(len(result.tool_observations), 2)
+        self.assertEqual(result.answer, "Weather retried.")
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_different_weather_args_are_not_blocked(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Fetch first weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "Fetch second weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 6.1,
+                    "temperature_unit": "C",
+                    "weather_summary": "light rain",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Compare the weather for Chicago and New York.",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(len(result.tool_observations), 2)
+        self.assertIn("both weather results", result.answer.lower())
 
     @patch("agent.orchestrator.llm_react_json")
     async def test_invalid_decision_returns_failure_message(self, mock_react: Mock) -> None:
