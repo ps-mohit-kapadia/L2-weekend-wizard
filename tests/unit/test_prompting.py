@@ -72,7 +72,7 @@ class PromptingTests(unittest.TestCase):
             "Weather failed, but here is a joke.",
         )
 
-        self.assertIn("- Weather: unavailable (tool execution failed)", messages[1]["content"])
+        self.assertIn("- Weather: 40.7128, -74.006 unavailable (tool execution failed)", messages[1]["content"])
         self.assertIn("- Joke: Hi", messages[1]["content"])
         self.assertNotIn('{"error":"get_weather failed"', messages[1]["content"])
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
@@ -143,10 +143,78 @@ class PromptingTests(unittest.TestCase):
         )
 
         self.assertTrue(composed.startswith("Weekend Wizard Plan"))
+        self.assertIn("- City Lookup: New York: 40.7128, -74.006", composed)
+        self.assertIn("- Weather: requested location: 4.0C, clear sky", composed)
         self.assertIn("- Books: A Caribbean Mystery by Agatha Christie; The Mysterious Affair at Styles by Agatha Christie", composed)
         self.assertIn("- Joke: Fetched joke text.", composed)
         self.assertIn("- Dog Pic: https://example.com/dog.jpg", composed)
         self.assertNotIn("Hallucinated answer here.", composed)
+
+    def test_compose_grounded_answer_preserves_two_weather_observations(self) -> None:
+        tool_observations = [
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 41.85003, "longitude": -87.65005},
+                payload='{"temperature": 11.2, "temperature_unit": "C", "weather_summary": "clear sky"}',
+            ),
+            ToolObservation(
+                tool_name="get_weather",
+                args={"latitude": 40.71427, "longitude": -74.00597},
+                payload='{"temperature": 6.1, "temperature_unit": "C", "weather_summary": "light rain"}',
+            ),
+        ]
+
+        composed = compose_grounded_answer_from_observations(
+            "Compare the weather in Chicago and New York.",
+            "Placeholder answer.",
+            tool_observations,
+        )
+
+        self.assertIn("Weekend Wizard Results", composed)
+        self.assertIn("- Weather: 41.85003, -87.65005: 11.2C, clear sky", composed)
+        self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", composed)
+
+    def test_build_reflection_messages_preserve_two_weather_observations(self) -> None:
+        messages = build_reflection_messages(
+            "Compare the weather in Chicago and New York.",
+            [
+                ToolObservation(
+                    tool_name="get_weather",
+                    args={"latitude": 41.85003, "longitude": -87.65005},
+                    payload='{"temperature": 11.2, "temperature_unit": "C", "weather_summary": "clear sky"}',
+                ),
+                ToolObservation(
+                    tool_name="get_weather",
+                    args={"latitude": 40.71427, "longitude": -74.00597},
+                    payload='{"temperature": 6.1, "temperature_unit": "C", "weather_summary": "light rain"}',
+                ),
+            ],
+            "Draft answer.",
+        )
+
+        self.assertIn("- Weather: 41.85003, -87.65005: 11.2C, clear sky", messages[1]["content"])
+        self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", messages[1]["content"])
+
+    def test_build_reflection_messages_preserve_two_city_lookups(self) -> None:
+        messages = build_reflection_messages(
+            "Compare Chicago and New York.",
+            [
+                ToolObservation(
+                    tool_name="city_to_coords",
+                    args={"city": "Chicago"},
+                    payload='{"city": "Chicago", "latitude": 41.85003, "longitude": -87.65005, "country": "United States"}',
+                ),
+                ToolObservation(
+                    tool_name="city_to_coords",
+                    args={"city": "New York"},
+                    payload='{"city": "New York", "latitude": 40.71427, "longitude": -74.00597, "country": "United States"}',
+                ),
+            ],
+            "Draft answer.",
+        )
+
+        self.assertIn("- City Lookup: Chicago: 41.85003, -87.65005", messages[1]["content"])
+        self.assertIn("- City Lookup: New York: 40.71427, -74.00597", messages[1]["content"])
 
 
 if __name__ == "__main__":

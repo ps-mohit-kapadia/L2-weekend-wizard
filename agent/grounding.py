@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from schemas.agent import ToolObservation
 from schemas.tools import (
     BookResults,
     DogResult,
+    GeoResult,
     JokeResult,
     ToolError,
     TriviaResult,
@@ -27,6 +28,15 @@ class GroundedItem:
     fact: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ParsedObservation:
+    """Parsed tool observation that preserves execution order and args context."""
+
+    tool_name: str
+    args: dict[str, Any]
+    payload: Any
+
+
 def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
     """Parse one serialized tool payload into a typed payload when possible."""
     try:
@@ -35,124 +45,161 @@ def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
         return payload_text
 
 
-def parse_tool_observations(tool_observations: List[ToolObservation]) -> Dict[str, Any]:
-    """Parse structured tool observations into typed payloads keyed by tool name."""
-    payloads: Dict[str, Any] = {}
+def parse_tool_observations(tool_observations: List[ToolObservation]) -> List[ParsedObservation]:
+    """Parse structured tool observations while preserving multiplicity and order."""
+    parsed: List[ParsedObservation] = []
     for observation in tool_observations:
-        payloads[observation.tool_name] = parse_tool_payload_text(
-            observation.tool_name,
-            observation.payload,
+        parsed.append(
+            ParsedObservation(
+                tool_name=observation.tool_name,
+                args=dict(observation.args),
+                payload=parse_tool_payload_text(observation.tool_name, observation.payload),
+            )
         )
-    return payloads
+    return parsed
 
 
-def build_grounded_items(user_prompt: str, payloads: Dict[str, Any]) -> List[GroundedItem]:
-    """Build normalized grounded items from typed tool payloads.
+def _coords_label(args: dict[str, Any]) -> str:
+    latitude = args.get("latitude")
+    longitude = args.get("longitude")
+    if latitude is None or longitude is None:
+        return "requested location"
+    return f"{latitude}, {longitude}"
 
-    Args:
-        user_prompt: The original user request.
-        payloads: Parsed tool payloads keyed by tool name.
 
-    Returns:
-        Normalized grounded items for response rendering.
-    """
+def build_grounded_items(user_prompt: str, observations: List[ParsedObservation]) -> List[GroundedItem]:
+    """Build normalized grounded items from parsed tool observations."""
     items: List[GroundedItem] = []
     lowered = user_prompt.lower()
 
-    weather = payloads.get("get_weather")
-    if isinstance(weather, ToolError):
-        items.append(
-            GroundedItem(
-                title="Weather",
-                detail=f"unavailable ({weather.details or weather.error})",
-            )
-        )
-    elif isinstance(weather, WeatherResult) and weather.temperature is not None:
-        detail = f"{weather.temperature}{weather.temperature_unit or ''}, {weather.weather_summary or 'current conditions'}"
-        items.append(
-            GroundedItem(
-                title="Weather",
-                detail=detail,
-                fact=f"Weather now: {detail}.",
-            )
-        )
+    for observation in observations:
+        payload = observation.payload
 
-    books = payloads.get("book_recs")
-    if isinstance(books, ToolError):
-        items.append(
-            GroundedItem(
-                title="Books",
-                detail=f"unavailable ({books.details or books.error})",
-            )
-        )
-    elif isinstance(books, BookResults) and books.results:
-        titles = [
-            f"{book.title} by {book.author}"
-            for book in books.results[:2]
-            if book.title
-        ]
-        if titles:
-            detail = "; ".join(titles)
-            items.append(
-                GroundedItem(
-                    title="Books",
-                    detail=detail,
-                    fact=f"Book ideas for {books.topic}: {detail}.",
+        if observation.tool_name == "city_to_coords":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="City Lookup",
+                        detail=f"unavailable ({payload.details or payload.error})",
+                    )
                 )
-            )
+            elif isinstance(payload, GeoResult):
+                items.append(
+                    GroundedItem(
+                        title="City Lookup",
+                        detail=f"{payload.city}: {payload.latitude}, {payload.longitude}",
+                        fact=f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}.",
+                    )
+                )
+            continue
 
-    joke = payloads.get("random_joke")
-    if isinstance(joke, ToolError):
-        items.append(
-            GroundedItem(
-                title="Joke",
-                detail=f"unavailable ({joke.details or joke.error})",
-            )
-        )
-    elif isinstance(joke, JokeResult):
-        items.append(
-            GroundedItem(
-                title="Joke",
-                detail=joke.joke,
-                fact=f"Joke: {joke.joke}",
-            )
-        )
+        if observation.tool_name == "get_weather":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="Weather",
+                        detail=f"{_coords_label(observation.args)} unavailable ({payload.details or payload.error})",
+                    )
+                )
+            elif isinstance(payload, WeatherResult) and payload.temperature is not None:
+                detail = (
+                    f"{_coords_label(observation.args)}: "
+                    f"{payload.temperature}{payload.temperature_unit or ''}, "
+                    f"{payload.weather_summary or 'current conditions'}"
+                )
+                items.append(
+                    GroundedItem(
+                        title="Weather",
+                        detail=detail,
+                        fact=(
+                            f"Weather for {_coords_label(observation.args)}: "
+                            f"{payload.temperature}{payload.temperature_unit or ''}, "
+                            f"{payload.weather_summary or 'current conditions'}."
+                        ),
+                    )
+                )
+            continue
 
-    dog = payloads.get("random_dog")
-    if isinstance(dog, ToolError):
-        items.append(
-            GroundedItem(
-                title="Dog Pic",
-                detail=f"unavailable ({dog.details or dog.error})",
-            )
-        )
-    elif isinstance(dog, DogResult):
-        items.append(
-            GroundedItem(
-                title="Dog Pic",
-                detail=dog.image_url,
-                fact=f"Dog pic: {dog.image_url}",
-            )
-        )
+        if observation.tool_name == "book_recs":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="Books",
+                        detail=f"unavailable ({payload.details or payload.error})",
+                    )
+                )
+            elif isinstance(payload, BookResults) and payload.results:
+                titles = [
+                    f"{book.title} by {book.author}"
+                    for book in payload.results[:2]
+                    if book.title
+                ]
+                if titles:
+                    detail = "; ".join(titles)
+                    items.append(
+                        GroundedItem(
+                            title="Books",
+                            detail=detail,
+                            fact=f"Book ideas for {payload.topic}: {detail}.",
+                        )
+                    )
+            continue
 
-    trivia = payloads.get("trivia")
-    if isinstance(trivia, ToolError):
-        items.append(
-            GroundedItem(
-                title="Trivia",
-                detail=f"unavailable ({trivia.details or trivia.error})",
-            )
-        )
-    elif isinstance(trivia, TriviaResult):
-        choices = trivia.incorrect_answers + [trivia.correct_answer]
-        detail = f"{trivia.question} Choices: {', '.join(choices)}"
-        items.append(
-            GroundedItem(
-                title="Trivia",
-                detail=detail,
-                fact=f"Trivia: {detail}.",
-            )
-        )
+        if observation.tool_name == "random_joke":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="Joke",
+                        detail=f"unavailable ({payload.details or payload.error})",
+                    )
+                )
+            elif isinstance(payload, JokeResult):
+                items.append(
+                    GroundedItem(
+                        title="Joke",
+                        detail=payload.joke,
+                        fact=f"Joke: {payload.joke}",
+                    )
+                )
+            continue
+
+        if observation.tool_name == "random_dog":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="Dog Pic",
+                        detail=f"unavailable ({payload.details or payload.error})",
+                    )
+                )
+            elif isinstance(payload, DogResult):
+                items.append(
+                    GroundedItem(
+                        title="Dog Pic",
+                        detail=payload.image_url,
+                        fact=f"Dog pic: {payload.image_url}",
+                    )
+                )
+            continue
+
+        if observation.tool_name == "trivia":
+            if isinstance(payload, ToolError):
+                items.append(
+                    GroundedItem(
+                        title="Trivia",
+                        detail=f"unavailable ({payload.details or payload.error})",
+                    )
+                )
+            elif isinstance(payload, TriviaResult):
+                choices = payload.incorrect_answers + [payload.correct_answer]
+                detail = f"{payload.question} Choices: {', '.join(choices)}"
+                items.append(
+                    GroundedItem(
+                        title="Trivia",
+                        detail=detail,
+                        fact=f"Trivia: {detail}.",
+                    )
+                )
+            continue
 
     if not items and "weekend" in lowered:
         fallback = "Try a cozy cafe stop, a short walk, and a relaxing book session this weekend."
@@ -168,14 +215,7 @@ def build_grounded_items(user_prompt: str, payloads: Dict[str, Any]) -> List[Gro
 
 
 def render_grounded_sections(items: List[GroundedItem]) -> List[str]:
-    """Render normalized grounded items into answer sections.
-
-    Args:
-        items: Normalized grounded items.
-
-    Returns:
-        Formatted answer sections suitable for multi-tool responses.
-    """
+    """Render normalized grounded items into answer sections."""
     return [f"- {item.title}: {item.detail}" for item in items]
 
 
@@ -184,8 +224,7 @@ def render_compact_observation_summaries(
     tool_observations: List[ToolObservation],
 ) -> List[str]:
     """Render compact grounded observation summaries for prompts."""
-    payloads = parse_tool_observations(tool_observations)
-    grounded_items = build_grounded_items(user_prompt, payloads)
+    grounded_items = build_grounded_items(user_prompt, parse_tool_observations(tool_observations))
     rendered: List[str] = []
     for item in grounded_items:
         detail = item.detail
@@ -198,13 +237,13 @@ def render_compact_observation_summaries(
 def compose_grounded_answer_from_payloads(
     user_prompt: str,
     answer: str,
-    payloads: Dict[str, Any],
+    observations: List[ParsedObservation],
 ) -> str:
-    """Compose the final grounded answer from parsed tool payloads."""
-    if not payloads:
+    """Compose the final grounded answer from parsed tool observations."""
+    if not observations:
         return answer
 
-    grounded_items = build_grounded_items(user_prompt, payloads)
+    grounded_items = build_grounded_items(user_prompt, observations)
     if not grounded_items:
         return answer
 
@@ -212,7 +251,7 @@ def compose_grounded_answer_from_payloads(
     is_plan_request = any(word in lowered for word in ("plan", "weekend", "saturday", "sunday"))
     grounded_facts = [item.fact for item in grounded_items if item.fact]
 
-    if len(payloads) > 1 or is_plan_request:
+    if len(observations) > 1 or is_plan_request:
         intro = "Weekend Wizard Plan" if is_plan_request else "Weekend Wizard Results"
         outro = []
         if is_plan_request:
