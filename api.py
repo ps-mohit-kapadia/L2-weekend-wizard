@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """HTTP API interface for Weekend Wizard."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -25,6 +26,7 @@ UNEXPECTED_READINESS_ERROR_DETAIL = "Weekend Wizard runtime failed to start."
 OLLAMA_UNREACHABLE_DETAIL = "Ollama is not reachable."
 MODEL_UNAVAILABLE_DETAIL = "Resolved model is not available in Ollama."
 MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
+STARTING_READINESS_DETAIL = "API runtime is starting."
 
 
 def build_not_ready_response(
@@ -58,6 +60,18 @@ def build_unexpected_not_ready_response(
         server_path,
         model_name,
         UNEXPECTED_READINESS_ERROR_DETAIL,
+    )
+
+
+def build_starting_not_ready_response(
+    server_path: Path,
+    model_name: str,
+) -> ReadinessResponse:
+    """Build a readiness payload for a runtime that is still warming."""
+    return build_not_ready_response(
+        server_path,
+        model_name,
+        STARTING_READINESS_DETAIL,
     )
 
 
@@ -138,6 +152,41 @@ def build_startup_ready_response(app: WeekendWizardApp) -> ReadinessResponse:
     )
 
 
+async def close_wizard_if_present(wizard: WeekendWizardApp | None) -> None:
+    """Close a runtime instance best-effort when one exists."""
+    if wizard is not None:
+        await wizard.__aexit__(None, None, None)
+
+
+async def warm_runtime(app: FastAPI, server_path: Path) -> None:
+    """Warm the shared runtime in the background and publish readiness state."""
+    model_name = ""
+    wizard: WeekendWizardApp | None = None
+
+    try:
+        model_name = discover_model(None)
+        app.state.readiness = build_starting_not_ready_response(server_path, model_name)
+        wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
+        await wizard.__aenter__()
+        readiness = build_startup_ready_response(wizard)
+        if readiness.status != "ready":
+            logger.warning("API runtime is not ready: %s", readiness.details)
+            app.state.readiness = readiness
+            await close_wizard_if_present(wizard)
+            return
+
+        app.state.wizard = wizard
+        app.state.readiness = readiness
+        logger.info("API runtime ready with model %s and %d tools", wizard.model_name, len(wizard.tool_names))
+    except asyncio.CancelledError:
+        await close_wizard_if_present(wizard)
+        raise
+    except Exception as exc:
+        logger.exception("API runtime startup failed: %s", exc)
+        await close_wizard_if_present(wizard)
+        app.state.readiness = build_unexpected_not_ready_response(server_path, model_name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage the shared Weekend Wizard runtime for the API process.
@@ -150,46 +199,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     project_dir = Path(__file__).resolve().parent
     server_path = project_dir / "main.py"
-    model_name = ""
     app.state.wizard = None
-    app.state.readiness = build_not_ready_response(
-        server_path,
-        model_name,
-        "API runtime has not started yet.",
-    )
-
-    try:
-        model_name = discover_model(None)
-        app.state.readiness = build_not_ready_response(
-            server_path,
-            model_name,
-            "API runtime has not started yet.",
-        )
-        wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
-        await wizard.__aenter__()
-    except Exception as exc:
-        logger.exception("API runtime startup failed: %s", exc)
-        app.state.readiness = build_unexpected_not_ready_response(server_path, model_name)
-        yield
-        return
-
-    readiness = build_startup_ready_response(wizard)
-    if readiness.status != "ready":
-        logger.warning("API runtime is not ready: %s", readiness.details)
-        app.state.readiness = readiness
-        await wizard.__aexit__(None, None, None)
-        yield
-        return
-
-    app.state.wizard = wizard
-    app.state.readiness = readiness
-    logger.info("API runtime ready with model %s and %d tools", wizard.model_name, len(wizard.tool_names))
+    app.state.readiness = build_starting_not_ready_response(server_path, "")
+    app.state.startup_task = asyncio.create_task(warm_runtime(app, server_path))
     try:
         yield
     finally:
-        logger.info("Closing API runtime for model %s with %d tools", wizard.model_name, len(wizard.tool_names))
-        await wizard.__aexit__(None, None, None)
+        startup_task: asyncio.Task[None] | None = getattr(app.state, "startup_task", None)
+        if startup_task is not None and not startup_task.done():
+            startup_task.cancel()
+            try:
+                await startup_task
+            except asyncio.CancelledError:
+                pass
+        wizard = getattr(app.state, "wizard", None)
+        if wizard is not None:
+            logger.info("Closing API runtime for model %s with %d tools", wizard.model_name, len(wizard.tool_names))
+            await wizard.__aexit__(None, None, None)
         app.state.wizard = None
+        app.state.startup_task = None
 
 
 def create_api() -> FastAPI:

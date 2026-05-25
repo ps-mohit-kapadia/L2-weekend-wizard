@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -50,6 +52,13 @@ class _BrokenWizardApp(_FakeWizardApp):
         raise RuntimeError("startup boom")
 
 
+class _SlowWizardApp(_FakeWizardApp):
+    async def __aenter__(self) -> _SlowWizardApp:
+        await asyncio.sleep(0.2)
+        self.is_initialized = True
+        return self
+
+
 class _ExplodingWizardApp(_FakeWizardApp):
     def __init__(self, *_args, **_kwargs) -> None:
         super().__init__(*_args, **_kwargs)
@@ -57,17 +66,33 @@ class _ExplodingWizardApp(_FakeWizardApp):
 
 
 class ApiTests(unittest.TestCase):
+    def _wait_for_ready_status(
+        self,
+        client: TestClient,
+        expected_status: str,
+        *,
+        timeout_seconds: float = 1.0,
+    ) -> dict:
+        deadline = time.monotonic() + timeout_seconds
+        last_payload: dict = {}
+        while time.monotonic() < deadline:
+            response = client.get("/ready")
+            last_payload = response.json()
+            if last_payload.get("status") == expected_status:
+                return last_payload
+            time.sleep(0.02)
+        self.fail(f"Timed out waiting for /ready status {expected_status!r}. Last payload: {last_payload}")
+
     def test_ready_endpoint_returns_503_when_model_discovery_fails_during_startup(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", side_effect=RuntimeError("offline")),
             TestClient(api.create_api()) as client,
         ):
-            response = client.get("/ready")
+            payload = self._wait_for_ready_status(client, "not_ready")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["status"], "not_ready")
-        self.assertEqual(response.json()["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
 
     def test_health_endpoint_returns_ok(self) -> None:
         with (
@@ -82,6 +107,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_health_is_reachable_while_runtime_is_still_warming(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _SlowWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            health_response = client.get("/health")
+            ready_response = client.get("/ready")
+
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(health_response.json(), {"status": "ok"})
+        self.assertEqual(ready_response.status_code, 503)
+        self.assertEqual(ready_response.json()["status"], "not_ready")
+        self.assertEqual(ready_response.json()["details"], api.STARTING_READINESS_DETAIL)
+
     def test_ready_endpoint_returns_structured_readiness_when_ready(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
@@ -90,14 +131,13 @@ class ApiTests(unittest.TestCase):
             patch("api.list_available_models", return_value=["llama3.2:latest"]) as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
-            response = client.get("/ready")
+            payload = self._wait_for_ready_status(client, "ready")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "ready")
-        self.assertEqual(response.json()["tool_count"], 1)
-        self.assertTrue(response.json()["checks"]["mcp_session_ready"])
-        self.assertTrue(response.json()["checks"]["model_available"])
-        self.assertTrue(response.json()["checks"]["ollama_reachable"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["tool_count"], 1)
+        self.assertTrue(payload["checks"]["mcp_session_ready"])
+        self.assertTrue(payload["checks"]["model_available"])
+        self.assertTrue(payload["checks"]["ollama_reachable"])
         mock_list_models.assert_called_once_with(timeout=5)
 
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
@@ -107,11 +147,10 @@ class ApiTests(unittest.TestCase):
             patch("api.WeekendWizardApp", _BrokenWizardApp),
             TestClient(api.create_api()) as client,
         ):
-            response = client.get("/ready")
+            payload = self._wait_for_ready_status(client, "not_ready")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["status"], "not_ready")
-        self.assertEqual(response.json()["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
 
     def test_chat_endpoint_returns_structured_response(self) -> None:
         fake_app = _FakeWizardApp()
@@ -141,13 +180,13 @@ class ApiTests(unittest.TestCase):
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
-            patch("api.WeekendWizardApp", _BrokenWizardApp),
+            patch("api.WeekendWizardApp", _SlowWizardApp),
             TestClient(api.create_api()) as client,
         ):
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["detail"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+        self.assertEqual(response.json()["detail"], api.STARTING_READINESS_DETAIL)
 
     def test_chat_endpoint_returns_sanitized_not_ready_detail_after_startup_discovery_failure(self) -> None:
         with (
@@ -198,6 +237,7 @@ class ApiTests(unittest.TestCase):
             patch("api.evaluate_runtime_readiness", side_effect=[ready_response]),
             TestClient(api.create_api()) as client,
         ):
+            self._wait_for_ready_status(client, "ready")
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 200)
