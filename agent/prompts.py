@@ -58,6 +58,12 @@ def build_react_messages(
                 "Do not call the same single-shot tool again unless the user explicitly asked for multiple results or a retry.\n"
                 "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
                 "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
+                "If weather is requested for multiple locations, each requested location needs its own get_weather result before finish.\n"
+                "Resolving a city to coordinates is only a dependency, not fulfillment, when the user asked for weather.\n"
+                "If the user asks for weather using coordinates, you must still call get_weather for each requested location after resolving coordinates.\n"
+                "After city_to_coords succeeds for one requested location, prefer get_weather with that location's explicit latitude and longitude.\n"
+                "Do not finish while any requested or already-resolved location still lacks a weather observation.\n"
+                "Do not repeat one location's weather if another requested location still needs weather.\n"
                 "Do not repeat a tool call if a prior observation already satisfies that need.\n"
                 "Use weather only if the user asked for weather or a plan that depends on weather.\n"
                 "Use books only if the user asked for books or a reading-themed plan.\n"
@@ -72,6 +78,7 @@ def build_react_messages(
                 '- For "Give me a trivia question.": call trivia once, then finish.\n'
                 '- For "Give me weather and a joke.": get_weather, random_joke, then finish.\n'
                 '- For "Plan a cozy Saturday in New York with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.\n'
+                '- For "Get the weather for Chicago and New York using their coordinates.": city_to_coords for each city, then get_weather for each city, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is a cozy weekend plan for you..."}\n'
                 "A compact structured observation summary may be provided below after tools run.\n"

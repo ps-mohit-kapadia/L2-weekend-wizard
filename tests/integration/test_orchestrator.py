@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from agent.prompts import build_react_messages
 from agent.orchestrator import (
     SAFE_TOOL_INVOCATION_DETAIL,
     orchestrate_interaction,
@@ -19,6 +20,21 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    def test_react_prompt_includes_multi_location_weather_completion_guidance(self) -> None:
+        messages = build_react_messages(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            step_number=1,
+            max_steps=6,
+        )
+
+        system_prompt = messages[0]["content"]
+        self.assertIn("each requested location needs its own get_weather result before finish", system_prompt)
+        self.assertIn("Resolving a city to coordinates is only a dependency, not fulfillment", system_prompt)
+        self.assertIn("After city_to_coords succeeds for one requested location, prefer get_weather with that location's explicit latitude and longitude", system_prompt)
+        self.assertIn("Do not finish while any requested or already-resolved location still lacks a weather observation", system_prompt)
+        self.assertIn('Get the weather for Chicago and New York using their coordinates.', system_prompt)
+
     @patch(
         "agent.orchestrator.llm_reflection_json",
         return_value={
@@ -404,6 +420,95 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.tool_observations), 3)
         self.assertEqual(result.tool_observations[2].tool_name, "get_weather")
         self.assertIn("latitude and longitude", result.tool_observations[2].payload)
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_using_their_coordinates_prompt_fetches_weather_for_both_cities_before_finish(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {
+                "thought": "Now fetch Chicago weather with explicit coordinates.",
+                "action": "tool",
+                "tool": "get_weather",
+                "args": {"latitude": 41.85003, "longitude": -87.65005},
+            },
+            {"thought": "Resolve New York next.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {
+                "thought": "Now fetch New York weather with explicit coordinates.",
+                "action": "tool",
+                "tool": "get_weather",
+                "args": {"latitude": 40.71427, "longitude": -74.00597},
+            },
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here are both weather results."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 6.1,
+                    "temperature_unit": "C",
+                    "weather_summary": "light rain",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Get the weather for Chicago and New York using their coordinates.",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 4)
+        weather_args = [
+            observation.args
+            for observation in result.tool_observations
+            if observation.tool_name == "get_weather"
+        ]
+        self.assertEqual(
+            weather_args,
+            [
+                {"latitude": 41.85003, "longitude": -87.65005},
+                {"latitude": 40.71427, "longitude": -74.00597},
+            ],
+        )
+        self.assertEqual(result.answer, "Here are both weather results.")
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
     @patch("agent.orchestrator.llm_react_json")
