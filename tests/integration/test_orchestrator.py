@@ -279,6 +279,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
             {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
             {"thought": "Get weather again.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
         tool_gateway = AsyncMock()
@@ -316,6 +317,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(result.answer, "Here is the weather.")
+        self.assertEqual(mock_react.call_count, 4)
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
     @patch("agent.orchestrator.llm_react_json")
@@ -333,6 +335,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "tool": "get_weather",
                 "args": {"latitude": 41.85003, "longitude": -87.65005},
             },
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
         tool_gateway = AsyncMock()
@@ -370,6 +373,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(result.answer, "Here is the weather.")
+        self.assertEqual(mock_react.call_count, 4)
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Could not disambiguate weather."})
     @patch("agent.orchestrator.llm_react_json")
@@ -496,6 +500,87 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(tool_gateway.call_tool.await_count, 4)
+        weather_args = [
+            observation.args
+            for observation in result.tool_observations
+            if observation.tool_name == "get_weather"
+        ]
+        self.assertEqual(
+            weather_args,
+            [
+                {"latitude": 41.85003, "longitude": -87.65005},
+                {"latitude": 40.71427, "longitude": -74.00597},
+            ],
+        )
+        self.assertEqual(result.answer, "Here are both weather results.")
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_duplicate_chicago_weather_is_skipped_and_loop_continues_to_new_york(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {"thought": "Fetch Chicago weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Fetch Chicago weather again.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Resolve New York now.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {"thought": "Fetch New York weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here are both weather results."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 6.1,
+                    "temperature_unit": "C",
+                    "weather_summary": "light rain",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Get the weather for Chicago and New York using their coordinates.",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 4)
+        self.assertEqual(mock_react.call_count, 6)
         weather_args = [
             observation.args
             for observation in result.tool_observations

@@ -365,17 +365,11 @@ async def orchestrate_interaction(
             payload = _tool_error_payload(decision.tool, error or "invalid args")
         elif has_successful_duplicate_observation(state.tool_observations, decision.tool, normalized_args):
             logger.info(
-                "Skipping duplicate successful tool call for %s with args=%s and finalizing",
+                "Skipping duplicate successful tool call for %s with args=%s and continuing",
                 decision.tool,
                 normalized_args,
             )
-            return finalize_after_execution(
-                context,
-                user_prompt,
-                state.tool_observations,
-                draft_answer,
-                used_fallback=False,
-            )
+            continue
         else:
             payload = await execute_tool_call(tool_gateway, decision.tool, normalized_args)
         record_tool_observation(
