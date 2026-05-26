@@ -211,6 +211,49 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
     @patch("agent.orchestrator.llm_react_json")
+    async def test_prompt_coordinates_weather_still_works_with_empty_args(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Fetch weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather for 41.85003, -87.65005?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+        self.assertEqual(
+            result.tool_observations[0].args,
+            {"latitude": 41.85003, "longitude": -87.65005},
+        )
+        self.assertEqual(result.answer, "Here is the weather.")
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_react_json")
     async def test_duplicate_successful_get_weather_executes_only_once(
         self,
         mock_react: Mock,
@@ -311,6 +354,56 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(result.answer, "Here is the weather.")
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Could not disambiguate weather."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_multiple_city_lookups_make_empty_arg_weather_ambiguous(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need Chicago coordinates.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {"thought": "Need New York coordinates.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather in Chicago and New York?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(len(result.tool_observations), 3)
+        self.assertEqual(result.tool_observations[2].tool_name, "get_weather")
+        self.assertIn("latitude and longitude", result.tool_observations[2].payload)
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
     @patch("agent.orchestrator.llm_react_json")

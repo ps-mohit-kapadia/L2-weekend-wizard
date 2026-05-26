@@ -3,6 +3,7 @@ from __future__ import annotations
 """ReAct-style tool orchestration for one Weekend Wizard interaction."""
 
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,7 +28,32 @@ class ExecutionState:
 
     user_prompt: str
     tool_observations: List[ToolObservation]
-    resolved_coords: Optional[Tuple[float, float]]
+
+    def candidate_weather_coords(self) -> List[Tuple[float, float]]:
+        """Return deduplicated weather coordinate candidates from durable evidence."""
+        candidates: "OrderedDict[Tuple[float, float], None]" = OrderedDict()
+
+        prompt_coords = parse_coords(self.user_prompt)
+        if prompt_coords is not None:
+            candidates[(float(prompt_coords[0]), float(prompt_coords[1]))] = None
+
+        for observation in self.tool_observations:
+            if observation.tool_name != "city_to_coords":
+                continue
+            parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
+            if isinstance(parsed, GeoResult):
+                candidates[(float(parsed.latitude), float(parsed.longitude))] = None
+
+        return list(candidates.keys())
+
+    def resolve_weather_coords(self) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
+        """Resolve one unambiguous coordinate pair for an omitted weather request."""
+        candidates = self.candidate_weather_coords()
+        if not candidates:
+            return None, "latitude and longitude are required"
+        if len(candidates) > 1:
+            return None, "latitude and longitude are required"
+        return candidates[0], None
 
 
 def render_tool_result(result: Any) -> str:
@@ -49,22 +75,6 @@ def render_tool_result(result: Any) -> str:
     if hasattr(result, "model_dump_json"):
         return result.model_dump_json()
     return str(result)
-
-
-def geo_payload_to_coords(payload: str) -> Optional[Tuple[float, float]]:
-    """Extract coordinates from a serialized city lookup payload when possible."""
-    parsed = parse_tool_payload_text("city_to_coords", payload)
-    if isinstance(parsed, GeoResult):
-        return parsed.latitude, parsed.longitude
-    if isinstance(parsed, ToolError):
-        return None
-    if isinstance(parsed, dict):
-        latitude = parsed.get("latitude")
-        longitude = parsed.get("longitude")
-        if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
-            return float(latitude), float(longitude)
-    return None
-
 
 def build_interaction_result(
     history: List[Dict[str, str]],
@@ -199,11 +209,10 @@ def normalize_tool_args(
         latitude = args.get("latitude")
         longitude = args.get("longitude")
         if latitude is None or longitude is None:
-            coords = state.resolved_coords or parse_coords(state.user_prompt)
-            if coords is not None:
-                latitude, longitude = coords
-        if latitude is None or longitude is None:
-            return None, "latitude and longitude are required"
+            coords, error = state.resolve_weather_coords()
+            if coords is None:
+                return None, error or "latitude and longitude are required"
+            latitude, longitude = coords
         try:
             return {"latitude": float(latitude), "longitude": float(longitude)}, None
         except (TypeError, ValueError):
@@ -239,13 +248,6 @@ def validate_react_decision_semantics(
         return
     if not decision.final_answer or not decision.final_answer.strip():
         raise ValueError("Finish decisions must include a non-empty final answer.")
-
-
-def update_state_after_tool(state: ExecutionState, tool_name: str, payload: str) -> None:
-    """Update execution state from a completed tool call."""
-    if tool_name == "city_to_coords":
-        state.resolved_coords = geo_payload_to_coords(payload)
-
 
 def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservation]) -> str:
     """Build the grounded draft answer before reflection."""
@@ -316,7 +318,6 @@ async def orchestrate_interaction(
     state = ExecutionState(
         user_prompt=user_prompt,
         tool_observations=[],
-        resolved_coords=parse_coords(user_prompt),
     )
     draft_answer = ""
 
@@ -383,7 +384,6 @@ async def orchestrate_interaction(
             normalized_args or decision.args,
             payload,
         )
-        update_state_after_tool(state, decision.tool, payload)
     else:
         draft_answer = build_react_failure_answer()
 
