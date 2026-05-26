@@ -7,14 +7,36 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent.grounding import compose_grounded_answer_from_observations, parse_tool_payload_text
-from agent.policies.guardrails import infer_book_limit, infer_book_topic, infer_city, parse_coords
+from agent.grounding import (
+    compose_grounded_answer_from_observations,
+    parse_tool_payload_text,
+)
+from agent.policies.guardrails import (
+    infer_book_limit,
+    infer_book_topic,
+    infer_city,
+    parse_coords,
+)
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
 from mcp_runtime.client import ToolGateway, ToolInvocationError
-from schemas.agent import InteractionResult, OrchestratorContext, ReactDecision, ToolObservation, validate_react_decision
-from schemas.tools import BookResults, DogResult, GeoResult, JokeResult, ToolError, TriviaResult, WeatherResult
+from schemas.agent import (
+    InteractionResult,
+    OrchestratorContext,
+    ReactDecision,
+    ToolObservation,
+    validate_react_decision,
+)
+from schemas.tools import (
+    BookResults,
+    DogResult,
+    GeoResult,
+    JokeResult,
+    ToolError,
+    TriviaResult,
+    WeatherResult,
+)
 
 
 logger = get_logger("agent.orchestrator")
@@ -46,7 +68,9 @@ class ExecutionState:
 
         return list(candidates.keys())
 
-    def resolve_weather_coords(self) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
+    def resolve_weather_coords(
+        self,
+    ) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
         """Resolve one unambiguous coordinate pair for an omitted weather request."""
         candidates = self.candidate_weather_coords()
         if not candidates:
@@ -76,6 +100,7 @@ def render_tool_result(result: Any) -> str:
         return result.model_dump_json()
     return str(result)
 
+
 def build_interaction_result(
     history: List[Dict[str, str]],
     answer: str,
@@ -103,7 +128,9 @@ def record_tool_observation(
     payload: str,
 ) -> None:
     """Record one structured tool observation for downstream summaries and grounding."""
-    tool_observations.append(ToolObservation(tool_name=tool_name, args=args, payload=payload))
+    tool_observations.append(
+        ToolObservation(tool_name=tool_name, args=args, payload=payload)
+    )
 
 
 def has_successful_duplicate_observation(
@@ -121,55 +148,107 @@ def has_successful_duplicate_observation(
     return False
 
 
+def _format_observation_args(args: Dict[str, Any]) -> str:
+    """Render tool args compactly for planner-visible observation memory."""
+    if not args:
+        return "{}"
+    return json.dumps(args, sort_keys=True, separators=(",", ":"))
+
+
 def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
-    """Build a compact structured summary for intermediate ReAct steps."""
+    """Render compact, faithful tool evidence for intermediate ReAct steps.
+
+    This is planner-visible memory, not completion logic. Keep tool name,
+    normalized args, status, and compact result identity intact so the planner
+    can decide the next action without losing which entity each observation
+    belongs to.
+    """
     summary_lines: List[str] = []
 
-    for observation in tool_observations:
+    for index, observation in enumerate(tool_observations, start=1):
         parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
         tool_name = observation.tool_name
+        args_text = _format_observation_args(observation.args)
 
         if isinstance(parsed, ToolError):
             detail = parsed.details or parsed.error
-            summary_lines.append(f"- {tool_name}: failed ({detail})")
+            summary_lines.append(
+                f"[{index}] {tool_name} args={args_text} -> failed: {detail}"
+            )
             continue
 
         if tool_name == "city_to_coords" and isinstance(parsed, GeoResult):
             summary_lines.append(
-                f"- city_to_coords: resolved {parsed.city} to {parsed.latitude}, {parsed.longitude}"
+                "[{index}] city_to_coords args={args} -> "
+                "city={city}, lat={lat}, lon={lon}, country={country}, admin1={admin1}".format(
+                    index=index,
+                    args=args_text,
+                    city=parsed.city,
+                    lat=parsed.latitude,
+                    lon=parsed.longitude,
+                    country=parsed.country or "unknown",
+                    admin1=parsed.admin1 or "unknown",
+                )
             )
             continue
 
         if tool_name == "get_weather" and isinstance(parsed, WeatherResult):
-            detail = parsed.weather_summary or "weather fetched"
+            summary = parsed.weather_summary or "weather fetched"
             temp = (
-                f" at {parsed.temperature}{parsed.temperature_unit or ''}"
+                f"{parsed.temperature}{parsed.temperature_unit or ''}"
                 if parsed.temperature is not None
+                else "unknown"
+            )
+            wind = (
+                f", wind={parsed.wind_speed}{parsed.wind_speed_unit or ''}"
+                if parsed.wind_speed is not None
                 else ""
             )
-            summary_lines.append(f"- get_weather: {detail}{temp}")
+            observed_at = (
+                f", observed_at={parsed.observed_at}" if parsed.observed_at else ""
+            )
+            summary_lines.append(
+                "[{index}] get_weather args={args} -> "
+                "lat={lat}, lon={lon}, temp={temp}, summary={summary}{wind}{observed_at}".format(
+                    index=index,
+                    args=args_text,
+                    lat=parsed.latitude,
+                    lon=parsed.longitude,
+                    temp=temp,
+                    summary=summary,
+                    wind=wind,
+                    observed_at=observed_at,
+                )
+            )
             continue
 
         if tool_name == "book_recs" and isinstance(parsed, BookResults):
             result_count = len(parsed.results)
             summary_lines.append(
-                f"- book_recs: fetched {result_count} book recommendations for {parsed.topic}"
+                f"[{index}] book_recs args={args_text} -> "
+                f"topic={parsed.topic}, results={result_count}"
             )
             continue
 
         if tool_name == "random_joke" and isinstance(parsed, JokeResult):
-            summary_lines.append("- random_joke: fetched one joke")
+            summary_lines.append(
+                f"[{index}] random_joke args={args_text} -> fetched one joke"
+            )
             continue
 
         if tool_name == "random_dog" and isinstance(parsed, DogResult):
-            summary_lines.append("- random_dog: fetched one dog image")
+            summary_lines.append(
+                f"[{index}] random_dog args={args_text} -> fetched one dog image"
+            )
             continue
 
         if tool_name == "trivia" and isinstance(parsed, TriviaResult):
-            summary_lines.append("- trivia: fetched one trivia question")
+            summary_lines.append(
+                f"[{index}] trivia args={args_text} -> fetched one trivia question"
+            )
             continue
 
-        summary_lines.append(f"- {tool_name}: completed")
+        summary_lines.append(f"[{index}] {tool_name} args={args_text} -> completed")
 
     return "\n".join(summary_lines)
 
@@ -219,7 +298,11 @@ def normalize_tool_args(
             return None, "latitude and longitude must be numeric"
 
     if tool_name == "book_recs":
-        topic = args.get("topic") or args.get("param") or infer_book_topic(state.user_prompt)
+        topic = (
+            args.get("topic")
+            or args.get("param")
+            or infer_book_topic(state.user_prompt)
+        )
         limit = args.get("limit") or infer_book_limit(state.user_prompt)
         if not topic:
             return None, "topic is required"
@@ -249,7 +332,10 @@ def validate_react_decision_semantics(
     if not decision.final_answer or not decision.final_answer.strip():
         raise ValueError("Finish decisions must include a non-empty final answer.")
 
-def build_grounded_draft(user_prompt: str, tool_observations: List[ToolObservation]) -> str:
+
+def build_grounded_draft(
+    user_prompt: str, tool_observations: List[ToolObservation]
+) -> str:
     """Build the grounded draft answer before reflection."""
     return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
 
@@ -297,7 +383,9 @@ def finalize_after_execution(
         if tool_observations
         else draft_answer
     )
-    final_answer, reflection_used_fallback = run_reflection(context, user_prompt, tool_observations, grounded)
+    final_answer, reflection_used_fallback = run_reflection(
+        context, user_prompt, tool_observations, grounded
+    )
     return build_interaction_result(
         context.history,
         answer=final_answer,
@@ -359,11 +447,20 @@ async def orchestrate_interaction(
             break
 
         assert decision.tool is not None
-        logger.info("Executing ReAct step %d of %d: %s", step_number, MAX_REACT_STEPS, decision.tool)
-        normalized_args, error = normalize_tool_args(decision.tool, decision.args, state)
+        logger.info(
+            "Executing ReAct step %d of %d: %s",
+            step_number,
+            MAX_REACT_STEPS,
+            decision.tool,
+        )
+        normalized_args, error = normalize_tool_args(
+            decision.tool, decision.args, state
+        )
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
-        elif has_successful_duplicate_observation(state.tool_observations, decision.tool, normalized_args):
+        elif has_successful_duplicate_observation(
+            state.tool_observations, decision.tool, normalized_args
+        ):
             logger.info(
                 "Skipping duplicate successful tool call for %s with args=%s and continuing",
                 decision.tool,
@@ -371,7 +468,9 @@ async def orchestrate_interaction(
             )
             continue
         else:
-            payload = await execute_tool_call(tool_gateway, decision.tool, normalized_args)
+            payload = await execute_tool_call(
+                tool_gateway, decision.tool, normalized_args
+            )
         record_tool_observation(
             state.tool_observations,
             decision.tool,
