@@ -47,7 +47,7 @@ class PromptingTests(unittest.TestCase):
         )
 
         self.assertEqual(len(messages), 3)
-        self.assertIn("Structured observation summary", messages[1]["content"])
+        self.assertIn("Assistant observation context", messages[1]["content"])
         self.assertIn("fetched one joke", messages[1]["content"])
         self.assertNotIn('{"joke"', messages[1]["content"])
         self.assertIn("Tell me a joke.", messages[2]["content"])

@@ -88,8 +88,8 @@ def build_react_messages(
                 '- For "Get the weather for City A and City B using their coordinates.": city_to_coords for each location, then get_weather for each location, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is the comparison or final answer based on the gathered facts."}\n'
-                "A compact structured observation summary may be provided below after tools run.\n"
-                "Use that summary before deciding the next step.\n"
+                "Assistant observation context may be provided below after tools run.\n"
+                "Use that context as the record of prior tool observations before deciding the next step.\n"
                 "Supported tools:\n"
                 f"{_tool_lines(tool_names)}"
             ),
@@ -99,7 +99,7 @@ def build_react_messages(
         messages.append(
             {
                 "role": "user",
-                "content": f"Structured observation summary:\n{observation_summary}",
+                "content": f"Assistant observation context:\n{observation_summary}",
             }
         )
     messages.extend(history)

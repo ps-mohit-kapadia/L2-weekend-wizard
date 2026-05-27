@@ -157,13 +157,14 @@ def _format_observation_args(args: Dict[str, Any]) -> str:
     return json.dumps(args, sort_keys=True, separators=(",", ":"))
 
 
-def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
-    """Render compact, faithful tool evidence for intermediate ReAct steps.
+def render_assistant_observation_context(
+    tool_observations: List[ToolObservation],
+) -> str:
+    """Render assistant-visible observation context for ReAct planning.
 
-    This is planner-visible memory, not completion logic. Keep tool name,
-    normalized args, status, and compact result identity intact so the planner
-    can decide the next action without losing which entity each observation
-    belongs to.
+    This is not completion logic and not a final answer draft. It serializes
+    ToolObservation evidence into a compact faithful context block so the
+    assistant can plan the next ReAct step without losing observation identity.
     """
     summary_lines: List[str] = []
 
@@ -253,6 +254,11 @@ def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
         summary_lines.append(f"[{index}] {tool_name}: completed args={args_text}")
 
     return "\n".join(summary_lines)
+
+
+def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
+    """Backward-compatible alias for assistant observation context rendering."""
+    return render_assistant_observation_context(tool_observations)
 
 
 async def execute_tool_call(
@@ -462,7 +468,9 @@ async def orchestrate_interaction(
             context.tool_names,
             step_number=step_number,
             max_steps=MAX_REACT_STEPS,
-            observation_summary=build_observation_summary(state.tool_observations),
+            observation_summary=render_assistant_observation_context(
+                state.tool_observations
+            ),
         )
         try:
             raw_decision = llm_react_json(
