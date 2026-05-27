@@ -16,6 +16,7 @@ from application.service import WeekendWizardApp
 from llm_client import discover_model
 from llm_client import list_available_models
 from logger.logging import get_logger
+from logger.tracing.request_trace import create_trace, render_trace
 from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChecks, ReadinessResponse
 
 
@@ -256,24 +257,29 @@ def create_api() -> FastAPI:
         Raises:
             HTTPException: If startup or interaction execution fails.
         """
+        trace = create_trace(request.prompt)
         wizard = getattr(app.state, "wizard", None)
-        if wizard is None or not wizard.is_initialized:
-            readiness = app.state.readiness
-            logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
-            raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
-
-        logger.info(
-            "Received /chat request with prompt length %d",
-            len(request.prompt),
-        )
         try:
+            if wizard is None or not wizard.is_initialized:
+                readiness = app.state.readiness
+                logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
+                raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
+
+            logger.info(
+                "Received /chat request with prompt length %d",
+                len(request.prompt),
+            )
             context = wizard.create_interaction_context()
-            result = await wizard.run_interaction(request.prompt, context=context)
+            result = await wizard.run_interaction(request.prompt, context=context, trace=trace)
         except HTTPException:
             raise
         except Exception as exc:
             logger.exception("Chat request failed: %s", exc)
             raise HTTPException(status_code=500, detail=UNEXPECTED_CHAT_ERROR_DETAIL) from exc
+        finally:
+            if not trace.events or trace.events[-1].event != "interaction_completed":
+                trace.add_event("interaction_completed")
+            logger.info(render_trace(trace))
 
         logger.info(
             "Completed /chat request with %d observations, fallback=%s, answer length=%d",

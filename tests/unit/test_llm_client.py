@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import requests
 
 import llm_client
+from logger.tracing.request_trace import create_trace
 
 
 class LlmClientTests(unittest.TestCase):
@@ -22,10 +23,18 @@ class LlmClientTests(unittest.TestCase):
         response.json.return_value = {"message": {"content": '{"answer":"ok"}'}}
         mock_post.return_value = response
 
-        llm_client.call_model([{"role": "user", "content": "hello"}], "demo-model", temperature=0.2)
+        trace = create_trace("hello")
+        llm_client.call_model(
+            [{"role": "user", "content": "hello"}],
+            "demo-model",
+            temperature=0.2,
+            trace=trace,
+        )
 
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 777)
+        self.assertEqual(trace.events[-2].event, "llm_call_started")
+        self.assertEqual(trace.events[-1].event, "llm_call_completed")
 
     def test_extract_json_handles_wrapped_text(self) -> None:
         parsed = llm_client.extract_json('Result: {"action":"finish","final_answer":"hi"} thanks')

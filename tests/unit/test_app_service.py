@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from application.service import WeekendWizardApp
+from logger.tracing.request_trace import create_trace
 from schemas.agent import InteractionResult, OrchestratorContext
 
 
@@ -69,6 +70,7 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_run_interaction_uses_orchestrator(self) -> None:
         result = InteractionResult(answer="Ready", tool_observations=[], used_fallback=False)
+        trace = create_trace("hello")
 
         with (
             patch("application.service.McpService", _FakeMcpService),
@@ -77,12 +79,13 @@ class AppServiceTests(unittest.IsolatedAsyncioTestCase):
             app = WeekendWizardApp(Path("main.py"), "llama3.2:latest", ["mcp-server"])
             await app.__aenter__()
             context = app.create_interaction_context()
-            actual = await app.run_interaction("hello", context=context)
+            actual = await app.run_interaction("hello", context=context, trace=trace)
 
         self.assertEqual(actual, result)
         mock_orchestrate.assert_awaited_once()
         self.assertEqual(mock_orchestrate.await_args.args[1], context)
         self.assertEqual(mock_orchestrate.await_args.args[2], "hello")
+        self.assertEqual(mock_orchestrate.await_args.kwargs["trace"], trace)
 
         await app.__aexit__(None, None, None)
 

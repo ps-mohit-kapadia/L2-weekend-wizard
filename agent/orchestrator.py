@@ -3,6 +3,7 @@ from __future__ import annotations
 """ReAct-style tool orchestration for one Weekend Wizard interaction."""
 
 import json
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,6 +21,7 @@ from agent.policies.guardrails import (
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
+from logger.tracing.request_trace import RequestTrace, truncate_repr
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
     InteractionResult,
@@ -173,14 +175,14 @@ def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
         if isinstance(parsed, ToolError):
             detail = parsed.details or parsed.error
             summary_lines.append(
-                f"[{index}] {tool_name} args={args_text} -> failed: {detail}"
+                f"[{index}] {tool_name}: failed ({detail}) args={args_text}"
             )
             continue
 
         if tool_name == "city_to_coords" and isinstance(parsed, GeoResult):
             summary_lines.append(
-                "[{index}] city_to_coords args={args} -> "
-                "city={city}, lat={lat}, lon={lon}, country={country}, admin1={admin1}".format(
+                "[{index}] city_to_coords: resolved {city} to {lat}, {lon} "
+                "args={args} country={country} admin1={admin1}".format(
                     index=index,
                     args=args_text,
                     city=parsed.city,
@@ -208,8 +210,8 @@ def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
                 f", observed_at={parsed.observed_at}" if parsed.observed_at else ""
             )
             summary_lines.append(
-                "[{index}] get_weather args={args} -> "
-                "lat={lat}, lon={lon}, temp={temp}, summary={summary}{wind}{observed_at}".format(
+                "[{index}] get_weather: fetched weather for {lat}, {lon} "
+                "args={args} temp={temp}, summary={summary}{wind}{observed_at}".format(
                     index=index,
                     args=args_text,
                     lat=parsed.latitude,
@@ -225,30 +227,30 @@ def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
         if tool_name == "book_recs" and isinstance(parsed, BookResults):
             result_count = len(parsed.results)
             summary_lines.append(
-                f"[{index}] book_recs args={args_text} -> "
-                f"topic={parsed.topic}, results={result_count}"
+                f"[{index}] book_recs: fetched {result_count} book recommendations for {parsed.topic} "
+                f"args={args_text}"
             )
             continue
 
         if tool_name == "random_joke" and isinstance(parsed, JokeResult):
             summary_lines.append(
-                f"[{index}] random_joke args={args_text} -> fetched one joke"
+                f"[{index}] random_joke: fetched one joke args={args_text}"
             )
             continue
 
         if tool_name == "random_dog" and isinstance(parsed, DogResult):
             summary_lines.append(
-                f"[{index}] random_dog args={args_text} -> fetched one dog image"
+                f"[{index}] random_dog: fetched one dog image args={args_text}"
             )
             continue
 
         if tool_name == "trivia" and isinstance(parsed, TriviaResult):
             summary_lines.append(
-                f"[{index}] trivia args={args_text} -> fetched one trivia question"
+                f"[{index}] trivia: fetched one trivia question args={args_text}"
             )
             continue
 
-        summary_lines.append(f"[{index}] {tool_name} args={args_text} -> completed")
+        summary_lines.append(f"[{index}] {tool_name}: completed args={args_text}")
 
     return "\n".join(summary_lines)
 
@@ -257,17 +259,49 @@ async def execute_tool_call(
     tool_gateway: ToolGateway,
     tool_name: str,
     args: Dict[str, Any],
+    *,
+    step_number: int,
+    trace: RequestTrace | None = None,
 ) -> str:
     """Invoke one MCP tool and serialize its response payload."""
     try:
+        if trace is not None:
+            trace.add_event(
+                "tool_execution_started",
+                step_number=step_number,
+                tool_name=tool_name,
+                args=args,
+            )
         logger.info("Invoking tool %s with args=%s", tool_name, args)
+        started = time.perf_counter()
         result = await tool_gateway.call_tool(tool_name, args)
         payload = render_tool_result(result)
+        duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info("Tool %s completed", tool_name)
+        if trace is not None:
+            trace.add_event(
+                "tool_execution_completed",
+                step_number=step_number,
+                tool_name=tool_name,
+                args=args,
+                result=truncate_repr(payload),
+                duration_ms=duration_ms,
+            )
         return payload
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
-        return _tool_error_payload(tool_name, SAFE_TOOL_INVOCATION_DETAIL)
+        payload = _tool_error_payload(tool_name, SAFE_TOOL_INVOCATION_DETAIL)
+        if trace is not None:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            trace.add_event(
+                "tool_execution_completed",
+                step_number=step_number,
+                tool_name=tool_name,
+                args=args,
+                result=truncate_repr(payload),
+                duration_ms=duration_ms,
+            )
+        return payload
 
 
 def normalize_tool_args(
@@ -345,11 +379,13 @@ def run_reflection(
     user_prompt: str,
     tool_observations: List[ToolObservation],
     draft_answer: str,
+    *,
+    trace: RequestTrace | None = None,
 ) -> Tuple[str, bool]:
     """Run one reflection pass and fall back to the grounded draft on failure."""
     messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
     try:
-        reflected = llm_reflection_json(messages, context.model_name)
+        reflected = llm_reflection_json(messages, context.model_name, trace=trace)
         return reflected["answer"].strip(), False
     except Exception as exc:
         logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
@@ -371,6 +407,7 @@ def finalize_after_execution(
     draft_answer: str,
     *,
     used_fallback: bool = False,
+    trace: RequestTrace | None = None,
 ) -> InteractionResult:
     """Build the grounded draft, reflect once, and persist the final answer.
 
@@ -384,20 +421,30 @@ def finalize_after_execution(
         else draft_answer
     )
     final_answer, reflection_used_fallback = run_reflection(
-        context, user_prompt, tool_observations, grounded
+        context, user_prompt, tool_observations, grounded, trace=trace
     )
-    return build_interaction_result(
+    result = build_interaction_result(
         context.history,
         answer=final_answer,
         tool_observations=tool_observations,
         used_fallback=used_fallback or reflection_used_fallback,
     )
+    if trace is not None:
+        trace.add_event(
+            "interaction_completed",
+            observations_count=len(result.tool_observations),
+            used_fallback=result.used_fallback,
+            answer_length=len(result.answer),
+        )
+    return result
 
 
 async def orchestrate_interaction(
     tool_gateway: ToolGateway,
     context: OrchestratorContext,
     user_prompt: str,
+    *,
+    trace: RequestTrace | None = None,
 ) -> InteractionResult:
     """Run one bounded ReAct interaction from prompt to grounded result."""
     logger.info("Starting interaction for prompt length %d", len(user_prompt))
@@ -422,6 +469,7 @@ async def orchestrate_interaction(
                 react_messages,
                 context.model_name,
                 allowed_tools=context.tool_names,
+                trace=trace,
             )
             decision = validate_react_decision(raw_decision)
             validate_react_decision_semantics(decision, context.tool_names)
@@ -434,13 +482,22 @@ async def orchestrate_interaction(
                     state.tool_observations,
                     build_react_failure_answer(),
                     used_fallback=True,
+                    trace=trace,
                 )
-            return build_interaction_result(
+            result = build_interaction_result(
                 context.history,
                 answer=build_react_failure_answer(),
                 tool_observations=[],
                 used_fallback=False,
             )
+            if trace is not None:
+                trace.add_event(
+                    "interaction_completed",
+                    observations_count=0,
+                    used_fallback=False,
+                    answer_length=len(result.answer),
+                )
+            return result
 
         if decision.action == "finish":
             draft_answer = decision.final_answer or ""
@@ -466,10 +523,22 @@ async def orchestrate_interaction(
                 decision.tool,
                 normalized_args,
             )
+            if trace is not None:
+                trace.add_event(
+                    "duplicate_tool_call_skipped",
+                    step_number=step_number,
+                    tool_name=decision.tool,
+                    args=normalized_args,
+                    decision_summary=decision.thought,
+                )
             continue
         else:
             payload = await execute_tool_call(
-                tool_gateway, decision.tool, normalized_args
+                tool_gateway,
+                decision.tool,
+                normalized_args,
+                step_number=step_number,
+                trace=trace,
             )
         record_tool_observation(
             state.tool_observations,
@@ -486,6 +555,7 @@ async def orchestrate_interaction(
         state.tool_observations,
         draft_answer,
         used_fallback=False,
+        trace=trace,
     )
     logger.info(
         "Interaction completed with %d observations and answer length %d",

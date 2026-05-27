@@ -170,11 +170,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(len(fake_app.created_contexts), 1)
         created_context = fake_app.created_contexts[0]
-        fake_app.run_interaction.assert_awaited_once_with("Plan me a weekend in New York", context=created_context)
+        fake_app.run_interaction.assert_awaited_once()
+        self.assertEqual(
+            fake_app.run_interaction.await_args.args[0],
+            "Plan me a weekend in New York",
+        )
+        self.assertEqual(
+            fake_app.run_interaction.await_args.kwargs["context"],
+            created_context,
+        )
+        self.assertIn("trace", fake_app.run_interaction.await_args.kwargs)
         mock_list_models.assert_not_called()
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
+        self.assertIn("REQUEST TRACE:", joined)
+        self.assertIn("EVENT: interaction_started", joined)
+        self.assertIn("EVENT: interaction_completed", joined)
+
+    def test_chat_endpoint_emits_trace_even_when_interaction_fails(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _ExplodingWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
+                response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 500)
+        joined = "\n".join(captured.output)
+        self.assertIn("REQUEST TRACE:", joined)
+        self.assertIn("EVENT: interaction_started", joined)
+        self.assertIn("EVENT: interaction_completed", joined)
 
     def test_chat_endpoint_surfaces_server_errors(self) -> None:
         with (

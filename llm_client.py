@@ -3,12 +3,14 @@ from __future__ import annotations
 """Local Ollama client helpers for ReAct decisions and reflection JSON outputs."""
 
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
 
 from config.config import get_settings
 from logger.logging import get_logger
+from logger.tracing.request_trace import RequestTrace
 from schemas.agent import validate_react_decision, validate_reflection_result
 
 logger = get_logger("llm_client")
@@ -33,6 +35,8 @@ def call_model(
     model: str,
     temperature: float,
     json_mode: bool = False,
+    *,
+    trace: RequestTrace | None = None,
 ) -> str:
     """Call the local Ollama chat endpoint and return raw message content."""
     settings = get_settings()
@@ -45,6 +49,13 @@ def call_model(
     if json_mode:
         payload["format"] = "json"
 
+    if trace is not None:
+        trace.add_event(
+            "llm_call_started",
+            model=model,
+            messages_count=len(messages),
+        )
+
     logger.info(
         "Calling Ollama model %s with %d messages (json_mode=%s, temperature=%s)",
         model,
@@ -52,6 +63,7 @@ def call_model(
         json_mode,
         temperature,
     )
+    started = time.perf_counter()
     response = requests.post(
         settings.ollama_url,
         json=payload,
@@ -59,7 +71,15 @@ def call_model(
     )
     response.raise_for_status()
     data = response.json()
+    duration_ms = int((time.perf_counter() - started) * 1000)
     logger.info("Received Ollama response for model %s", model)
+    if trace is not None:
+        trace.add_event(
+            "llm_call_completed",
+            model=model,
+            duration_ms=duration_ms,
+            messages_count=len(messages),
+        )
     return data["message"]["content"]
 
 
@@ -127,9 +147,10 @@ def llm_react_json(
     model: str,
     *,
     allowed_tools: List[str],
+    trace: RequestTrace | None = None,
 ) -> Dict[str, Any]:
     """Return one bounded ReAct decision from Ollama."""
-    raw = call_model(messages, model, temperature=0.2, json_mode=True)
+    raw = call_model(messages, model, temperature=0.2, json_mode=True, trace=trace)
 
     try:
         return _extract_valid_decision_json(raw)
@@ -164,7 +185,9 @@ def llm_react_json(
                 ),
             },
         ]
-        repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
+        repaired = call_model(
+            repair_messages, model, temperature=0.0, json_mode=True, trace=trace
+        )
         try:
             return _extract_valid_decision_json(repaired)
         except Exception as exc:
@@ -178,9 +201,11 @@ def llm_react_json(
 def llm_reflection_json(
     messages: List[Dict[str, str]],
     model: str,
+    *,
+    trace: RequestTrace | None = None,
 ) -> Dict[str, Any]:
     """Return a JSON reflection payload from Ollama."""
-    raw = call_model(messages, model, temperature=0.0, json_mode=True)
+    raw = call_model(messages, model, temperature=0.0, json_mode=True, trace=trace)
 
     try:
         return _extract_valid_reflection_json(raw)
@@ -198,7 +223,9 @@ def llm_reflection_json(
             },
             {"role": "user", "content": raw},
         ]
-        repaired = call_model(repair_messages, model, temperature=0.0, json_mode=True)
+        repaired = call_model(
+            repair_messages, model, temperature=0.0, json_mode=True, trace=trace
+        )
         try:
             return _extract_valid_reflection_json(repaired)
         except Exception as exc:

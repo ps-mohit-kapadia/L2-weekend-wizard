@@ -7,6 +7,7 @@ from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
 from logger.logging import get_logger
+from logger.tracing.request_trace import RequestTrace
 from mcp_runtime.client import McpService
 from schemas.agent import InteractionResult, OrchestratorContext
 
@@ -129,6 +130,7 @@ class WeekendWizardApp:
         user_prompt: str,
         *,
         context: OrchestratorContext,
+        trace: RequestTrace | None = None,
     ) -> InteractionResult:
         """Run one user interaction through the shared orchestration flow.
 
@@ -153,6 +155,7 @@ class WeekendWizardApp:
             self._mcp_service,
             context,
             user_prompt,
+            trace=trace,
         )
         logger.info(
             "Interaction completed with %d observations, fallback=%s, answer length=%d",
