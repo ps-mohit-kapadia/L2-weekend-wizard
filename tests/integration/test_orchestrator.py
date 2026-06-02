@@ -63,7 +63,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
-            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
             {"thought": "Need books.", "action": "tool", "tool": "book_recs", "args": {"param": "mystery", "limit": 2}},
             {"thought": "Need one joke.", "action": "tool", "tool": "random_joke", "args": {}},
             {"thought": "Need one dog photo.", "action": "tool", "tool": "random_dog", "args": {}},
@@ -190,7 +190,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
-            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
             {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
@@ -235,7 +235,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
     @patch("agent.orchestrator.llm_react_json")
-    async def test_prompt_coordinates_weather_still_works_with_empty_args(
+    async def test_prompt_coordinates_weather_with_empty_args_is_invalid(
         self,
         mock_react: Mock,
         _mock_reflection: Mock,
@@ -269,11 +269,8 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="What's the weather for 41.85003, -87.65005?",
         )
 
-        self.assertEqual(tool_gateway.call_tool.await_count, 1)
-        self.assertEqual(
-            result.tool_observations[0].args,
-            {"latitude": 41.85003, "longitude": -87.65005},
-        )
+        self.assertEqual(tool_gateway.call_tool.await_count, 0)
+        self.assertIn("latitude and longitude are required", result.tool_observations[0].payload)
         self.assertEqual(result.answer, "Here is the weather.")
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
@@ -285,8 +282,8 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
-            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
-            {"thought": "Get weather again.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "Get weather again.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
             {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
@@ -329,14 +326,14 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
     @patch("agent.orchestrator.llm_react_json")
-    async def test_implicit_and_explicit_equivalent_weather_args_count_as_duplicate(
+    async def test_explicit_equivalent_weather_args_count_as_duplicate(
         self,
         mock_react: Mock,
         _mock_reflection: Mock,
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
-            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
             {
                 "thought": "Get weather again explicitly.",
                 "action": "tool",
@@ -385,7 +382,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Could not disambiguate weather."})
     @patch("agent.orchestrator.llm_react_json")
-    async def test_multiple_city_lookups_make_empty_arg_weather_ambiguous(
+    async def test_multiple_city_lookups_make_empty_arg_weather_invalid(
         self,
         mock_react: Mock,
         _mock_reflection: Mock,
@@ -531,8 +528,8 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
-            {"thought": "Fetch Chicago weather.", "action": "tool", "tool": "get_weather", "args": {}},
-            {"thought": "Fetch Chicago weather again.", "action": "tool", "tool": "get_weather", "args": {}},
+            {"thought": "Fetch Chicago weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "Fetch Chicago weather again.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
             {"thought": "Resolve New York now.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
             {"thought": "Fetch New York weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
             {"thought": "I can answer now.", "action": "finish", "final_answer": "Here are both weather results."},

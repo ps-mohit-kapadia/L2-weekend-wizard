@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import time
-from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,7 +15,6 @@ from agent.policies.guardrails import (
     infer_book_limit,
     infer_book_topic,
     infer_city,
-    parse_coords,
 )
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
@@ -52,34 +50,6 @@ class ExecutionState:
 
     user_prompt: str
     tool_observations: List[ToolObservation]
-
-    def candidate_weather_coords(self) -> List[Tuple[float, float]]:
-        """Return deduplicated weather coordinate candidates from durable evidence."""
-        candidates: "OrderedDict[Tuple[float, float], None]" = OrderedDict()
-
-        prompt_coords = parse_coords(self.user_prompt)
-        if prompt_coords is not None:
-            candidates[(float(prompt_coords[0]), float(prompt_coords[1]))] = None
-
-        for observation in self.tool_observations:
-            if observation.tool_name != "city_to_coords":
-                continue
-            parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
-            if isinstance(parsed, GeoResult):
-                candidates[(float(parsed.latitude), float(parsed.longitude))] = None
-
-        return list(candidates.keys())
-
-    def resolve_weather_coords(
-        self,
-    ) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
-        """Resolve one unambiguous coordinate pair for an omitted weather request."""
-        candidates = self.candidate_weather_coords()
-        if not candidates:
-            return None, "latitude and longitude are required"
-        if len(candidates) > 1:
-            return None, "latitude and longitude are required"
-        return candidates[0], None
 
 
 def render_tool_result(result: Any) -> str:
@@ -328,10 +298,7 @@ def normalize_tool_args(
         latitude = args.get("latitude")
         longitude = args.get("longitude")
         if latitude is None or longitude is None:
-            coords, error = state.resolve_weather_coords()
-            if coords is None:
-                return None, error or "latitude and longitude are required"
-            latitude, longitude = coords
+            return None, "latitude and longitude are required"
         try:
             return {"latitude": float(latitude), "longitude": float(longitude)}, None
         except (TypeError, ValueError):
