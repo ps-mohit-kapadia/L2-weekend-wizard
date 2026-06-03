@@ -879,12 +879,15 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("internal.example.local", result.tool_observations[0].payload)
         self.assertEqual(tool_gateway.call_tool.await_count, 2)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Polished final answer."})
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value={"answer": "Joke: A fetched joke. Hope that brightens your day."},
+    )
     @patch("agent.orchestrator.llm_react_json")
-    async def test_reflection_output_is_preserved_as_final_answer(
+    async def test_reflection_can_polish_grounded_answer_without_dropping_core_fact(
         self,
         mock_react: Mock,
-        _mock_reflection: Mock,
+        mock_reflection: Mock,
     ) -> None:
         mock_react.side_effect = [
             {"thought": "I should fetch a joke.", "action": "tool", "tool": "random_joke", "args": {}},
@@ -897,8 +900,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
-        self.assertEqual(result.answer, "Polished final answer.")
-        self.assertNotIn("A fetched joke.", result.answer)
+        mock_reflection.assert_called_once()
+        self.assertFalse(result.used_fallback)
+        self.assertIn("A fetched joke.", result.answer)
+        self.assertIn("brightens your day", result.answer)
 
     def test_validate_react_decision_semantics_rejects_unknown_tool(self) -> None:
         decision = {

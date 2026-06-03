@@ -119,12 +119,16 @@ def build_reflection_messages(
         {
             "role": "system",
             "content": (
-                "You are reviewing a draft Weekend Wizard answer.\n"
+                "You are reviewing a grounded Weekend Wizard answer.\n"
                 'Return ONLY valid JSON in the shape {"answer":"..."}.\n'
-                "Do one light reflection pass:\n"
-                "- remove unsupported claims\n"
+                "Do one light quality pass only:\n"
+                "- improve clarity, readability, and flow\n"
+                "- make the answer feel complete relative to the draft and observations already provided\n"
+                "- preserve every concrete grounded fact already present in the draft\n"
+                "- preserve failures, counts, locations, coordinates, comparisons, and supported caveats\n"
                 "- keep the answer short, upbeat, and grounded in observations\n"
-                "- do not introduce new facts or suggest new tool calls"
+                "- do not introduce new facts or suggest new tool calls\n"
+                "- do not remove, soften, or reinterpret supported facts"
             ),
         },
         {

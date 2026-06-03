@@ -283,7 +283,7 @@ def run_reflection(
     *,
     trace: RequestTrace | None = None,
 ) -> Tuple[str, bool]:
-    """Run one reflection pass and fall back to the grounded draft on failure."""
+    """Run one quality pass over the grounded draft and fall back on failure."""
     messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name, trace=trace)
@@ -310,11 +310,11 @@ def finalize_after_execution(
     used_fallback: bool = False,
     trace: RequestTrace | None = None,
 ) -> InteractionResult:
-    """Build the grounded draft, reflect once, and persist the final answer.
+    """Build grounded output first, then run one quality-only reflection pass.
 
-    Reflection is the final natural-language writer. The grounded draft exists
-    only to provide a safe evidence-based input and fallback when reflection
-    fails.
+    The grounded draft is the semantic source for tool-backed turns. Reflection
+    is allowed to improve presentation quality, but grounded output remains the
+    safe fallback if reflection fails.
     """
     grounded = (
         build_grounded_draft(user_prompt, tool_observations)
