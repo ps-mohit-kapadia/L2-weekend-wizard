@@ -16,6 +16,80 @@ from schemas.agent import validate_react_decision, validate_reflection_result
 logger = get_logger("llm_client")
 
 
+def _resolve_model_name(settings: Any, cli_model: Optional[str]) -> str:
+    if cli_model:
+        return cli_model
+    configured_models = getattr(settings, "preferred_models", ())
+    if not configured_models:
+        raise RuntimeError("No model is configured.")
+    return configured_models[0]
+
+
+def _call_ollama_model(
+    messages: List[Dict[str, str]],
+    model: str,
+    temperature: float,
+    json_mode: bool,
+    *,
+    settings: Any,
+) -> str:
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": temperature},
+    }
+    if json_mode:
+        payload["format"] = "json"
+
+    response = requests.post(
+        settings.ollama_url,
+        json=payload,
+        timeout=settings.request_timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["message"]["content"]
+
+
+def _call_aiplatform_model(
+    messages: List[Dict[str, str]],
+    model: str,
+    temperature: float,
+    json_mode: bool,
+    *,
+    settings: Any,
+) -> str:
+    if not settings.aiplatform_api_key:
+        raise RuntimeError("AIPLATFORM_API_KEY is required for llm_provider=aiplatform.")
+
+    chat_path = settings.aiplatform_chat_path
+    if not chat_path.startswith("/"):
+        chat_path = "/" + chat_path
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    response = requests.post(
+        f"{settings.aiplatform_base_url}{chat_path}",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {settings.aiplatform_api_key}",
+            "Content-Type": "application/json",
+        },
+        timeout=settings.aiplatform_timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+
 def list_available_models(timeout: int = 5) -> List[str]:
     """Return the models currently reported by the local Ollama runtime."""
     logger.info("Requesting available Ollama models with timeout %ss", timeout)
@@ -38,16 +112,8 @@ def call_model(
     *,
     trace: RequestTrace | None = None,
 ) -> str:
-    """Call the local Ollama chat endpoint and return raw message content."""
+    """Call the configured LLM provider and return raw message content."""
     settings = get_settings()
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": temperature},
-    }
-    if json_mode:
-        payload["format"] = "json"
 
     if trace is not None:
         trace.add_event(
@@ -57,22 +123,34 @@ def call_model(
         )
 
     logger.info(
-        "Calling Ollama model %s with %d messages (json_mode=%s, temperature=%s)",
+        "Calling %s model %s with %d messages (json_mode=%s, temperature=%s)",
+        settings.llm_provider,
         model,
         len(messages),
         json_mode,
         temperature,
     )
     started = time.perf_counter()
-    response = requests.post(
-        settings.ollama_url,
-        json=payload,
-        timeout=settings.request_timeout,
-    )
-    response.raise_for_status()
-    data = response.json()
+    if settings.llm_provider == "ollama":
+        content = _call_ollama_model(
+            messages,
+            model,
+            temperature,
+            json_mode,
+            settings=settings,
+        )
+    elif settings.llm_provider == "aiplatform":
+        content = _call_aiplatform_model(
+            messages,
+            model,
+            temperature,
+            json_mode,
+            settings=settings,
+        )
+    else:
+        raise RuntimeError(f"Unsupported llm_provider: {settings.llm_provider}")
     duration_ms = int((time.perf_counter() - started) * 1000)
-    logger.info("Received Ollama response for model %s", model)
+    logger.info("Received %s response for model %s", settings.llm_provider, model)
     if trace is not None:
         trace.add_event(
             "llm_call_completed",
@@ -80,17 +158,15 @@ def call_model(
             duration_ms=duration_ms,
             messages_count=len(messages),
         )
-    return data["message"]["content"]
+    return content
 
 
 def discover_model(cli_model: Optional[str]) -> str:
-    """Resolve the Ollama model name for the current run."""
+    """Resolve the configured model name for the current run."""
     settings = get_settings()
-    configured_models = settings.preferred_models
-    if not configured_models:
-        raise RuntimeError("No Ollama model is configured.")
-
-    configured_model = configured_models[0]
+    configured_model = _resolve_model_name(settings, cli_model)
+    if settings.llm_provider == "aiplatform":
+        return configured_model
     try:
         names = list_available_models(timeout=5)
     except requests.RequestException as exc:

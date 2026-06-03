@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Tuple
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_VALID_LLM_PROVIDERS = {"ollama", "aiplatform"}
 
 
 def _env_positive_int(name: str, default: int) -> int:
@@ -64,6 +65,15 @@ def _env_log_level(name: str, default: str) -> str:
     return normalized
 
 
+def _env_llm_provider(name: str, default: str) -> str:
+    """Read and validate the configured LLM provider."""
+    value = os.getenv(name, default).lower()
+    if value not in _VALID_LLM_PROVIDERS:
+        allowed = ", ".join(sorted(_VALID_LLM_PROVIDERS))
+        raise ValueError(f"{name} must be one of {allowed}.")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     """Typed application settings for the Weekend Wizard runtime."""
@@ -72,7 +82,12 @@ class Settings:
     tool_http_timeout: int
     http_max_retries: int
     http_retry_backoff_seconds: float
+    llm_provider: str
     ollama_url: str
+    aiplatform_api_key: str | None
+    aiplatform_base_url: str
+    aiplatform_timeout: int
+    aiplatform_chat_path: str
     preferred_models: Tuple[str, ...]
     log_level: str
 
@@ -88,7 +103,16 @@ def get_settings() -> Settings:
             "WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS",
             0.5,
         ),
+        llm_provider=_env_llm_provider("LLM_PROVIDER", "ollama"),
         ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat"),
-        preferred_models=("llama3.1:8b",),
+        aiplatform_api_key=os.getenv("AIPLATFORM_API_KEY"),
+        aiplatform_base_url=os.getenv(
+            "AIPLATFORM_BASE_URL", "https://aiapidev.3ecompany.com"
+        ).rstrip("/"),
+        aiplatform_timeout=_env_positive_int("AIPLATFORM_TIMEOUT", 120),
+        aiplatform_chat_path=os.getenv(
+            "AIPLATFORM_CHAT_PATH", "/v1/chat/completions"
+        ),
+        preferred_models=(os.getenv("MODEL", "llama3.1:8b"),),
         log_level=_env_log_level("WEEKEND_WIZARD_LOG_LEVEL", "WARNING"),
     )

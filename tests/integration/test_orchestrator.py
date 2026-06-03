@@ -177,7 +177,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         second_call_messages = mock_react.call_args_list[1].args[0]
         combined = "\n".join(message["content"] for message in second_call_messages)
         self.assertIn("Assistant observation context:", combined)
-        self.assertIn("random_joke: fetched one joke", combined)
+        self.assertIn("random_joke: completed args={}", combined)
         self.assertNotIn('{"joke": "A fetched joke."}', combined)
         self.assertEqual(result.tool_observations[0].payload, '{"joke": "A fetched joke."}')
 
@@ -229,7 +229,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         second_call_messages = mock_react.call_args_list[1].args[0]
         combined = "\n".join(message["content"] for message in second_call_messages)
         self.assertIn("Assistant observation context:", combined)
-        self.assertIn("city_to_coords: resolved New York to 40.71427, -74.00597", combined)
+        self.assertIn('city_to_coords: completed args={"city":"New York"}', combined)
         self.assertNotIn('"latitude": 40.71427', combined)
         self.assertNotIn('"longitude": -74.00597', combined)
 
@@ -640,7 +640,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         second_call_messages = mock_react.call_args_list[1].args[0]
         combined = "\n".join(message["content"] for message in second_call_messages)
         self.assertIn("Assistant observation context:", combined)
-        self.assertIn("book_recs: fetched 2 book recommendations for mystery", combined)
+        self.assertIn('book_recs: completed args={"limit":2,"topic":"mystery"}', combined)
         self.assertNotIn("A Caribbean Mystery", combined)
         self.assertNotIn("The Mysterious Affair at Styles", combined)
 

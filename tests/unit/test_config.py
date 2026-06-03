@@ -32,7 +32,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
+        self.assertEqual(settings.llm_provider, "ollama")
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
+        self.assertEqual(settings.aiplatform_base_url, "https://aiapidev.3ecompany.com")
+        self.assertEqual(settings.aiplatform_timeout, 120)
+        self.assertEqual(settings.aiplatform_chat_path, "/v1/chat/completions")
+        self.assertEqual(settings.preferred_models, ("llama3.1:8b",))
 
     def test_get_settings_reloads_when_environment_changes(self) -> None:
         with patch.dict(
@@ -57,6 +62,31 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_max_retries, 2)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.5)
         self.assertEqual(settings.log_level, "WARNING")
+        self.assertEqual(settings.llm_provider, "ollama")
+        self.assertEqual(settings.preferred_models, ("llama3.1:8b",))
+
+    def test_get_settings_supports_aiplatform_provider_configuration(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "aiplatform",
+                "AIPLATFORM_API_KEY": "secret:public",
+                "AIPLATFORM_BASE_URL": "https://aiapidev.3ecompany.com/",
+                "AIPLATFORM_TIMEOUT": "30",
+                "AIPLATFORM_CHAT_PATH": "v1/chat/completions",
+                "MODEL": "baseten/deepseek-ai/deepseek-v3.1",
+            },
+            clear=True,
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.llm_provider, "aiplatform")
+        self.assertEqual(settings.aiplatform_api_key, "secret:public")
+        self.assertEqual(settings.aiplatform_base_url, "https://aiapidev.3ecompany.com")
+        self.assertEqual(settings.aiplatform_timeout, 30)
+        self.assertEqual(settings.aiplatform_chat_path, "v1/chat/completions")
+        self.assertEqual(settings.preferred_models, ("baseten/deepseek-ai/deepseek-v3.1",))
 
     def test_get_settings_rejects_non_numeric_request_timeout(self) -> None:
         with patch.dict(os.environ, {"WEEKEND_WIZARD_REQUEST_TIMEOUT": "slow"}, clear=True):
@@ -90,6 +120,12 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {"WEEKEND_WIZARD_LOG_LEVEL": "TRACE"}, clear=True):
             get_settings.cache_clear()
             with self.assertRaisesRegex(ValueError, "WEEKEND_WIZARD_LOG_LEVEL"):
+                get_settings()
+
+    def test_get_settings_rejects_invalid_llm_provider(self) -> None:
+        with patch.dict(os.environ, {"LLM_PROVIDER": "unknown"}, clear=True):
+            get_settings.cache_clear()
+            with self.assertRaisesRegex(ValueError, "LLM_PROVIDER"):
                 get_settings()
 
 

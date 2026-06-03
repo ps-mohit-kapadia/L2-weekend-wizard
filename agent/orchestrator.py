@@ -28,15 +28,7 @@ from schemas.agent import (
     ToolObservation,
     validate_react_decision,
 )
-from schemas.tools import (
-    BookResults,
-    DogResult,
-    GeoResult,
-    JokeResult,
-    ToolError,
-    TriviaResult,
-    WeatherResult,
-)
+from schemas.tools import ToolError
 
 
 logger = get_logger("agent.orchestrator")
@@ -127,14 +119,14 @@ def _format_observation_args(args: Dict[str, Any]) -> str:
     return json.dumps(args, sort_keys=True, separators=(",", ":"))
 
 
-def render_assistant_observation_context(
+def render_planner_observation_memory(
     tool_observations: List[ToolObservation],
 ) -> str:
-    """Render assistant-visible observation context for ReAct planning.
+    """Render planner-visible observation memory for ReAct planning.
 
     This is not completion logic and not a final answer draft. It serializes
-    ToolObservation evidence into a compact faithful context block so the
-    assistant can plan the next ReAct step without losing observation identity.
+    ToolObservation evidence into a compact faithful memory block so the
+    planner can see prior tool executions without domain-specific narration.
     """
     summary_lines: List[str] = []
 
@@ -150,85 +142,21 @@ def render_assistant_observation_context(
             )
             continue
 
-        if tool_name == "city_to_coords" and isinstance(parsed, GeoResult):
-            summary_lines.append(
-                "[{index}] city_to_coords: resolved {city} to {lat}, {lon} "
-                "args={args} country={country} admin1={admin1}".format(
-                    index=index,
-                    args=args_text,
-                    city=parsed.city,
-                    lat=parsed.latitude,
-                    lon=parsed.longitude,
-                    country=parsed.country or "unknown",
-                    admin1=parsed.admin1 or "unknown",
-                )
-            )
-            continue
-
-        if tool_name == "get_weather" and isinstance(parsed, WeatherResult):
-            summary = parsed.weather_summary or "weather fetched"
-            temp = (
-                f"{parsed.temperature}{parsed.temperature_unit or ''}"
-                if parsed.temperature is not None
-                else "unknown"
-            )
-            wind = (
-                f", wind={parsed.wind_speed}{parsed.wind_speed_unit or ''}"
-                if parsed.wind_speed is not None
-                else ""
-            )
-            observed_at = (
-                f", observed_at={parsed.observed_at}" if parsed.observed_at else ""
-            )
-            summary_lines.append(
-                "[{index}] get_weather: fetched weather for {lat}, {lon} "
-                "args={args} temp={temp}, summary={summary}{wind}{observed_at}".format(
-                    index=index,
-                    args=args_text,
-                    lat=parsed.latitude,
-                    lon=parsed.longitude,
-                    temp=temp,
-                    summary=summary,
-                    wind=wind,
-                    observed_at=observed_at,
-                )
-            )
-            continue
-
-        if tool_name == "book_recs" and isinstance(parsed, BookResults):
-            result_count = len(parsed.results)
-            summary_lines.append(
-                f"[{index}] book_recs: fetched {result_count} book recommendations for {parsed.topic} "
-                f"args={args_text}"
-            )
-            continue
-
-        if tool_name == "random_joke" and isinstance(parsed, JokeResult):
-            summary_lines.append(
-                f"[{index}] random_joke: fetched one joke args={args_text}"
-            )
-            continue
-
-        if tool_name == "random_dog" and isinstance(parsed, DogResult):
-            summary_lines.append(
-                f"[{index}] random_dog: fetched one dog image args={args_text}"
-            )
-            continue
-
-        if tool_name == "trivia" and isinstance(parsed, TriviaResult):
-            summary_lines.append(
-                f"[{index}] trivia: fetched one trivia question args={args_text}"
-            )
-            continue
-
         summary_lines.append(f"[{index}] {tool_name}: completed args={args_text}")
 
     return "\n".join(summary_lines)
 
 
+def render_assistant_observation_context(
+    tool_observations: List[ToolObservation],
+) -> str:
+    """Backward-compatible alias for planner observation memory rendering."""
+    return render_planner_observation_memory(tool_observations)
+
+
 def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
     """Backward-compatible alias for assistant observation context rendering."""
-    return render_assistant_observation_context(tool_observations)
+    return render_planner_observation_memory(tool_observations)
 
 
 async def execute_tool_call(
@@ -435,7 +363,7 @@ async def orchestrate_interaction(
             context.tool_names,
             step_number=step_number,
             max_steps=MAX_REACT_STEPS,
-            observation_summary=render_assistant_observation_context(
+            observation_summary=render_planner_observation_memory(
                 state.tool_observations
             ),
         )

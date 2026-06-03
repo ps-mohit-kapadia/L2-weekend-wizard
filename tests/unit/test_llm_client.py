@@ -15,6 +15,7 @@ class LlmClientTests(unittest.TestCase):
     @patch("llm_client.get_settings")
     def test_call_model_uses_request_timeout_setting(self, mock_settings: Mock, mock_post: Mock) -> None:
         mock_settings.return_value = SimpleNamespace(
+            llm_provider="ollama",
             ollama_url="http://127.0.0.1:11434/api/chat",
             request_timeout=777,
         )
@@ -35,6 +36,45 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 777)
         self.assertEqual(trace.events[-2].event, "llm_call_started")
         self.assertEqual(trace.events[-1].event, "llm_call_completed")
+
+    @patch("llm_client.requests.post")
+    @patch("llm_client.get_settings")
+    def test_call_model_uses_aiplatform_endpoint_and_timeout(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            llm_provider="aiplatform",
+            aiplatform_api_key="secret:public",
+            aiplatform_base_url="https://aiapidev.3ecompany.com",
+            aiplatform_chat_path="/v1/chat/completions",
+            aiplatform_timeout=123,
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer":"ok"}'}}]
+        }
+        mock_post.return_value = response
+
+        llm_client.call_model(
+            [{"role": "user", "content": "hello"}],
+            "baseten/deepseek-ai/deepseek-v3.1",
+            temperature=0.0,
+            json_mode=True,
+        )
+
+        mock_post.assert_called_once()
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "https://aiapidev.3ecompany.com/v1/chat/completions",
+        )
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 123)
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["Authorization"],
+            "Bearer secret:public",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["response_format"],
+            {"type": "json_object"},
+        )
 
     def test_extract_json_handles_wrapped_text(self) -> None:
         parsed = llm_client.extract_json('Result: {"action":"finish","final_answer":"hi"} thanks')
@@ -169,6 +209,7 @@ class LlmClientTests(unittest.TestCase):
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
             preferred_models=("gpt-oss:20b-cloud",),
+            llm_provider="ollama",
         )
         response = Mock()
         response.json.return_value = {
@@ -190,6 +231,7 @@ class LlmClientTests(unittest.TestCase):
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
             preferred_models=("gpt-oss:20b-cloud",),
+            llm_provider="ollama",
         )
         response = Mock()
         response.json.return_value = {"models": [{"name": "llama3.2:latest"}]}
@@ -198,6 +240,19 @@ class LlmClientTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Configured Ollama model is not available"):
             llm_client.discover_model(None)
+
+    @patch("llm_client.get_settings")
+    def test_discover_model_returns_configured_aiplatform_model_without_ollama_lookup(
+        self, mock_settings: Mock
+    ) -> None:
+        mock_settings.return_value = SimpleNamespace(
+            llm_provider="aiplatform",
+            preferred_models=("baseten/deepseek-ai/deepseek-v3.1",),
+        )
+
+        result = llm_client.discover_model(None)
+
+        self.assertEqual(result, "baseten/deepseek-ai/deepseek-v3.1")
 
 
 if __name__ == "__main__":
