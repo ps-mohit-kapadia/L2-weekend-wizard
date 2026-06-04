@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from agent.grounding import (
     compose_grounded_answer_from_observations,
     parse_tool_payload_text,
+    render_compact_observation_summaries,
 )
 from agent.policies.guardrails import (
     infer_book_limit,
@@ -272,7 +273,57 @@ def build_grounded_draft(
     user_prompt: str, tool_observations: List[ToolObservation]
 ) -> str:
     """Build the grounded draft answer before reflection."""
-    return compose_grounded_answer_from_observations(user_prompt, "", tool_observations)
+    grounded = compose_grounded_answer_from_observations(
+        user_prompt, "", tool_observations
+    )
+    if grounded.strip() or not tool_observations:
+        return grounded
+
+    compact_items = render_compact_observation_summaries(
+        user_prompt, tool_observations
+    )
+    if compact_items:
+        return "Weekend Wizard Results\n" + "\n".join(compact_items)
+    return grounded
+
+
+def _normalize_answer_text(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def _reflection_preserves_grounded_content(grounded: str, reflected: str) -> bool:
+    """Return whether reflection preserved the grounded answer's obvious anchors."""
+    grounded_lines = [line.strip() for line in grounded.splitlines() if line.strip()]
+    reflected_normalized = _normalize_answer_text(reflected)
+    if not grounded_lines:
+        return True
+
+    bullet_lines = [line for line in grounded_lines if line.startswith("- ")]
+    if not bullet_lines:
+        return _normalize_answer_text(grounded) in reflected_normalized
+
+    title_counts: Dict[str, int] = {}
+    for line in bullet_lines:
+        body = line[2:]
+        title, separator, detail = body.partition(":")
+        normalized_title = _normalize_answer_text(title)
+        title_counts[normalized_title] = title_counts.get(normalized_title, 0) + 1
+        if not normalized_title or normalized_title not in reflected_normalized:
+            return False
+
+        normalized_detail = _normalize_answer_text(detail)
+        if "unavailable" in normalized_detail and "unavailable" not in reflected_normalized:
+            return False
+        if (
+            SAFE_TOOL_INVOCATION_DETAIL in normalized_detail
+            and SAFE_TOOL_INVOCATION_DETAIL not in reflected_normalized
+        ):
+            return False
+
+    for normalized_title, expected_count in title_counts.items():
+        if reflected_normalized.count(normalized_title) < expected_count:
+            return False
+    return True
 
 
 def run_reflection(
@@ -314,7 +365,7 @@ def finalize_after_execution(
 
     The grounded draft is the semantic source for tool-backed turns. Reflection
     is allowed to improve presentation quality, but grounded output remains the
-    safe fallback if reflection fails.
+    authority baseline when reflection fails or drifts away from grounded facts.
     """
     grounded = (
         build_grounded_draft(user_prompt, tool_observations)
@@ -324,6 +375,13 @@ def finalize_after_execution(
     final_answer, reflection_used_fallback = run_reflection(
         context, user_prompt, tool_observations, grounded, trace=trace
     )
+    if tool_observations and not reflection_used_fallback:
+        if not _reflection_preserves_grounded_content(grounded, final_answer):
+            logger.info(
+                "Reflection drifted from grounded content; returning grounded draft instead"
+            )
+            final_answer = grounded
+            reflection_used_fallback = True
     result = build_interaction_result(
         context.history,
         answer=final_answer,
