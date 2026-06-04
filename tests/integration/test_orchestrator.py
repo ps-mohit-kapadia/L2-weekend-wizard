@@ -618,15 +618,13 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
     @patch("agent.orchestrator.llm_react_json")
-    async def test_runtime_weather_progress_blocks_early_finish_until_pending_city_is_fulfilled(
+    async def test_weather_no_longer_blocks_early_finish_with_custom_progress_gate(
         self,
         mock_react: Mock,
         _mock_reflection: Mock,
     ) -> None:
         mock_react.side_effect = [
             {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
-            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
-            {"thought": "Now fetch Chicago weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
             {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
@@ -638,15 +636,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "latitude": 41.85003,
                     "longitude": -87.65005,
                     "country": "United States",
-                }
-            ),
-            fake_tool_result(
-                {
-                    "latitude": 41.85003,
-                    "longitude": -87.65005,
-                    "temperature": 11.2,
-                    "temperature_unit": "C",
-                    "weather_summary": "clear sky",
                 }
             ),
         ]
@@ -662,15 +651,11 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="What's the weather in Chicago?",
         )
 
-        self.assertEqual(tool_gateway.call_tool.await_count, 2)
-        self.assertEqual(mock_react.call_count, 4)
-        third_call_messages = mock_react.call_args_list[2].args[0]
-        combined = "\n".join(message["content"] for message in third_call_messages)
-        self.assertIn("finish is not allowed yet", combined)
-        self.assertIn("pending weather for Chicago", combined)
+        self.assertEqual(tool_gateway.call_tool.await_count, 1)
+        self.assertEqual(mock_react.call_count, 2)
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
+            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005",
         )
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
