@@ -9,8 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
     build_grounded_items,
-    compose_grounded_answer_from_observations,
-    parse_tool_observations,
+    compose_grounded_answer_from_steps,
     parse_tool_payload_text,
     render_compact_observation_summaries,
 )
@@ -51,6 +50,7 @@ class ExecutionStep:
     raw_args: Dict[str, Any] | None = None
     normalized_args: Dict[str, Any] | None = None
     payload: str = ""
+    parsed_payload: Any = None
     outcome: str = ""
     feedback_message: str = ""
     final_answer: str = ""
@@ -159,16 +159,18 @@ def _render_planner_messages(state: ExecutionState) -> List[Dict[str, str]]:
 
 
 def has_successful_duplicate_observation(
-    tool_observations: List[ToolObservation],
+    steps: List[ExecutionStep],
     tool_name: str,
     args: Dict[str, Any],
 ) -> bool:
     """Return whether an identical successful observation already exists."""
-    for observation in tool_observations:
-        if observation.tool_name != tool_name or observation.args != args:
+    for step in steps:
+        if step.kind != "tool_call":
             continue
-        parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
-        if not isinstance(parsed, ToolError):
+        observed_args = step.normalized_args or step.raw_args or {}
+        if step.tool_name != tool_name or observed_args != args:
+            continue
+        if not isinstance(step.parsed_payload, ToolError):
             return True
     return False
 
@@ -265,6 +267,10 @@ def _tool_feedback_from_payload(
 ) -> str:
     parsed = parse_tool_payload_text(tool_name, payload)
     return _planner_tool_feedback_detail(tool_name, args, parsed)
+
+
+def _parsed_payload(tool_name: str, payload: str) -> Any:
+    return parse_tool_payload_text(tool_name, payload)
 
 
 async def execute_tool_call(
@@ -386,12 +392,12 @@ def validate_react_decision_semantics(
 
 
 def build_grounded_draft(
-    user_prompt: str, tool_observations: List[ToolObservation]
+    user_prompt: str,
+    state: ExecutionState,
+    tool_observations: List[ToolObservation],
 ) -> str:
     """Build the grounded draft answer before reflection."""
-    grounded = compose_grounded_answer_from_observations(
-        user_prompt, "", tool_observations
-    )
+    grounded = compose_grounded_answer_from_steps(user_prompt, "", state.steps)
     if grounded.strip() or not tool_observations:
         return grounded
 
@@ -409,7 +415,7 @@ def _normalize_answer_text(text: str) -> str:
 
 def _reflection_preserves_grounded_content(
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    state: ExecutionState,
     grounded: str,
     reflected: str,
 ) -> bool:
@@ -419,21 +425,23 @@ def _reflection_preserves_grounded_content(
         return False
 
     grounded_lines = [line.strip() for line in grounded.splitlines() if line.strip()]
-    if not grounded_lines or not tool_observations:
+    if not grounded_lines:
         return True
 
-    parsed_observations = parse_tool_observations(tool_observations)
     successful_weather = 0
 
-    for observation in parsed_observations:
-        payload = observation.payload
-        if observation.tool_name == "city_to_coords":
+    for step in state.steps:
+        if step.kind != "tool_call":
+            continue
+        tool_name = step.tool_name
+        payload = step.parsed_payload
+        if tool_name == "city_to_coords":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
             continue
 
-        if observation.tool_name == "get_weather":
+        if tool_name == "get_weather":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
@@ -453,7 +461,7 @@ def _reflection_preserves_grounded_content(
                     return False
                 continue
 
-        if observation.tool_name == "book_recs":
+        if tool_name == "book_recs":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
@@ -464,7 +472,7 @@ def _reflection_preserves_grounded_content(
                         return False
                 continue
 
-        if observation.tool_name == "random_joke":
+        if tool_name == "random_joke":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
@@ -474,7 +482,7 @@ def _reflection_preserves_grounded_content(
                     return False
                 continue
 
-        if observation.tool_name == "random_dog":
+        if tool_name == "random_dog":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
@@ -484,7 +492,7 @@ def _reflection_preserves_grounded_content(
                     return False
                 continue
 
-        if observation.tool_name == "trivia":
+        if tool_name == "trivia":
             if isinstance(payload, ToolError):
                 if "unavailable" not in reflected_normalized:
                     return False
@@ -494,7 +502,7 @@ def _reflection_preserves_grounded_content(
                     return False
                 continue
 
-    grounded_items = build_grounded_items(user_prompt, parsed_observations)
+    grounded_items = build_grounded_items(user_prompt, state.steps)
     for item in grounded_items:
         if item.title == "City Lookup" and successful_weather:
             continue
@@ -539,7 +547,7 @@ def build_react_failure_answer() -> str:
 def finalize_after_execution(
     context: OrchestratorContext,
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    state: ExecutionState,
     draft_answer: str,
     *,
     used_fallback: bool = False,
@@ -551,8 +559,9 @@ def finalize_after_execution(
     is allowed to improve presentation quality, but grounded output remains the
     authority baseline when reflection fails or drifts away from grounded facts.
     """
+    tool_observations = _derive_tool_observations(state)
     grounded = (
-        build_grounded_draft(user_prompt, tool_observations)
+        build_grounded_draft(user_prompt, state, tool_observations)
         if tool_observations
         else draft_answer
     )
@@ -562,7 +571,7 @@ def finalize_after_execution(
     if tool_observations and not reflection_used_fallback:
         if not _reflection_preserves_grounded_content(
             user_prompt,
-            tool_observations,
+            state,
             grounded,
             final_answer,
         ):
@@ -625,12 +634,11 @@ async def orchestrate_interaction(
             validate_react_decision_semantics(decision, context.tool_names)
         except Exception as exc:
             logger.exception("ReAct decision failed: %s", exc)
-            tool_observations = _derive_tool_observations(state)
-            if tool_observations:
+            if _derive_tool_observations(state):
                 return finalize_after_execution(
                     context,
                     user_prompt,
-                    tool_observations,
+                    state,
                     build_react_failure_answer(),
                     used_fallback=True,
                     trace=trace,
@@ -682,6 +690,7 @@ async def orchestrate_interaction(
                     tool_name=decision.tool,
                     raw_args=decision.args,
                     payload=payload,
+                    parsed_payload=_parsed_payload(decision.tool, payload),
                     outcome="invalid_args",
                     feedback_message=_tool_feedback_from_payload(
                         decision.tool,
@@ -691,7 +700,7 @@ async def orchestrate_interaction(
                 )
             )
         elif has_successful_duplicate_observation(
-            _derive_tool_observations(state), decision.tool, normalized_args
+            state.steps, decision.tool, normalized_args
         ):
             logger.info(
                 "Skipping duplicate successful tool call for %s with args=%s and continuing",
@@ -749,6 +758,7 @@ async def orchestrate_interaction(
                     raw_args=decision.args,
                     normalized_args=normalized_args,
                     payload=payload,
+                    parsed_payload=_parsed_payload(decision.tool, payload),
                     outcome="completed",
                     feedback_message=_tool_feedback_from_payload(
                         decision.tool,
@@ -760,11 +770,10 @@ async def orchestrate_interaction(
     else:
         draft_answer = build_react_failure_answer()
 
-    tool_observations = _derive_tool_observations(state)
     result = finalize_after_execution(
         context,
         user_prompt,
-        tool_observations,
+        state,
         draft_answer,
         used_fallback=state.used_fallback,
         trace=trace,
