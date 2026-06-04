@@ -63,14 +63,6 @@ def build_react_messages(
                 "Do not call the same single-shot tool again unless the user explicitly asked for multiple results or a retry.\n"
                 "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
                 "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
-                "If weather is requested for multiple locations, each requested location needs its own get_weather result before finish.\n"
-                "city_to_coords resolves coordinates only.\n"
-                "Resolving a city to coordinates is only a dependency, not fulfillment, when the user asked for weather.\n"
-                "If the user asks for weather using coordinates, you must still call get_weather for each requested location after resolving coordinates.\n"
-                "After city_to_coords succeeds for one requested location, call get_weather with that specific location's exact latitude and longitude.\n"
-                "For multiple requested weather locations, collect one successful get_weather result per location, then finish.\n"
-                "Do not finish while any requested or already-resolved location still lacks a weather observation.\n"
-                "Do not repeat one location's weather if another requested location still needs weather.\n"
                 "If an identical successful tool call already appears in observations, do not request it again; choose a different needed step or finish.\n"
                 "Use weather only if the user asked for weather or a plan that depends on weather.\n"
                 "Use books only if the user asked for books or a reading-themed plan.\n"
@@ -84,7 +76,7 @@ def build_react_messages(
                 '- For "Give me a trivia question.": call trivia once, then finish.\n'
                 '- For "Give me weather and a joke.": get_weather, random_joke, then finish.\n'
                 '- For "Plan a cozy Saturday in City A with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.\n'
-                '- For "Get the weather for City A and City B using their coordinates.": city_to_coords for each location, then get_weather for each location, then finish.\n'
+                '- For "Get the weather for City A and City B.": fetch the needed weather results, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is the comparison or final answer based on the gathered facts."}\n'
                 "Prior assistant decisions and tool results may be provided below.\n"

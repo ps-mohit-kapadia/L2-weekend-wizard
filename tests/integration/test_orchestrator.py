@@ -20,7 +20,7 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
-    def test_react_prompt_includes_multi_location_weather_completion_guidance(self) -> None:
+    def test_react_prompt_keeps_weather_as_capability_guidance_not_completion_owner(self) -> None:
         messages = build_react_messages(
             planner_messages=[],
             tool_names=["city_to_coords", "get_weather"],
@@ -29,19 +29,19 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         system_prompt = messages[0]["content"]
-        self.assertIn("each requested location needs its own get_weather result before finish", system_prompt)
         self.assertIn("Never introduce a new city, topic, location, or target that the user did not ask for.", system_prompt)
         self.assertIn("Tools gather external facts only.", system_prompt)
         self.assertIn('Comparisons, summaries, recommendations, and final wording must happen in action="finish" using final_answer.', system_prompt)
         self.assertIn("Only call one of the listed supported tools.", system_prompt)
         self.assertIn("Never invent tool names.", system_prompt)
-        self.assertIn("Resolving a city to coordinates is only a dependency, not fulfillment", system_prompt)
-        self.assertIn("city_to_coords resolves coordinates only.", system_prompt)
-        self.assertIn("After city_to_coords succeeds for one requested location, call get_weather with that specific location's exact latitude and longitude.", system_prompt)
+        self.assertIn("If weather is requested and coordinates are already available, prefer get_weather directly.", system_prompt)
+        self.assertIn("If weather is requested and only a city is known, use city_to_coords before get_weather.", system_prompt)
         self.assertIn("If an identical successful tool call already appears in observations, do not request it again; choose a different needed step or finish.", system_prompt)
-        self.assertIn("Do not finish while any requested or already-resolved location still lacks a weather observation", system_prompt)
-        self.assertIn('Get the weather for City A and City B using their coordinates.', system_prompt)
+        self.assertIn('Get the weather for City A and City B.', system_prompt)
         self.assertNotIn('Get the weather for Chicago and New York using their coordinates.', system_prompt)
+        self.assertNotIn("each requested location needs its own get_weather result before finish", system_prompt)
+        self.assertNotIn("Resolving a city to coordinates is only a dependency, not fulfillment", system_prompt)
+        self.assertNotIn("Do not finish while any requested or already-resolved location still lacks a weather observation", system_prompt)
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
@@ -614,6 +614,63 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result.answer,
             "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- City Lookup: New York: 40.71427, -74.00597\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
+        )
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_runtime_weather_progress_blocks_early_finish_until_pending_city_is_fulfilled(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+            {"thought": "Now fetch Chicago weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Chicago",
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="What's the weather in Chicago?",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(mock_react.call_count, 4)
+        third_call_messages = mock_react.call_args_list[2].args[0]
+        combined = "\n".join(message["content"] for message in third_call_messages)
+        self.assertIn("finish is not allowed yet", combined)
+        self.assertIn("pending weather for Chicago", combined)
+        self.assertEqual(
+            result.answer,
+            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
         )
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})

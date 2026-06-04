@@ -3,6 +3,7 @@ from __future__ import annotations
 """ReAct-style tool orchestration for one Weekend Wizard interaction."""
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,6 +17,7 @@ from agent.policies.guardrails import (
     infer_book_limit,
     infer_book_topic,
     infer_city,
+    parse_coords,
 )
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
@@ -29,7 +31,7 @@ from schemas.agent import (
     ToolObservation,
     validate_react_decision,
 )
-from schemas.tools import ToolError
+from schemas.tools import GeoResult, ToolError, WeatherResult
 
 
 logger = get_logger("agent.orchestrator")
@@ -43,6 +45,177 @@ class ExecutionState:
 
     user_prompt: str
     tool_observations: List[ToolObservation]
+    weather_targets: List["WeatherTargetState"]
+
+
+@dataclass
+class WeatherTargetState:
+    """Tiny local owner for requested weather progress."""
+
+    label: str
+    requested_city: Optional[str] = None
+    requested_coords: Optional[Tuple[float, float]] = None
+    resolved_coords: Optional[Tuple[float, float]] = None
+    status: str = "pending"
+
+
+_WEATHER_SEGMENT_STOPWORDS = (
+    " with ",
+    " include ",
+    " including ",
+    " plus ",
+    " and a ",
+    " and an ",
+    " and one ",
+    " and 3 ",
+    " and three ",
+)
+
+
+def _normalize_city_key(city: str) -> str:
+    return " ".join(city.lower().split())
+
+
+def _normalize_coord_pair(latitude: Any, longitude: Any) -> Optional[Tuple[float, float]]:
+    try:
+        return (round(float(latitude), 5), round(float(longitude), 5))
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_requested_weather_cities(prompt: str) -> List[str]:
+    cities: List[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\b(?:in|for)\s+([^?.!]+)", prompt):
+        segment = match.group(1).strip()
+        lowered_segment = segment.lower()
+        for marker in _WEATHER_SEGMENT_STOPWORDS:
+            if marker in lowered_segment:
+                segment = segment[: lowered_segment.index(marker)].strip()
+                break
+        if re.search(r"\d", segment):
+            continue
+        for part in re.split(r"\s+(?:and|vs\.?|versus)\s+|,\s*", segment):
+            candidate = part.strip(" .?")
+            if not candidate:
+                continue
+            if not re.fullmatch(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*", candidate):
+                continue
+            normalized = _normalize_city_key(candidate)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            cities.append(candidate)
+    fallback = infer_city(prompt)
+    if fallback:
+        normalized = _normalize_city_key(fallback)
+        if normalized not in seen:
+            cities.append(fallback)
+    return cities
+
+
+def build_weather_targets(user_prompt: str) -> List[WeatherTargetState]:
+    """Build the minimal requested weather targets from the user prompt."""
+    lowered = user_prompt.lower()
+    if "weather" not in lowered and "temperature" not in lowered:
+        return []
+
+    targets: List[WeatherTargetState] = []
+    direct_coords = parse_coords(user_prompt)
+    if direct_coords is not None:
+        normalized = _normalize_coord_pair(*direct_coords)
+        if normalized is not None:
+            targets.append(
+                WeatherTargetState(
+                    label=f"{normalized[0]}, {normalized[1]}",
+                    requested_coords=normalized,
+                )
+            )
+
+    for city in _extract_requested_weather_cities(user_prompt):
+        targets.append(
+            WeatherTargetState(
+                label=city,
+                requested_city=_normalize_city_key(city),
+            )
+        )
+    return targets
+
+
+def apply_weather_observation(
+    weather_targets: List[WeatherTargetState],
+    tool_name: str,
+    args: Dict[str, Any],
+    payload: str,
+) -> None:
+    """Update explicit weather progress from one real tool observation."""
+    if not weather_targets:
+        return
+
+    parsed = parse_tool_payload_text(tool_name, payload)
+    if tool_name == "city_to_coords":
+        city_key = _normalize_city_key(str(args.get("city", "")))
+        for target in weather_targets:
+            if target.requested_city != city_key or target.status == "failed":
+                continue
+            if isinstance(parsed, GeoResult):
+                target.resolved_coords = _normalize_coord_pair(
+                    parsed.latitude, parsed.longitude
+                )
+                if target.status == "pending":
+                    target.status = "resolved"
+            elif isinstance(parsed, ToolError):
+                target.status = "failed"
+        return
+
+    if tool_name != "get_weather":
+        return
+
+    coords = _normalize_coord_pair(args.get("latitude"), args.get("longitude"))
+    if coords is None:
+        return
+
+    for target in weather_targets:
+        target_coords = target.resolved_coords or target.requested_coords
+        if target_coords != coords:
+            continue
+        if isinstance(parsed, WeatherResult):
+            target.status = "fulfilled"
+        elif isinstance(parsed, ToolError):
+            target.status = "failed"
+        return
+
+
+def render_weather_progress_note(weather_targets: List[WeatherTargetState]) -> Optional[str]:
+    """Render a compact planner-visible weather progress summary."""
+    if not weather_targets:
+        return None
+
+    pending = [
+        target.label
+        for target in weather_targets
+        if target.status in {"pending", "resolved"}
+    ]
+    fulfilled = [
+        target.label
+        for target in weather_targets
+        if target.status == "fulfilled"
+    ]
+    failed = [
+        target.label
+        for target in weather_targets
+        if target.status == "failed"
+    ]
+    parts: List[str] = []
+    if pending:
+        parts.append(f"pending weather for {', '.join(pending)}")
+    if fulfilled:
+        parts.append(f"completed weather for {', '.join(fulfilled)}")
+    if failed:
+        parts.append(f"weather failed for {', '.join(failed)}")
+    if not parts:
+        return None
+    return "- Weather Progress: " + "; ".join(parts)
 
 
 def render_tool_result(result: Any) -> str:
@@ -464,14 +637,20 @@ async def orchestrate_interaction(
     state = ExecutionState(
         user_prompt=user_prompt,
         tool_observations=[],
+        weather_targets=build_weather_targets(user_prompt),
     )
     # `state.tool_observations` remains the canonical execution truth used by
     # grounding and finalization. Planner messages are not a source of truth.
     draft_answer = ""
     used_fallback = False
     duplicate_skip_counts: Dict[str, int] = {}
+    last_weather_progress_note: Optional[str] = None
 
     for step_number in range(1, MAX_REACT_STEPS + 1):
+        weather_progress_note = render_weather_progress_note(state.weather_targets)
+        if weather_progress_note and weather_progress_note != last_weather_progress_note:
+            planner_messages.append({"role": "tool", "content": weather_progress_note})
+            last_weather_progress_note = weather_progress_note
         react_messages = build_react_messages(
             planner_messages,
             context.tool_names,
@@ -514,6 +693,22 @@ async def orchestrate_interaction(
             return result
 
         if decision.action == "finish":
+            pending_weather = [
+                target.label
+                for target in state.weather_targets
+                if target.status in {"pending", "resolved"}
+            ]
+            if pending_weather:
+                planner_messages.append(
+                    {
+                        "role": "tool",
+                        "content": (
+                            "- Weather Progress: finish is not allowed yet. "
+                            f"Still pending weather for {', '.join(pending_weather)}."
+                        ),
+                    }
+                )
+                continue
             draft_answer = decision.final_answer or ""
             break
 
@@ -609,6 +804,12 @@ async def orchestrate_interaction(
             )
         record_tool_observation(
             state.tool_observations,
+            decision.tool,
+            normalized_args or decision.args,
+            payload,
+        )
+        apply_weather_observation(
+            state.weather_targets,
             decision.tool,
             normalized_args or decision.args,
             payload,
