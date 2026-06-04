@@ -37,20 +37,25 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("book_recs args", messages[0]["content"])
         self.assertIn("Plan a cozy Saturday", messages[1]["content"])
 
-    def test_build_react_messages_include_compact_observation_summary_without_raw_payload(self) -> None:
+    def test_build_react_messages_preserve_planner_transcript_roles_and_order(self) -> None:
         messages = build_react_messages(
-            [{"role": "user", "content": "Tell me a joke."}],
+            [
+                {"role": "user", "content": "Tell me a joke."},
+                {"role": "assistant", "content": "Thought: fetch one joke"},
+                {"role": "tool", "content": "- Joke: A fetched joke."},
+            ],
             ["random_joke"],
             step_number=2,
             max_steps=6,
-            observation_summary="- random_joke: fetched one joke",
         )
 
-        self.assertEqual(len(messages), 3)
-        self.assertIn("Assistant observation context", messages[1]["content"])
-        self.assertIn("fetched one joke", messages[1]["content"])
-        self.assertNotIn('{"joke"', messages[1]["content"])
-        self.assertIn("Tell me a joke.", messages[2]["content"])
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertEqual(messages[1]["content"], "Tell me a joke.")
+        self.assertEqual(messages[2]["role"], "assistant")
+        self.assertIn("fetch one joke", messages[2]["content"])
+        self.assertEqual(messages[3]["role"], "tool")
+        self.assertIn("A fetched joke.", messages[3]["content"])
 
     def test_build_reflection_messages_include_observations_and_draft(self) -> None:
         messages = build_reflection_messages(

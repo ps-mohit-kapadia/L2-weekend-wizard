@@ -25,11 +25,10 @@ def _tool_lines(tool_names: Iterable[str]) -> str:
 
 
 def build_react_messages(
-    history: List[dict[str, str]],
+    planner_messages: List[dict[str, str]],
     tool_names: List[str],
     step_number: int,
     max_steps: int,
-    observation_summary: str | None = None,
 ) -> List[dict[str, str]]:
     """Build one bounded ReAct decision prompt for the LLM."""
     messages = [
@@ -88,21 +87,14 @@ def build_react_messages(
                 '- For "Get the weather for City A and City B using their coordinates.": city_to_coords for each location, then get_weather for each location, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is the comparison or final answer based on the gathered facts."}\n'
-                "Assistant observation context may be provided below after tools run.\n"
-                "Use that context as the record of prior tool observations before deciding the next step.\n"
+                "Prior assistant decisions and tool results may be provided below.\n"
+                "Use them as the record of what was already attempted and what happened before deciding the next step.\n"
                 "Supported tools:\n"
                 f"{_tool_lines(tool_names)}"
             ),
         },
     ]
-    if observation_summary:
-        messages.append(
-            {
-                "role": "user",
-                "content": f"Assistant observation context:\n{observation_summary}",
-            }
-        )
-    messages.extend(history)
+    messages.extend(planner_messages)
     return messages
 
 

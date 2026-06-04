@@ -114,50 +114,97 @@ def has_successful_duplicate_observation(
 
 
 def _format_observation_args(args: Dict[str, Any]) -> str:
-    """Render tool args compactly for planner-visible observation memory."""
+    """Render tool args compactly for planner-visible assistant/tool messages."""
     if not args:
         return "{}"
     return json.dumps(args, sort_keys=True, separators=(",", ":"))
 
 
-def render_planner_observation_memory(
-    tool_observations: List[ToolObservation],
+def _planner_message_signature(tool_name: str, args: Dict[str, Any]) -> str:
+    return f"{tool_name}:{_format_observation_args(args)}"
+
+
+def _planner_tool_feedback_detail(
+    tool_name: str,
+    args: Dict[str, Any],
+    parsed: Any,
 ) -> str:
-    """Render planner-visible observation memory for ReAct planning.
+    """Render planner-local tool feedback without reusing grounding summaries."""
+    if isinstance(parsed, ToolError):
+        detail = parsed.details or parsed.error
+        if tool_name == "get_weather":
+            latitude = args.get("latitude")
+            longitude = args.get("longitude")
+            if latitude is not None and longitude is not None:
+                return f"- Weather: {latitude}, {longitude} unavailable ({detail})"
+            return f"- Weather: requested location unavailable ({detail})"
+        if tool_name == "city_to_coords":
+            return f"- City Lookup: unavailable ({detail})"
+        if tool_name == "book_recs":
+            return f"- Books: unavailable ({detail})"
+        if tool_name == "random_joke":
+            return f"- Joke: unavailable ({detail})"
+        if tool_name == "random_dog":
+            return f"- Dog Pic: unavailable ({detail})"
+        if tool_name == "trivia":
+            return f"- Trivia: unavailable ({detail})"
+        return f"- {tool_name}: failed ({detail})"
 
-    This is not completion logic and not a final answer draft. It serializes
-    ToolObservation evidence into a compact faithful memory block so the
-    planner can see prior tool executions without domain-specific narration.
-    """
-    summary_lines: List[str] = []
-
-    for index, observation in enumerate(tool_observations, start=1):
-        parsed = parse_tool_payload_text(observation.tool_name, observation.payload)
-        tool_name = observation.tool_name
-        args_text = _format_observation_args(observation.args)
-
-        if isinstance(parsed, ToolError):
-            detail = parsed.details or parsed.error
-            summary_lines.append(
-                f"[{index}] {tool_name}: failed ({detail}) args={args_text}"
+    if tool_name == "city_to_coords":
+        city = getattr(parsed, "city", None)
+        latitude = getattr(parsed, "latitude", None)
+        longitude = getattr(parsed, "longitude", None)
+        if city is not None and latitude is not None and longitude is not None:
+            return f"- City Lookup: {city}: {latitude}, {longitude}"
+    elif tool_name == "get_weather":
+        temperature = getattr(parsed, "temperature", None)
+        if temperature is not None:
+            latitude = args.get("latitude")
+            longitude = args.get("longitude")
+            label = (
+                f"{latitude}, {longitude}"
+                if latitude is not None and longitude is not None
+                else "requested location"
             )
-            continue
+            unit = getattr(parsed, "temperature_unit", "") or ""
+            summary = getattr(parsed, "weather_summary", None) or "current conditions"
+            return f"- Weather: {label}: {temperature}{unit}, {summary}"
+    elif tool_name == "book_recs":
+        topic = getattr(parsed, "topic", None)
+        results = getattr(parsed, "results", None) or []
+        titles = [
+            f"{book.title} by {book.author}"
+            for book in results[:2]
+            if getattr(book, "title", None)
+        ]
+        if titles:
+            return f"- Books: {'; '.join(titles)}"
+        if topic:
+            return f"- Books: fetched results for {topic}"
+    elif tool_name == "random_joke":
+        joke = getattr(parsed, "joke", None)
+        if joke:
+            return f"- Joke: {joke}"
+    elif tool_name == "random_dog":
+        return "- Dog Pic: fetched one dog image"
+    elif tool_name == "trivia":
+        question = getattr(parsed, "question", None)
+        correct_answer = getattr(parsed, "correct_answer", None)
+        incorrect_answers = getattr(parsed, "incorrect_answers", None) or []
+        if question and correct_answer:
+            choices = incorrect_answers + [correct_answer]
+            return f"- Trivia: {question} Choices: {', '.join(choices)}"
 
-        summary_lines.append(f"[{index}] {tool_name}: completed args={args_text}")
-
-    return "\n".join(summary_lines)
+    return f"- {tool_name}: completed"
 
 
-def render_assistant_observation_context(
-    tool_observations: List[ToolObservation],
+def _tool_feedback_from_payload(
+    tool_name: str,
+    args: Dict[str, Any],
+    payload: str,
 ) -> str:
-    """Backward-compatible alias for planner observation memory rendering."""
-    return render_planner_observation_memory(tool_observations)
-
-
-def build_observation_summary(tool_observations: List[ToolObservation]) -> str:
-    """Backward-compatible alias for assistant observation context rendering."""
-    return render_planner_observation_memory(tool_observations)
+    parsed = parse_tool_payload_text(tool_name, payload)
+    return _planner_tool_feedback_detail(tool_name, args, parsed)
 
 
 async def execute_tool_call(
@@ -408,22 +455,28 @@ async def orchestrate_interaction(
     """Run one bounded ReAct interaction from prompt to grounded result."""
     logger.info("Starting interaction for prompt length %d", len(user_prompt))
     context.history.append({"role": "user", "content": user_prompt})
+    # `context.history` is the external conversation record. Planner continuity
+    # now lives in a local assistant/tool transcript for this interaction only.
+    planner_messages: List[Dict[str, str]] = [
+        {"role": "user", "content": user_prompt}
+    ]
 
     state = ExecutionState(
         user_prompt=user_prompt,
         tool_observations=[],
     )
+    # `state.tool_observations` remains the canonical execution truth used by
+    # grounding and finalization. Planner messages are not a source of truth.
     draft_answer = ""
+    used_fallback = False
+    duplicate_skip_counts: Dict[str, int] = {}
 
     for step_number in range(1, MAX_REACT_STEPS + 1):
         react_messages = build_react_messages(
-            context.history,
+            planner_messages,
             context.tool_names,
             step_number=step_number,
             max_steps=MAX_REACT_STEPS,
-            observation_summary=render_planner_observation_memory(
-                state.tool_observations
-            ),
         )
         try:
             raw_decision = llm_react_json(
@@ -474,8 +527,30 @@ async def orchestrate_interaction(
         normalized_args, error = normalize_tool_args(
             decision.tool, decision.args, state
         )
+        planner_args = normalized_args or decision.args
+        planner_messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    f"Thought: {decision.thought}\n"
+                    f"Action: tool\n"
+                    f"Tool: {decision.tool}\n"
+                    f"Args: {_format_observation_args(planner_args)}"
+                ),
+            }
+        )
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
+            planner_messages.append(
+                {
+                    "role": "tool",
+                    "content": _tool_feedback_from_payload(
+                        decision.tool,
+                        decision.args,
+                        payload,
+                    ),
+                }
+            )
         elif has_successful_duplicate_observation(
             state.tool_observations, decision.tool, normalized_args
         ):
@@ -492,14 +567,45 @@ async def orchestrate_interaction(
                     args=normalized_args,
                     decision_summary=decision.thought,
                 )
+            signature = _planner_message_signature(decision.tool, normalized_args)
+            duplicate_skip_counts[signature] = duplicate_skip_counts.get(signature, 0) + 1
+            planner_messages.append(
+                {
+                    "role": "tool",
+                    "content": (
+                        f"- {decision.tool}: duplicate successful call already exists for "
+                        f"{_format_observation_args(normalized_args)}. "
+                        "This action is exhausted; choose a different needed step or finish."
+                    ),
+                }
+            )
+            if duplicate_skip_counts[signature] >= 2:
+                logger.info(
+                    "Planner stuck on repeated duplicate successful tool call for %s with args=%s; finalizing early",
+                    decision.tool,
+                    normalized_args,
+                )
+                used_fallback = True
+                break
             continue
         else:
+            duplicate_skip_counts[_planner_message_signature(decision.tool, normalized_args)] = 0
             payload = await execute_tool_call(
                 tool_gateway,
                 decision.tool,
                 normalized_args,
                 step_number=step_number,
                 trace=trace,
+            )
+            planner_messages.append(
+                {
+                    "role": "tool",
+                    "content": _tool_feedback_from_payload(
+                        decision.tool,
+                        normalized_args,
+                        payload,
+                    ),
+                }
             )
         record_tool_observation(
             state.tool_observations,
@@ -515,7 +621,7 @@ async def orchestrate_interaction(
         user_prompt,
         state.tool_observations,
         draft_answer,
-        used_fallback=False,
+        used_fallback=used_fallback,
         trace=trace,
     )
     logger.info(
