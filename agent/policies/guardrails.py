@@ -6,15 +6,6 @@ from dataclasses import dataclass
 import re
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-
-_TOOL_ORDER = (
-    "get_weather",
-    "book_recs",
-    "random_joke",
-    "random_dog",
-    "trivia",
-)
-
 _NUMBER_WORDS = {
     "one": 1,
     "two": 2,
@@ -47,26 +38,23 @@ class RequestAnalysis:
     """Deterministic request analysis for a supported Weekend Wizard prompt.
 
     Attributes:
-        requested_tools: Ordered tool categories inferred from the user request.
+        requested_tools: Requested tool categories inferred from the user request.
         coords: Optional coordinates parsed directly from the prompt.
         city: Optional city name inferred from the prompt.
         book_topic: Normalized topic used for book recommendations.
         book_limit: Requested number of book recommendations.
     """
 
-    requested_tools: Tuple[str, ...]
+    requested_tools: frozenset[str]
     coords: Optional[Tuple[float, float]] = None
     city: Optional[str] = None
     book_topic: str = "books"
     book_limit: int = 3
 
-    @property
-    def needs_city_lookup(self) -> bool:
-        return self.coords is None and self.city is not None
-
     def summary_lines(self) -> List[str]:
         """Return compact interpreted-request facts for planner guidance."""
-        lines = [f"- requested tools: {', '.join(self.requested_tools)}"]
+        ordered_tools = sorted(self.requested_tools)
+        lines = [f"- requested tools: {', '.join(ordered_tools)}"]
         if self.coords is not None:
             lines.append(f"- provided coordinates: {self.coords[0]}, {self.coords[1]}")
         if self.city is not None:
@@ -74,8 +62,6 @@ class RequestAnalysis:
         if self.book_topic != "books" or "book_recs" in self.requested_tools:
             lines.append(f"- inferred book topic: {self.book_topic}")
             lines.append(f"- inferred book limit: {self.book_limit}")
-        if self.needs_city_lookup:
-            lines.append("- dependency fact: city lookup is required before weather")
         return lines
 
 
@@ -205,9 +191,8 @@ def analyze_request(
     if "get_weather" in requested and coords is None and city is not None and "city_to_coords" not in available:
         return None
 
-    ordered_tools = tuple(tool_name for tool_name in _TOOL_ORDER if tool_name in requested)
     return RequestAnalysis(
-        requested_tools=ordered_tools,
+        requested_tools=frozenset(requested),
         coords=coords,
         city=city,
         book_topic=infer_book_topic(prompt),

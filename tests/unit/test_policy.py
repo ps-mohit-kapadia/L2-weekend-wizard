@@ -65,7 +65,7 @@ class PolicyTests(unittest.TestCase):
         assert analysis is not None
         self.assertEqual(
             analysis.requested_tools,
-            ("get_weather", "book_recs", "random_joke", "random_dog"),
+            frozenset({"get_weather", "book_recs", "random_joke", "random_dog"}),
         )
         self.assertEqual(analysis.city, "New York")
         self.assertIsNone(analysis.coords)
@@ -88,11 +88,14 @@ class PolicyTests(unittest.TestCase):
 
         assert analysis is not None
         summary = "\n".join(analysis.summary_lines())
-        self.assertIn("requested tools: get_weather, book_recs, random_joke", summary)
+        self.assertIn("requested tools:", summary)
+        self.assertIn("get_weather", summary)
+        self.assertIn("book_recs", summary)
+        self.assertIn("random_joke", summary)
         self.assertIn("provided city: New York", summary)
         self.assertIn("inferred book topic: mystery", summary)
         self.assertIn("inferred book limit: 2", summary)
-        self.assertIn("dependency fact: city lookup is required before weather", summary)
+        self.assertNotIn("dependency fact:", summary)
 
 
 if __name__ == "__main__":
