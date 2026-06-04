@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""Request-analysis and planning helper functions for Weekend Wizard."""
+"""Request-analysis helper functions for Weekend Wizard."""
 
 from dataclasses import dataclass
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Iterable, List, Optional, Set, Tuple
 
 _NUMBER_WORDS = {
     "one": 1,
@@ -198,12 +198,3 @@ def analyze_request(
         book_topic=infer_book_topic(prompt),
         book_limit=infer_book_limit(prompt),
     )
-
-
-def missing_requested_tools(prompt: str, payloads: Dict[str, Any]) -> List[str]:
-    """Return requested tools that have not yet produced payloads."""
-    return [
-        tool_name
-        for tool_name in requested_tools(prompt)
-        if tool_name not in payloads
-    ]

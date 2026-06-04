@@ -5,7 +5,6 @@ import unittest
 from agent.policies.guardrails import (
     analyze_request,
     infer_city,
-    missing_requested_tools,
     parse_coords,
     requested_tools,
 )
@@ -21,19 +20,6 @@ class PolicyTests(unittest.TestCase):
         coords = parse_coords("I'm in 40.7128, -74.0060 and want a weekend plan.")
 
         self.assertEqual(coords, (40.7128, -74.006))
-
-    def test_missing_requested_tools_identifies_unfetched_requests(self) -> None:
-        payloads = {
-            "get_weather": {"temperature": 21},
-            "book_recs": {"results": []},
-        }
-
-        missing = missing_requested_tools(
-            "Plan a weekend with weather, book ideas, a joke, and a dog pic.",
-            payloads,
-        )
-
-        self.assertEqual(set(missing), {"random_joke", "random_dog"})
 
     def test_infer_city_extracts_capitalized_city_phrase(self) -> None:
         city = infer_city("Plan a cozy Saturday in New York with mystery books.")
