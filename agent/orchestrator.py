@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
     build_grounded_items,
@@ -42,12 +42,29 @@ SAFE_TOOL_INVOCATION_DETAIL = "tool execution failed"
 
 
 @dataclass
+class ExecutionStep:
+    """One semantic execution step within a single interaction."""
+
+    kind: str
+    thought: str = ""
+    tool_name: str = ""
+    raw_args: Dict[str, Any] | None = None
+    normalized_args: Dict[str, Any] | None = None
+    payload: str = ""
+    outcome: str = ""
+    feedback_message: str = ""
+    final_answer: str = ""
+
+
+@dataclass
 class ExecutionState:
-    """Mutable execution state for one Weekend Wizard interaction."""
+    """Single semantic source of truth for one Weekend Wizard interaction."""
 
     user_prompt: str
-    tool_observations: List[ToolObservation]
+    steps: List[ExecutionStep]
     request_analysis: RequestAnalysis | None = None
+    final_answer: str = ""
+    used_fallback: bool = False
 
 
 def render_tool_result(result: Any) -> str:
@@ -101,6 +118,44 @@ def record_tool_observation(
     tool_observations.append(
         ToolObservation(tool_name=tool_name, args=args, payload=payload)
     )
+
+
+def _derive_tool_observations(state: ExecutionState) -> List[ToolObservation]:
+    """Project tool observations from semantic execution steps."""
+    observations: List[ToolObservation] = []
+    for step in state.steps:
+        if step.kind != "tool_call" or not step.tool_name or not step.payload:
+            continue
+        record_tool_observation(
+            observations,
+            step.tool_name,
+            step.normalized_args or step.raw_args or {},
+            step.payload,
+        )
+    return observations
+
+
+def _render_planner_messages(state: ExecutionState) -> List[Dict[str, str]]:
+    """Render planner-visible transcript from semantic execution state."""
+    messages: List[Dict[str, str]] = [{"role": "user", "content": state.user_prompt}]
+    for step in state.steps:
+        if step.kind not in {"tool_call", "tool_invalid", "tool_skip"}:
+            continue
+        planner_args = step.normalized_args or step.raw_args or {}
+        messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    f"Thought: {step.thought}\n"
+                    "Action: tool\n"
+                    f"Tool: {step.tool_name}\n"
+                    f"Args: {_format_observation_args(planner_args)}"
+                ),
+            }
+        )
+        if step.feedback_message:
+            messages.append({"role": "tool", "content": step.feedback_message})
+    return messages
 
 
 def has_successful_duplicate_observation(
@@ -542,24 +597,16 @@ async def orchestrate_interaction(
     """Run one bounded ReAct interaction from prompt to grounded result."""
     logger.info("Starting interaction for prompt length %d", len(user_prompt))
     context.history.append({"role": "user", "content": user_prompt})
-    # `context.history` is the external conversation record. Planner continuity
-    # now lives in a local assistant/tool transcript for this interaction only.
-    planner_messages: List[Dict[str, str]] = [
-        {"role": "user", "content": user_prompt}
-    ]
-
     state = ExecutionState(
         user_prompt=user_prompt,
-        tool_observations=[],
+        steps=[],
         request_analysis=analyze_request(user_prompt, context.tool_names),
     )
-    # `state.tool_observations` remains the canonical execution truth used by
-    # grounding and finalization. Planner messages are not a source of truth.
     draft_answer = ""
-    used_fallback = False
     duplicate_skip_counts: Dict[str, int] = {}
 
     for step_number in range(1, MAX_REACT_STEPS + 1):
+        planner_messages = _render_planner_messages(state)
         react_messages = build_react_messages(
             planner_messages,
             context.tool_names,
@@ -578,11 +625,12 @@ async def orchestrate_interaction(
             validate_react_decision_semantics(decision, context.tool_names)
         except Exception as exc:
             logger.exception("ReAct decision failed: %s", exc)
-            if state.tool_observations:
+            tool_observations = _derive_tool_observations(state)
+            if tool_observations:
                 return finalize_after_execution(
                     context,
                     user_prompt,
-                    state.tool_observations,
+                    tool_observations,
                     build_react_failure_answer(),
                     used_fallback=True,
                     trace=trace,
@@ -604,6 +652,15 @@ async def orchestrate_interaction(
 
         if decision.action == "finish":
             draft_answer = decision.final_answer or ""
+            state.final_answer = draft_answer
+            state.steps.append(
+                ExecutionStep(
+                    kind="finish",
+                    thought=decision.thought,
+                    final_answer=draft_answer,
+                    outcome="completed",
+                )
+            )
             break
 
         assert decision.tool is not None
@@ -616,32 +673,25 @@ async def orchestrate_interaction(
         normalized_args, error = normalize_tool_args(
             decision.tool, decision.args, state
         )
-        planner_args = normalized_args or decision.args
-        planner_messages.append(
-            {
-                "role": "assistant",
-                "content": (
-                    f"Thought: {decision.thought}\n"
-                    f"Action: tool\n"
-                    f"Tool: {decision.tool}\n"
-                    f"Args: {_format_observation_args(planner_args)}"
-                ),
-            }
-        )
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
-            planner_messages.append(
-                {
-                    "role": "tool",
-                    "content": _tool_feedback_from_payload(
+            state.steps.append(
+                ExecutionStep(
+                    kind="tool_invalid",
+                    thought=decision.thought,
+                    tool_name=decision.tool,
+                    raw_args=decision.args,
+                    payload=payload,
+                    outcome="invalid_args",
+                    feedback_message=_tool_feedback_from_payload(
                         decision.tool,
                         decision.args,
                         payload,
                     ),
-                }
+                )
             )
         elif has_successful_duplicate_observation(
-            state.tool_observations, decision.tool, normalized_args
+            _derive_tool_observations(state), decision.tool, normalized_args
         ):
             logger.info(
                 "Skipping duplicate successful tool call for %s with args=%s and continuing",
@@ -658,15 +708,20 @@ async def orchestrate_interaction(
                 )
             signature = _planner_message_signature(decision.tool, normalized_args)
             duplicate_skip_counts[signature] = duplicate_skip_counts.get(signature, 0) + 1
-            planner_messages.append(
-                {
-                    "role": "tool",
-                    "content": (
+            state.steps.append(
+                ExecutionStep(
+                    kind="tool_skip",
+                    thought=decision.thought,
+                    tool_name=decision.tool,
+                    raw_args=decision.args,
+                    normalized_args=normalized_args,
+                    outcome="duplicate_skipped",
+                    feedback_message=(
                         f"- {decision.tool}: duplicate successful call already exists for "
                         f"{_format_observation_args(normalized_args)}. "
                         "This action is exhausted; choose a different needed step or finish."
                     ),
-                }
+                )
             )
             if duplicate_skip_counts[signature] >= 2:
                 logger.info(
@@ -674,7 +729,7 @@ async def orchestrate_interaction(
                     decision.tool,
                     normalized_args,
                 )
-                used_fallback = True
+                state.used_fallback = True
                 break
             continue
         else:
@@ -686,31 +741,32 @@ async def orchestrate_interaction(
                 step_number=step_number,
                 trace=trace,
             )
-            planner_messages.append(
-                {
-                    "role": "tool",
-                    "content": _tool_feedback_from_payload(
+            state.steps.append(
+                ExecutionStep(
+                    kind="tool_call",
+                    thought=decision.thought,
+                    tool_name=decision.tool,
+                    raw_args=decision.args,
+                    normalized_args=normalized_args,
+                    payload=payload,
+                    outcome="completed",
+                    feedback_message=_tool_feedback_from_payload(
                         decision.tool,
                         normalized_args,
                         payload,
                     ),
-                }
+                )
             )
-        record_tool_observation(
-            state.tool_observations,
-            decision.tool,
-            normalized_args or decision.args,
-            payload,
-        )
     else:
         draft_answer = build_react_failure_answer()
 
+    tool_observations = _derive_tool_observations(state)
     result = finalize_after_execution(
         context,
         user_prompt,
-        state.tool_observations,
+        tool_observations,
         draft_answer,
-        used_fallback=used_fallback,
+        used_fallback=state.used_fallback,
         trace=trace,
     )
     logger.info(
