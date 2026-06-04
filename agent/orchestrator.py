@@ -13,6 +13,8 @@ from agent.grounding import (
     render_compact_observation_summaries,
 )
 from agent.policies.guardrails import (
+    RequestAnalysis,
+    analyze_request,
     infer_book_limit,
     infer_book_topic,
     infer_city,
@@ -43,6 +45,7 @@ class ExecutionState:
 
     user_prompt: str
     tool_observations: List[ToolObservation]
+    request_analysis: RequestAnalysis | None = None
 
 
 def render_tool_result(result: Any) -> str:
@@ -265,7 +268,11 @@ def normalize_tool_args(
     args = dict(args or {})
 
     if tool_name == "city_to_coords":
-        city = args.get("city") or infer_city(state.user_prompt)
+        city = (
+            args.get("city")
+            or (state.request_analysis.city if state.request_analysis is not None else None)
+            or infer_city(state.user_prompt)
+        )
         if not city:
             return None, "city is required"
         return {"city": str(city)}, None
@@ -284,9 +291,14 @@ def normalize_tool_args(
         topic = (
             args.get("topic")
             or args.get("param")
+            or (state.request_analysis.book_topic if state.request_analysis is not None else None)
             or infer_book_topic(state.user_prompt)
         )
-        limit = args.get("limit") or infer_book_limit(state.user_prompt)
+        limit = (
+            args.get("limit")
+            or (state.request_analysis.book_limit if state.request_analysis is not None else None)
+            or infer_book_limit(state.user_prompt)
+        )
         if not topic:
             return None, "topic is required"
         try:
@@ -464,6 +476,7 @@ async def orchestrate_interaction(
     state = ExecutionState(
         user_prompt=user_prompt,
         tool_observations=[],
+        request_analysis=analyze_request(user_prompt, context.tool_names),
     )
     # `state.tool_observations` remains the canonical execution truth used by
     # grounding and finalization. Planner messages are not a source of truth.
@@ -477,6 +490,7 @@ async def orchestrate_interaction(
             context.tool_names,
             step_number=step_number,
             max_steps=MAX_REACT_STEPS,
+            request_analysis=state.request_analysis,
         )
         try:
             raw_decision = llm_react_json(

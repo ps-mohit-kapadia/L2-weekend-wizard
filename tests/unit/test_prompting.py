@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from agent.grounding import compose_grounded_answer_from_observations
+from agent.policies.guardrails import analyze_request
 from agent.prompts import build_react_messages, build_reflection_messages
 from schemas.agent import ToolObservation
 
@@ -14,6 +15,10 @@ class PromptingTests(unittest.TestCase):
             ["city_to_coords", "get_weather", "book_recs", "random_joke"],
             step_number=1,
             max_steps=6,
+            request_analysis=analyze_request(
+                "Plan a cozy Saturday in New York with weather and books.",
+                ["city_to_coords", "get_weather", "book_recs", "random_joke"],
+            ),
         )
 
         self.assertEqual(len(messages), 2)
@@ -32,9 +37,14 @@ class PromptingTests(unittest.TestCase):
         self.assertIn('For "Tell me a joke.": call random_joke once, then finish.', messages[0]["content"])
         self.assertIn('For "Give me a trivia question.": call trivia once, then finish.', messages[0]["content"])
         self.assertIn('For "Get the weather for City A and City B.": fetch the needed weather results, then finish.', messages[0]["content"])
+        self.assertIn("Use the interpreted request facts below as the source of truth", messages[0]["content"])
+        self.assertIn("Interpreted request facts:", messages[0]["content"])
+        self.assertIn("- requested tools: get_weather, book_recs", messages[0]["content"])
+        self.assertIn("- provided city: New York", messages[0]["content"])
         self.assertNotIn('Get the weather for Chicago and New York using their coordinates.', messages[0]["content"])
         self.assertNotIn("each requested location needs its own get_weather result before finish", messages[0]["content"])
         self.assertNotIn("Do not finish while any requested or already-resolved location still lacks a weather observation", messages[0]["content"])
+        self.assertNotIn("Use weather only if the user asked for weather", messages[0]["content"])
         self.assertIn("city_to_coords args", messages[0]["content"])
         self.assertIn("book_recs args", messages[0]["content"])
         self.assertIn("Plan a cozy Saturday", messages[1]["content"])

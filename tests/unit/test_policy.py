@@ -80,6 +80,20 @@ class PolicyTests(unittest.TestCase):
 
         self.assertIsNone(analysis)
 
+    def test_request_analysis_summary_lines_expose_interpreted_request_facts(self) -> None:
+        analysis = analyze_request(
+            "Plan a cozy Saturday in New York with today's weather, 2 mystery book ideas, and a joke.",
+            ["city_to_coords", "get_weather", "book_recs", "random_joke"],
+        )
+
+        assert analysis is not None
+        summary = "\n".join(analysis.summary_lines())
+        self.assertIn("requested tools: get_weather, book_recs, random_joke", summary)
+        self.assertIn("provided city: New York", summary)
+        self.assertIn("inferred book topic: mystery", summary)
+        self.assertIn("inferred book limit: 2", summary)
+        self.assertIn("dependency fact: city lookup is required before weather", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

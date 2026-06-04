@@ -64,6 +64,20 @@ class RequestAnalysis:
     def needs_city_lookup(self) -> bool:
         return self.coords is None and self.city is not None
 
+    def summary_lines(self) -> List[str]:
+        """Return compact interpreted-request facts for planner guidance."""
+        lines = [f"- requested tools: {', '.join(self.requested_tools)}"]
+        if self.coords is not None:
+            lines.append(f"- provided coordinates: {self.coords[0]}, {self.coords[1]}")
+        if self.city is not None:
+            lines.append(f"- provided city: {self.city}")
+        if self.book_topic != "books" or "book_recs" in self.requested_tools:
+            lines.append(f"- inferred book topic: {self.book_topic}")
+            lines.append(f"- inferred book limit: {self.book_limit}")
+        if self.needs_city_lookup:
+            lines.append("- dependency fact: city lookup is required before weather")
+        return lines
+
 
 def parse_coords(text: str) -> Optional[Tuple[float, float]]:
     """Parse latitude and longitude coordinates from free-form text."""

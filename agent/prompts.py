@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from agent.grounding import render_compact_observation_summaries
+from agent.policies.guardrails import RequestAnalysis
 from schemas.agent import ToolObservation
 
 
@@ -29,8 +30,17 @@ def build_react_messages(
     tool_names: List[str],
     step_number: int,
     max_steps: int,
+    request_analysis: RequestAnalysis | None = None,
 ) -> List[dict[str, str]]:
     """Build one bounded ReAct decision prompt for the LLM."""
+    interpreted_request = ""
+    if request_analysis is not None:
+        interpreted_request = (
+            "Interpreted request facts:\n"
+            + "\n".join(request_analysis.summary_lines())
+            + "\n"
+        )
+
     messages = [
         {
             "role": "system",
@@ -61,14 +71,8 @@ def build_react_messages(
                 "Single-shot tools are random_joke, random_dog, and trivia.\n"
                 "If the user asks for one joke, one dog photo, or one trivia question, call the tool once and then finish.\n"
                 "Do not call the same single-shot tool again unless the user explicitly asked for multiple results or a retry.\n"
-                "If weather is requested and coordinates are already available, prefer get_weather directly.\n"
-                "If weather is requested and only a city is known, use city_to_coords before get_weather.\n"
                 "If an identical successful tool call already appears in observations, do not request it again; choose a different needed step or finish.\n"
-                "Use weather only if the user asked for weather or a plan that depends on weather.\n"
-                "Use books only if the user asked for books or a reading-themed plan.\n"
-                "Use random_joke only if the user asked for a joke.\n"
-                "Use random_dog only if the user asked for a dog photo or dog picture.\n"
-                "Use trivia only if the user explicitly asked for trivia.\n"
+                "Use the interpreted request facts below as the source of truth for what the user asked for and what dependencies already exist.\n"
                 "Tool example:\n"
                 '{"thought":"I need a joke first.","action":"tool","tool":"random_joke","args":{}}\n'
                 "Early stop examples:\n"
@@ -79,6 +83,7 @@ def build_react_messages(
                 '- For "Get the weather for City A and City B.": fetch the needed weather results, then finish.\n'
                 "Finish example:\n"
                 '{"thought":"I have enough information.","action":"finish","final_answer":"Here is the comparison or final answer based on the gathered facts."}\n'
+                f"{interpreted_request}"
                 "Prior assistant decisions and tool results may be provided below.\n"
                 "Use them as the record of what was already attempted and what happened before deciding the next step.\n"
                 "Supported tools:\n"
