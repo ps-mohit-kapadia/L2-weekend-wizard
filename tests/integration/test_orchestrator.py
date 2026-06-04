@@ -943,7 +943,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "Joke: A fetched joke. Hope that brightens your day."},
+        return_value={"answer": "A fetched joke: hope that brightens your day."},
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_can_polish_grounded_answer_without_dropping_core_fact(
@@ -966,6 +966,59 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.used_fallback)
         self.assertIn("A fetched joke.", result.answer)
         self.assertIn("brightens your day", result.answer)
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value={"answer": "The weather in Paris is 18.3°C and mainly clear right now."},
+    )
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_reflection_can_return_natural_weather_answer_without_city_lookup_scaffolding(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Paris"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 48.85341, "longitude": 2.3488}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "Paris",
+                    "latitude": 48.85341,
+                    "longitude": 2.3488,
+                    "country": "France",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 48.85341,
+                    "longitude": 2.3488,
+                    "temperature": 18.3,
+                    "temperature_unit": "°C",
+                    "weather_summary": "mainly clear",
+                }
+            ),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=["city_to_coords", "get_weather"],
+            model_name="demo-model",
+        )
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="what is weather in paris",
+        )
+
+        self.assertFalse(result.used_fallback)
+        self.assertIn("18.3°C", result.answer)
+        self.assertIn("mainly clear", result.answer)
+        self.assertNotIn("City Lookup", result.answer)
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is a joke for you."})
     @patch("agent.orchestrator.llm_react_json")

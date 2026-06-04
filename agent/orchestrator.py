@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 from agent.grounding import (
+    build_grounded_items,
     compose_grounded_answer_from_observations,
+    parse_tool_observations,
     parse_tool_payload_text,
     render_compact_observation_summaries,
 )
@@ -31,7 +33,7 @@ from schemas.agent import (
     ToolObservation,
     validate_react_decision,
 )
-from schemas.tools import ToolError
+from schemas.tools import BookResults, DogResult, JokeResult, ToolError, TriviaResult, WeatherResult
 
 
 logger = get_logger("agent.orchestrator")
@@ -350,37 +352,105 @@ def _normalize_answer_text(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-def _reflection_preserves_grounded_content(grounded: str, reflected: str) -> bool:
-    """Return whether reflection preserved the grounded answer's obvious anchors."""
-    grounded_lines = [line.strip() for line in grounded.splitlines() if line.strip()]
+def _reflection_preserves_grounded_content(
+    user_prompt: str,
+    tool_observations: List[ToolObservation],
+    grounded: str,
+    reflected: str,
+) -> bool:
+    """Return whether reflection preserved the grounded answer's required facts."""
     reflected_normalized = _normalize_answer_text(reflected)
-    if not grounded_lines:
+    if not reflected_normalized:
+        return False
+
+    grounded_lines = [line.strip() for line in grounded.splitlines() if line.strip()]
+    if not grounded_lines or not tool_observations:
         return True
 
-    bullet_lines = [line for line in grounded_lines if line.startswith("- ")]
-    if not bullet_lines:
-        return _normalize_answer_text(grounded) in reflected_normalized
+    parsed_observations = parse_tool_observations(tool_observations)
+    successful_weather = 0
 
-    title_counts: Dict[str, int] = {}
-    for line in bullet_lines:
-        body = line[2:]
-        title, separator, detail = body.partition(":")
-        normalized_title = _normalize_answer_text(title)
-        title_counts[normalized_title] = title_counts.get(normalized_title, 0) + 1
-        if not normalized_title or normalized_title not in reflected_normalized:
-            return False
+    for observation in parsed_observations:
+        payload = observation.payload
+        if observation.tool_name == "city_to_coords":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+            continue
 
-        normalized_detail = _normalize_answer_text(detail)
+        if observation.tool_name == "get_weather":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+                if SAFE_TOOL_INVOCATION_DETAIL in _normalize_answer_text(payload.details or ""):
+                    if SAFE_TOOL_INVOCATION_DETAIL not in reflected_normalized:
+                        return False
+                continue
+            if isinstance(payload, WeatherResult) and payload.temperature is not None:
+                successful_weather += 1
+                temperature_fragment = _normalize_answer_text(
+                    f"{payload.temperature}{payload.temperature_unit or ''}"
+                )
+                if temperature_fragment not in reflected_normalized:
+                    return False
+                summary_fragment = _normalize_answer_text(payload.weather_summary or "current conditions")
+                if summary_fragment and summary_fragment not in reflected_normalized:
+                    return False
+                continue
+
+        if observation.tool_name == "book_recs":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+                continue
+            if isinstance(payload, BookResults) and payload.results:
+                for book in payload.results[:2]:
+                    if book.title and _normalize_answer_text(book.title) not in reflected_normalized:
+                        return False
+                continue
+
+        if observation.tool_name == "random_joke":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+                continue
+            if isinstance(payload, JokeResult):
+                if _normalize_answer_text(payload.joke) not in reflected_normalized:
+                    return False
+                continue
+
+        if observation.tool_name == "random_dog":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+                continue
+            if isinstance(payload, DogResult):
+                if _normalize_answer_text(payload.image_url) not in reflected_normalized:
+                    return False
+                continue
+
+        if observation.tool_name == "trivia":
+            if isinstance(payload, ToolError):
+                if "unavailable" not in reflected_normalized:
+                    return False
+                continue
+            if isinstance(payload, TriviaResult):
+                if _normalize_answer_text(payload.question) not in reflected_normalized:
+                    return False
+                continue
+
+    grounded_items = build_grounded_items(user_prompt, parsed_observations)
+    for item in grounded_items:
+        if item.title == "City Lookup" and successful_weather:
+            continue
+        normalized_title = _normalize_answer_text(item.title)
+        normalized_detail = _normalize_answer_text(item.detail)
         if "unavailable" in normalized_detail and "unavailable" not in reflected_normalized:
             return False
         if (
             SAFE_TOOL_INVOCATION_DETAIL in normalized_detail
             and SAFE_TOOL_INVOCATION_DETAIL not in reflected_normalized
         ):
-            return False
-
-    for normalized_title, expected_count in title_counts.items():
-        if reflected_normalized.count(normalized_title) < expected_count:
             return False
     return True
 
@@ -435,7 +505,12 @@ def finalize_after_execution(
         context, user_prompt, tool_observations, grounded, trace=trace
     )
     if tool_observations and not reflection_used_fallback:
-        if not _reflection_preserves_grounded_content(grounded, final_answer):
+        if not _reflection_preserves_grounded_content(
+            user_prompt,
+            tool_observations,
+            grounded,
+            final_answer,
+        ):
             logger.info(
                 "Reflection drifted from grounded content; returning grounded draft instead"
             )

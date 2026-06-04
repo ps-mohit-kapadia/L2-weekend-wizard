@@ -81,8 +81,8 @@ class PromptingTests(unittest.TestCase):
 
         self.assertEqual(len(messages), 2)
         self.assertIn('{"answer":"..."}', messages[0]["content"])
-        self.assertIn("light quality pass only", messages[0]["content"])
-        self.assertIn("improve clarity, readability, and flow", messages[0]["content"])
+        self.assertIn("final user-facing answer", messages[0]["content"])
+        self.assertIn("natural prose or cleaner bullets", messages[0]["content"])
         self.assertIn("preserve every concrete grounded fact", messages[0]["content"])
         self.assertIn("do not remove, soften, or reinterpret supported facts", messages[0]["content"])
         self.assertIn("- Joke: Hi", messages[1]["content"])
