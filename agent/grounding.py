@@ -216,7 +216,7 @@ def compose_grounded_answer_from_observations(
     answer: str,
     tool_observations: List[ToolObservation],
 ) -> str:
-    """Compose the final grounded answer from structured tool observations."""
+    """Compose a grounded answer from output observations for compatibility/tests only."""
     if not tool_observations:
         return answer
 

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
-    build_grounded_items,
     compose_grounded_answer_from_steps,
     parse_tool_payload_text,
     render_compact_observation_summaries,
@@ -57,12 +56,22 @@ class ExecutionStep:
 
 
 @dataclass
+class FulfillmentState:
+    """Fulfillment status for one requested result category."""
+
+    requested: bool = True
+    fulfilled: bool = False
+    degraded: bool = False
+
+
+@dataclass
 class ExecutionState:
     """Single semantic source of truth for one Weekend Wizard interaction."""
 
     user_prompt: str
     steps: List[ExecutionStep]
     request_analysis: RequestAnalysis | None = None
+    fulfillment: Dict[str, FulfillmentState] | None = None
     final_answer: str = ""
     used_fallback: bool = False
 
@@ -88,6 +97,33 @@ def render_tool_result(result: Any) -> str:
     return str(result)
 
 
+def _initialize_fulfillment(
+    request_analysis: RequestAnalysis | None,
+) -> Dict[str, FulfillmentState]:
+    """Initialize fulfillment tracking from interpreted requested categories."""
+    if request_analysis is None:
+        return {}
+    return {
+        tool_name: FulfillmentState()
+        for tool_name in sorted(request_analysis.requested_tools)
+    }
+
+
+def _update_fulfillment(state: ExecutionState, tool_name: str, payload: Any) -> None:
+    """Update fulfillment state after one parsed tool result."""
+    if tool_name == "city_to_coords":
+        return
+    status = (state.fulfillment or {}).get(tool_name)
+    if status is None:
+        return
+    if isinstance(payload, ToolError):
+        if not status.fulfilled:
+            status.degraded = True
+        return
+    status.fulfilled = True
+    status.degraded = False
+
+
 def build_interaction_result(
     history: List[Dict[str, str]],
     answer: str,
@@ -108,29 +144,18 @@ def _tool_error_payload(tool_name: str, details: str) -> str:
     return json.dumps({"error": f"{tool_name} failed", "details": details})
 
 
-def record_tool_observation(
-    tool_observations: List[ToolObservation],
-    tool_name: str,
-    args: Dict[str, Any],
-    payload: str,
-) -> None:
-    """Record one structured tool observation for downstream summaries and grounding."""
-    tool_observations.append(
-        ToolObservation(tool_name=tool_name, args=args, payload=payload)
-    )
-
-
 def _derive_tool_observations(state: ExecutionState) -> List[ToolObservation]:
     """Project tool observations from semantic execution steps."""
     observations: List[ToolObservation] = []
     for step in state.steps:
         if step.kind != "tool_call" or not step.tool_name or not step.payload:
             continue
-        record_tool_observation(
-            observations,
-            step.tool_name,
-            step.normalized_args or step.raw_args or {},
-            step.payload,
+        observations.append(
+            ToolObservation(
+                tool_name=step.tool_name,
+                args=step.normalized_args or step.raw_args or {},
+                payload=step.payload,
+            )
         )
     return observations
 
@@ -413,6 +438,16 @@ def _normalize_answer_text(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+def _category_label(tool_name: str) -> str:
+    return {
+        "get_weather": "weather",
+        "book_recs": "books",
+        "random_joke": "joke",
+        "random_dog": "dog pic",
+        "trivia": "trivia",
+    }.get(tool_name, tool_name.replace("_", " "))
+
+
 def _reflection_preserves_grounded_content(
     user_prompt: str,
     state: ExecutionState,
@@ -502,19 +537,13 @@ def _reflection_preserves_grounded_content(
                     return False
                 continue
 
-    grounded_items = build_grounded_items(user_prompt, state.steps)
-    for item in grounded_items:
-        if item.title == "City Lookup" and successful_weather:
-            continue
-        normalized_title = _normalize_answer_text(item.title)
-        normalized_detail = _normalize_answer_text(item.detail)
-        if "unavailable" in normalized_detail and "unavailable" not in reflected_normalized:
+    for tool_name, status in (state.fulfillment or {}).items():
+        category_fragment = _normalize_answer_text(_category_label(tool_name))
+        if status.degraded and "unavailable" not in reflected_normalized:
             return False
-        if (
-            SAFE_TOOL_INVOCATION_DETAIL in normalized_detail
-            and SAFE_TOOL_INVOCATION_DETAIL not in reflected_normalized
-        ):
+        if status.fulfilled and category_fragment not in reflected_normalized:
             return False
+
     return True
 
 
@@ -610,7 +639,9 @@ async def orchestrate_interaction(
         user_prompt=user_prompt,
         steps=[],
         request_analysis=analyze_request(user_prompt, context.tool_names),
+        fulfillment={},
     )
+    state.fulfillment = _initialize_fulfillment(state.request_analysis)
     draft_answer = ""
     duplicate_skip_counts: Dict[str, int] = {}
 
@@ -683,6 +714,7 @@ async def orchestrate_interaction(
         )
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
+            parsed_payload = _parsed_payload(decision.tool, payload)
             state.steps.append(
                 ExecutionStep(
                     kind="tool_invalid",
@@ -690,7 +722,7 @@ async def orchestrate_interaction(
                     tool_name=decision.tool,
                     raw_args=decision.args,
                     payload=payload,
-                    parsed_payload=_parsed_payload(decision.tool, payload),
+                    parsed_payload=parsed_payload,
                     outcome="invalid_args",
                     feedback_message=_tool_feedback_from_payload(
                         decision.tool,
@@ -699,6 +731,7 @@ async def orchestrate_interaction(
                     ),
                 )
             )
+            _update_fulfillment(state, decision.tool, parsed_payload)
         elif has_successful_duplicate_observation(
             state.steps, decision.tool, normalized_args
         ):
@@ -750,6 +783,7 @@ async def orchestrate_interaction(
                 step_number=step_number,
                 trace=trace,
             )
+            parsed_payload = _parsed_payload(decision.tool, payload)
             state.steps.append(
                 ExecutionStep(
                     kind="tool_call",
@@ -758,7 +792,7 @@ async def orchestrate_interaction(
                     raw_args=decision.args,
                     normalized_args=normalized_args,
                     payload=payload,
-                    parsed_payload=_parsed_payload(decision.tool, payload),
+                    parsed_payload=parsed_payload,
                     outcome="completed",
                     feedback_message=_tool_feedback_from_payload(
                         decision.tool,
@@ -767,6 +801,7 @@ async def orchestrate_interaction(
                     ),
                 )
             )
+            _update_fulfillment(state, decision.tool, parsed_payload)
     else:
         draft_answer = build_react_failure_answer()
 

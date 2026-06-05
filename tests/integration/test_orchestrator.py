@@ -7,12 +7,18 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from agent.prompts import build_react_messages
 from agent.orchestrator import (
+    ExecutionState,
+    FulfillmentState,
     SAFE_TOOL_INVOCATION_DETAIL,
+    _initialize_fulfillment,
+    _update_fulfillment,
     orchestrate_interaction,
     validate_react_decision_semantics,
 )
+from agent.policies.guardrails import RequestAnalysis
 from mcp_runtime.client import ToolInvocationError
 from schemas.agent import OrchestratorContext, validate_react_decision
+from schemas.tools import JokeResult, ToolError
 
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
@@ -20,6 +26,52 @@ def fake_tool_result(payload: dict) -> SimpleNamespace:
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    def test_fulfillment_initializes_from_requested_tools(self) -> None:
+        fulfillment = _initialize_fulfillment(
+            RequestAnalysis(requested_tools=frozenset({"get_weather", "random_joke"}))
+        )
+
+        self.assertEqual(set(fulfillment.keys()), {"get_weather", "random_joke"})
+        self.assertEqual(fulfillment["get_weather"], FulfillmentState())
+        self.assertEqual(fulfillment["random_joke"], FulfillmentState())
+
+    def test_city_lookup_does_not_fulfill_requested_work(self) -> None:
+        state = ExecutionState(
+            user_prompt="What's the weather in Paris?",
+            steps=[],
+            request_analysis=RequestAnalysis(requested_tools=frozenset({"get_weather"})),
+            fulfillment=_initialize_fulfillment(
+                RequestAnalysis(requested_tools=frozenset({"get_weather"}))
+            ),
+        )
+
+        _update_fulfillment(
+            state,
+            "city_to_coords",
+            {"city": "Paris", "latitude": 48.85341, "longitude": 2.3488},
+        )
+
+        self.assertFalse(state.fulfillment["get_weather"].fulfilled)
+        self.assertFalse(state.fulfillment["get_weather"].degraded)
+
+    def test_requested_category_becomes_fulfilled_or_degraded(self) -> None:
+        state = ExecutionState(
+            user_prompt="Tell me a joke.",
+            steps=[],
+            request_analysis=RequestAnalysis(requested_tools=frozenset({"random_joke"})),
+            fulfillment=_initialize_fulfillment(
+                RequestAnalysis(requested_tools=frozenset({"random_joke"}))
+            ),
+        )
+
+        _update_fulfillment(state, "random_joke", ToolError(error="boom", details="bad"))
+        self.assertTrue(state.fulfillment["random_joke"].degraded)
+        self.assertFalse(state.fulfillment["random_joke"].fulfilled)
+
+        _update_fulfillment(state, "random_joke", JokeResult(joke="A fetched joke."))
+        self.assertTrue(state.fulfillment["random_joke"].fulfilled)
+        self.assertFalse(state.fulfillment["random_joke"].degraded)
+
     def test_react_prompt_keeps_weather_as_capability_guidance_not_completion_owner(self) -> None:
         messages = build_react_messages(
             planner_messages=[],
