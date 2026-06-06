@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
     compose_grounded_answer_from_steps,
+    extract_step_semantics,
     parse_tool_payload_text,
     render_compact_step_summaries,
 )
@@ -216,72 +217,10 @@ def _planner_tool_feedback_detail(
     args: Dict[str, Any],
     parsed: Any,
 ) -> str:
-    """Render planner-local tool feedback without reusing grounding summaries."""
-    if isinstance(parsed, ToolError):
-        detail = parsed.details or parsed.error
-        if tool_name == "get_weather":
-            latitude = args.get("latitude")
-            longitude = args.get("longitude")
-            if latitude is not None and longitude is not None:
-                return f"- Weather: {latitude}, {longitude} unavailable ({detail})"
-            return f"- Weather: requested location unavailable ({detail})"
-        if tool_name == "city_to_coords":
-            return f"- City Lookup: unavailable ({detail})"
-        if tool_name == "book_recs":
-            return f"- Books: unavailable ({detail})"
-        if tool_name == "random_joke":
-            return f"- Joke: unavailable ({detail})"
-        if tool_name == "random_dog":
-            return f"- Dog Pic: unavailable ({detail})"
-        if tool_name == "trivia":
-            return f"- Trivia: unavailable ({detail})"
-        return f"- {tool_name}: failed ({detail})"
-
-    if tool_name == "city_to_coords":
-        city = getattr(parsed, "city", None)
-        latitude = getattr(parsed, "latitude", None)
-        longitude = getattr(parsed, "longitude", None)
-        if city is not None and latitude is not None and longitude is not None:
-            return f"- City Lookup: {city}: {latitude}, {longitude}"
-    elif tool_name == "get_weather":
-        temperature = getattr(parsed, "temperature", None)
-        if temperature is not None:
-            latitude = args.get("latitude")
-            longitude = args.get("longitude")
-            label = (
-                f"{latitude}, {longitude}"
-                if latitude is not None and longitude is not None
-                else "requested location"
-            )
-            unit = getattr(parsed, "temperature_unit", "") or ""
-            summary = getattr(parsed, "weather_summary", None) or "current conditions"
-            return f"- Weather: {label}: {temperature}{unit}, {summary}"
-    elif tool_name == "book_recs":
-        topic = getattr(parsed, "topic", None)
-        results = getattr(parsed, "results", None) or []
-        titles = [
-            f"{book.title} by {book.author}"
-            for book in results[:2]
-            if getattr(book, "title", None)
-        ]
-        if titles:
-            return f"- Books: {'; '.join(titles)}"
-        if topic:
-            return f"- Books: fetched results for {topic}"
-    elif tool_name == "random_joke":
-        joke = getattr(parsed, "joke", None)
-        if joke:
-            return f"- Joke: {joke}"
-    elif tool_name == "random_dog":
-        return "- Dog Pic: fetched one dog image"
-    elif tool_name == "trivia":
-        question = getattr(parsed, "question", None)
-        correct_answer = getattr(parsed, "correct_answer", None)
-        incorrect_answers = getattr(parsed, "incorrect_answers", None) or []
-        if question and correct_answer:
-            choices = incorrect_answers + [correct_answer]
-            return f"- Trivia: {question} Choices: {', '.join(choices)}"
-
+    """Render planner-local tool feedback from shared extracted step semantics."""
+    planner_line = extract_step_semantics(tool_name, args, parsed)["planner_line"]
+    if planner_line:
+        return planner_line
     return f"- {tool_name}: completed"
 
 

@@ -43,28 +43,56 @@ def _coords_label(args: dict[str, Any]) -> str:
     return f"{latitude}, {longitude}"
 
 
-def _detail_line(tool_name: str, args: dict[str, Any], payload: Any, *, compact: bool = False) -> str | None:
+def extract_step_semantics(tool_name: str, args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    """Extract shared semantic text fragments from one parsed execution step."""
+    semantics = {
+        "planner_line": None,
+        "detail_line": None,
+        "fact_line": None,
+    }
+
     if tool_name == "city_to_coords":
         if isinstance(payload, ToolError):
-            return "- City Lookup: unavailable ({})".format(payload.details or payload.error)
+            line = "- City Lookup: unavailable ({})".format(payload.details or payload.error)
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, GeoResult):
-            return f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
-        return None
+            line = f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            semantics["fact_line"] = f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}."
+            return semantics
+        return semantics
 
     if tool_name == "get_weather":
         if isinstance(payload, ToolError):
-            return f"- Weather: {_coords_label(args)} unavailable ({payload.details or payload.error})"
+            line = f"- Weather: {_coords_label(args)} unavailable ({payload.details or payload.error})"
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, WeatherResult) and payload.temperature is not None:
-            return (
+            detail_line = (
                 f"- Weather: {_coords_label(args)}: "
                 f"{payload.temperature}{payload.temperature_unit or ''}, "
                 f"{payload.weather_summary or 'current conditions'}"
             )
-        return None
+            semantics["planner_line"] = detail_line
+            semantics["detail_line"] = detail_line
+            semantics["fact_line"] = (
+                f"Weather for {_coords_label(args)}: "
+                f"{payload.temperature}{payload.temperature_unit or ''}, "
+                f"{payload.weather_summary or 'current conditions'}."
+            )
+            return semantics
+        return semantics
 
     if tool_name == "book_recs":
         if isinstance(payload, ToolError):
-            return "- Books: unavailable ({})".format(payload.details or payload.error)
+            line = "- Books: unavailable ({})".format(payload.details or payload.error)
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, BookResults) and payload.results:
             titles = [
                 f"{book.title} by {book.author}"
@@ -72,59 +100,56 @@ def _detail_line(tool_name: str, args: dict[str, Any], payload: Any, *, compact:
                 if book.title
             ]
             if titles:
-                return f"- Books: {'; '.join(titles)}"
-        return None
+                rendered_titles = "; ".join(titles)
+                semantics["planner_line"] = f"- Books: {rendered_titles}"
+                semantics["detail_line"] = f"- Books: {rendered_titles}"
+                semantics["fact_line"] = f"Book ideas for {payload.topic}: {rendered_titles}."
+                return semantics
+        return semantics
 
     if tool_name == "random_joke":
         if isinstance(payload, ToolError):
-            return "- Joke: unavailable ({})".format(payload.details or payload.error)
+            line = "- Joke: unavailable ({})".format(payload.details or payload.error)
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, JokeResult):
-            return f"- Joke: {payload.joke}"
-        return None
+            line = f"- Joke: {payload.joke}"
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            semantics["fact_line"] = f"Joke: {payload.joke}"
+            return semantics
+        return semantics
 
     if tool_name == "random_dog":
         if isinstance(payload, ToolError):
-            return "- Dog Pic: unavailable ({})".format(payload.details or payload.error)
+            line = "- Dog Pic: unavailable ({})".format(payload.details or payload.error)
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, DogResult):
-            return "- Dog Pic: fetched one dog image" if compact else f"- Dog Pic: {payload.image_url}"
-        return None
+            semantics["planner_line"] = "- Dog Pic: fetched one dog image"
+            semantics["detail_line"] = f"- Dog Pic: {payload.image_url}"
+            semantics["fact_line"] = f"Dog pic: {payload.image_url}"
+            return semantics
+        return semantics
 
     if tool_name == "trivia":
         if isinstance(payload, ToolError):
-            return "- Trivia: unavailable ({})".format(payload.details or payload.error)
+            line = "- Trivia: unavailable ({})".format(payload.details or payload.error)
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            return semantics
         if isinstance(payload, TriviaResult):
             choices = payload.incorrect_answers + [payload.correct_answer]
-            return f"- Trivia: {payload.question} Choices: {', '.join(choices)}"
-        return None
+            line = f"- Trivia: {payload.question} Choices: {', '.join(choices)}"
+            semantics["planner_line"] = line
+            semantics["detail_line"] = line
+            semantics["fact_line"] = f"Trivia: {payload.question} Choices: {', '.join(choices)}."
+            return semantics
+        return semantics
 
-    return None
-
-
-def _fact_line(tool_name: str, args: dict[str, Any], payload: Any) -> str | None:
-    if tool_name == "city_to_coords" and isinstance(payload, GeoResult):
-        return f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}."
-    if tool_name == "get_weather" and isinstance(payload, WeatherResult) and payload.temperature is not None:
-        return (
-            f"Weather for {_coords_label(args)}: "
-            f"{payload.temperature}{payload.temperature_unit or ''}, "
-            f"{payload.weather_summary or 'current conditions'}."
-        )
-    if tool_name == "book_recs" and isinstance(payload, BookResults) and payload.results:
-        titles = [
-            f"{book.title} by {book.author}"
-            for book in payload.results[:2]
-            if book.title
-        ]
-        if titles:
-            return f"Book ideas for {payload.topic}: {'; '.join(titles)}."
-    if tool_name == "random_joke" and isinstance(payload, JokeResult):
-        return f"Joke: {payload.joke}"
-    if tool_name == "random_dog" and isinstance(payload, DogResult):
-        return f"Dog pic: {payload.image_url}"
-    if tool_name == "trivia" and isinstance(payload, TriviaResult):
-        choices = payload.incorrect_answers + [payload.correct_answer]
-        return f"Trivia: {payload.question} Choices: {', '.join(choices)}."
-    return None
+    return semantics
 
 
 def build_grounded_items(user_prompt: str, steps: Iterable[Any]) -> List[Any]:
@@ -136,7 +161,7 @@ def build_grounded_items(user_prompt: str, steps: Iterable[Any]) -> List[Any]:
         if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
             continue
         tool_name, args, payload = _step_fields(step)
-        detail_line = _detail_line(tool_name, args, payload, compact=False)
+        detail_line = extract_step_semantics(tool_name, args, payload)["detail_line"]
         if not detail_line:
             continue
         title, detail = detail_line[2:].split(": ", 1)
@@ -158,7 +183,7 @@ def render_compact_step_summaries(
         if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
             continue
         tool_name, args, payload = _step_fields(step)
-        line = _detail_line(tool_name, args, payload, compact=True)
+        line = extract_step_semantics(tool_name, args, payload)["planner_line"]
         if line:
             rendered.append(line)
     if not rendered and "weekend" in user_prompt.lower():
@@ -185,10 +210,11 @@ def compose_grounded_answer_from_steps(
     fact_lines: List[str] = []
     for step in tool_steps:
         tool_name, args, payload = _step_fields(step)
-        detail_line = _detail_line(tool_name, args, payload, compact=False)
+        semantics = extract_step_semantics(tool_name, args, payload)
+        detail_line = semantics["detail_line"]
         if detail_line:
             detail_lines.append(detail_line)
-        fact_line = _fact_line(tool_name, args, payload)
+        fact_line = semantics["fact_line"]
         if fact_line:
             fact_lines.append(fact_line)
 
