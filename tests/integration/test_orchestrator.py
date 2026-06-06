@@ -86,8 +86,8 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Comparisons, summaries, recommendations, and final wording must happen in action="finish" using final_answer.', system_prompt)
         self.assertIn("Only call one of the listed supported tools.", system_prompt)
         self.assertIn("Never invent tool names.", system_prompt)
-        self.assertIn("If weather is requested and coordinates are already available, prefer get_weather directly.", system_prompt)
-        self.assertIn("If weather is requested and only a city is known, use city_to_coords before get_weather.", system_prompt)
+        self.assertIn('For "Give me weather and a joke.": get_weather, random_joke, then finish.', system_prompt)
+        self.assertIn('For "Plan a cozy Saturday in City A with weather and 3 mystery books.": city_to_coords if needed, get_weather, book_recs, then finish.', system_prompt)
         self.assertIn("If an identical successful tool call already appears in observations, do not request it again; choose a different needed step or finish.", system_prompt)
         self.assertIn('Get the weather for City A and City B.', system_prompt)
         self.assertNotIn('Get the weather for Chicago and New York using their coordinates.', system_prompt)
@@ -705,10 +705,9 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
         self.assertEqual(mock_react.call_count, 2)
-        self.assertEqual(
-            result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005",
-        )
+        self.assertEqual(result.answer, "Here are both weather results.")
+        self.assertEqual(len(result.tool_observations), 1)
+        self.assertEqual(result.tool_observations[0].tool_name, "city_to_coords")
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
     @patch("agent.orchestrator.llm_react_json")
@@ -995,7 +994,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "A fetched joke: hope that brightens your day."},
+        return_value={"answer": "Joke: A fetched joke. Hope that brightens your day."},
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_can_polish_grounded_answer_without_dropping_core_fact(

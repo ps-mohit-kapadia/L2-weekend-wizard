@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
-from agent.grounding import compose_grounded_answer_from_observations
+from agent.grounding import (
+    compose_grounded_answer_from_observations,
+    render_compact_step_summaries,
+)
 from agent.policies.guardrails import analyze_request
 from agent.prompts import build_react_messages, build_reflection_messages
 from schemas.agent import ToolObservation
+from schemas.tools import DogResult, GeoResult, JokeResult, ToolError, WeatherResult
 
 
 class PromptingTests(unittest.TestCase):
@@ -73,9 +78,20 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("A fetched joke.", messages[3]["content"])
 
     def test_build_reflection_messages_include_observations_and_draft(self) -> None:
+        step_summary_lines = render_compact_step_summaries(
+            "Tell me a joke.",
+            [
+                SimpleNamespace(
+                    kind="tool_call",
+                    tool_name="random_joke",
+                    normalized_args={},
+                    parsed_payload=JokeResult(joke="Hi"),
+                )
+            ],
+        )
         messages = build_reflection_messages(
             "Tell me a joke.",
-            [ToolObservation(tool_name="random_joke", args={}, payload='{"joke":"Hi"}')],
+            step_summary_lines,
             "Joke: Hi",
         )
 
@@ -90,16 +106,29 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
 
     def test_build_reflection_messages_use_compact_error_detail_without_raw_payload_blob(self) -> None:
-        messages = build_reflection_messages(
+        step_summary_lines = render_compact_step_summaries(
             "Give me the weather and a joke.",
             [
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="get_weather",
-                    args={"latitude": 40.7128, "longitude": -74.0060},
-                    payload='{"error":"get_weather failed","details":"tool execution failed"}',
+                    normalized_args={"latitude": 40.7128, "longitude": -74.0060},
+                    parsed_payload=ToolError(
+                        error="get_weather failed",
+                        details="tool execution failed",
+                    ),
                 ),
-                ToolObservation(tool_name="random_joke", args={}, payload='{"joke":"Hi"}'),
+                SimpleNamespace(
+                    kind="tool_call",
+                    tool_name="random_joke",
+                    normalized_args={},
+                    parsed_payload=JokeResult(joke="Hi"),
+                ),
             ],
+        )
+        messages = build_reflection_messages(
+            "Give me the weather and a joke.",
+            step_summary_lines,
             "Weather failed, but here is a joke.",
         )
 
@@ -109,15 +138,23 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
 
     def test_build_reflection_messages_avoid_raw_url_payload_rendering(self) -> None:
-        messages = build_reflection_messages(
+        step_summary_lines = render_compact_step_summaries(
             "Plan a cozy Saturday with a dog pic.",
             [
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="random_dog",
-                    args={},
-                    payload='{"status":"success","image_url":"https://example.com/dog.jpg"}',
+                    normalized_args={},
+                    parsed_payload=DogResult(
+                        status="success",
+                        image_url="https://example.com/dog.jpg",
+                    ),
                 ),
             ],
+        )
+        messages = build_reflection_messages(
+            "Plan a cozy Saturday with a dog pic.",
+            step_summary_lines,
             "Here is a dog pic.",
         )
 
@@ -206,20 +243,38 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", composed)
 
     def test_build_reflection_messages_preserve_two_weather_observations(self) -> None:
-        messages = build_reflection_messages(
+        step_summary_lines = render_compact_step_summaries(
             "Compare the weather in Chicago and New York.",
             [
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="get_weather",
-                    args={"latitude": 41.85003, "longitude": -87.65005},
-                    payload='{"temperature": 11.2, "temperature_unit": "C", "weather_summary": "clear sky"}',
+                    normalized_args={"latitude": 41.85003, "longitude": -87.65005},
+                    parsed_payload=WeatherResult(
+                        latitude=41.85003,
+                        longitude=-87.65005,
+                        temperature=11.2,
+                        temperature_unit="C",
+                        weather_summary="clear sky",
+                    ),
                 ),
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="get_weather",
-                    args={"latitude": 40.71427, "longitude": -74.00597},
-                    payload='{"temperature": 6.1, "temperature_unit": "C", "weather_summary": "light rain"}',
+                    normalized_args={"latitude": 40.71427, "longitude": -74.00597},
+                    parsed_payload=WeatherResult(
+                        latitude=40.71427,
+                        longitude=-74.00597,
+                        temperature=6.1,
+                        temperature_unit="C",
+                        weather_summary="light rain",
+                    ),
                 ),
             ],
+        )
+        messages = build_reflection_messages(
+            "Compare the weather in Chicago and New York.",
+            step_summary_lines,
             "Draft answer.",
         )
 
@@ -227,20 +282,36 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", messages[1]["content"])
 
     def test_build_reflection_messages_preserve_two_city_lookups(self) -> None:
-        messages = build_reflection_messages(
+        step_summary_lines = render_compact_step_summaries(
             "Compare Chicago and New York.",
             [
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="city_to_coords",
-                    args={"city": "Chicago"},
-                    payload='{"city": "Chicago", "latitude": 41.85003, "longitude": -87.65005, "country": "United States"}',
+                    normalized_args={"city": "Chicago"},
+                    parsed_payload=GeoResult(
+                        city="Chicago",
+                        latitude=41.85003,
+                        longitude=-87.65005,
+                        country="United States",
+                    ),
                 ),
-                ToolObservation(
+                SimpleNamespace(
+                    kind="tool_call",
                     tool_name="city_to_coords",
-                    args={"city": "New York"},
-                    payload='{"city": "New York", "latitude": 40.71427, "longitude": -74.00597, "country": "United States"}',
+                    normalized_args={"city": "New York"},
+                    parsed_payload=GeoResult(
+                        city="New York",
+                        latitude=40.71427,
+                        longitude=-74.00597,
+                        country="United States",
+                    ),
                 ),
             ],
+        )
+        messages = build_reflection_messages(
+            "Compare Chicago and New York.",
+            step_summary_lines,
             "Draft answer.",
         )
 

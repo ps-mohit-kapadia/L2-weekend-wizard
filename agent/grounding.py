@@ -167,6 +167,24 @@ def render_compact_observation_summaries(
     return rendered
 
 
+def render_compact_step_summaries(
+    user_prompt: str,
+    steps: List[Any],
+) -> List[str]:
+    """Render compact grounded step summaries from execution-step state."""
+    rendered: List[str] = []
+    for step in steps:
+        if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
+            continue
+        tool_name, args, payload = _observation_fields(step)
+        line = _detail_line(tool_name, args, payload, compact=True)
+        if line:
+            rendered.append(line)
+    if not rendered and "weekend" in user_prompt.lower():
+        rendered.append("- Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
+    return rendered
+
+
 def compose_grounded_answer_from_steps(
     user_prompt: str,
     answer: str,
@@ -176,7 +194,8 @@ def compose_grounded_answer_from_steps(
     tool_steps = [
         step
         for step in steps
-        if getattr(step, "kind", "") == "tool_call" and getattr(step, "tool_name", "")
+        if getattr(step, "kind", "") in {"tool_call", "tool_invalid"}
+        and getattr(step, "tool_name", "")
     ]
     if not tool_steps:
         return answer

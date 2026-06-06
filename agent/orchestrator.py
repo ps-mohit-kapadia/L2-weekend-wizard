@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from agent.grounding import (
     compose_grounded_answer_from_steps,
     parse_tool_payload_text,
-    render_compact_observation_summaries,
+    render_compact_step_summaries,
 )
 from agent.policies.guardrails import (
     RequestAnalysis,
@@ -148,7 +148,7 @@ def _derive_tool_observations(state: ExecutionState) -> List[ToolObservation]:
     """Project tool observations from semantic execution steps."""
     observations: List[ToolObservation] = []
     for step in state.steps:
-        if step.kind != "tool_call" or not step.tool_name or not step.payload:
+        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name or not step.payload:
             continue
         observations.append(
             ToolObservation(
@@ -285,19 +285,6 @@ def _planner_tool_feedback_detail(
     return f"- {tool_name}: completed"
 
 
-def _tool_feedback_from_payload(
-    tool_name: str,
-    args: Dict[str, Any],
-    payload: str,
-) -> str:
-    parsed = parse_tool_payload_text(tool_name, payload)
-    return _planner_tool_feedback_detail(tool_name, args, parsed)
-
-
-def _parsed_payload(tool_name: str, payload: str) -> Any:
-    return parse_tool_payload_text(tool_name, payload)
-
-
 async def execute_tool_call(
     tool_gateway: ToolGateway,
     tool_name: str,
@@ -419,16 +406,13 @@ def validate_react_decision_semantics(
 def build_grounded_draft(
     user_prompt: str,
     state: ExecutionState,
-    tool_observations: List[ToolObservation],
 ) -> str:
     """Build the grounded draft answer before reflection."""
     grounded = compose_grounded_answer_from_steps(user_prompt, "", state.steps)
-    if grounded.strip() or not tool_observations:
+    if grounded.strip():
         return grounded
 
-    compact_items = render_compact_observation_summaries(
-        user_prompt, tool_observations
-    )
+    compact_items = render_compact_step_summaries(user_prompt, state.steps)
     if compact_items:
         return "Weekend Wizard Results\n" + "\n".join(compact_items)
     return grounded
@@ -550,13 +534,14 @@ def _reflection_preserves_grounded_content(
 def run_reflection(
     context: OrchestratorContext,
     user_prompt: str,
-    tool_observations: List[ToolObservation],
+    state: ExecutionState,
     draft_answer: str,
     *,
     trace: RequestTrace | None = None,
 ) -> Tuple[str, bool]:
     """Run one quality pass over the grounded draft and fall back on failure."""
-    messages = build_reflection_messages(user_prompt, tool_observations, draft_answer)
+    step_summary_lines = render_compact_step_summaries(user_prompt, state.steps)
+    messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name, trace=trace)
         return reflected["answer"].strip(), False
@@ -588,15 +573,15 @@ def finalize_after_execution(
     is allowed to improve presentation quality, but grounded output remains the
     authority baseline when reflection fails or drifts away from grounded facts.
     """
-    tool_observations = _derive_tool_observations(state)
     grounded = (
-        build_grounded_draft(user_prompt, state, tool_observations)
-        if tool_observations
+        build_grounded_draft(user_prompt, state)
+        if _derive_tool_observations(state)
         else draft_answer
     )
     final_answer, reflection_used_fallback = run_reflection(
-        context, user_prompt, tool_observations, grounded, trace=trace
+        context, user_prompt, state, grounded, trace=trace
     )
+    tool_observations = _derive_tool_observations(state)
     if tool_observations and not reflection_used_fallback:
         if not _reflection_preserves_grounded_content(
             user_prompt,
@@ -714,7 +699,7 @@ async def orchestrate_interaction(
         )
         if normalized_args is None:
             payload = _tool_error_payload(decision.tool, error or "invalid args")
-            parsed_payload = _parsed_payload(decision.tool, payload)
+            parsed_payload = parse_tool_payload_text(decision.tool, payload)
             state.steps.append(
                 ExecutionStep(
                     kind="tool_invalid",
@@ -724,10 +709,8 @@ async def orchestrate_interaction(
                     payload=payload,
                     parsed_payload=parsed_payload,
                     outcome="invalid_args",
-                    feedback_message=_tool_feedback_from_payload(
-                        decision.tool,
-                        decision.args,
-                        payload,
+                    feedback_message=_planner_tool_feedback_detail(
+                        decision.tool, decision.args, parsed_payload
                     ),
                 )
             )
@@ -783,7 +766,7 @@ async def orchestrate_interaction(
                 step_number=step_number,
                 trace=trace,
             )
-            parsed_payload = _parsed_payload(decision.tool, payload)
+            parsed_payload = parse_tool_payload_text(decision.tool, payload)
             state.steps.append(
                 ExecutionStep(
                     kind="tool_call",
@@ -794,10 +777,8 @@ async def orchestrate_interaction(
                     payload=payload,
                     parsed_payload=parsed_payload,
                     outcome="completed",
-                    feedback_message=_tool_feedback_from_payload(
-                        decision.tool,
-                        normalized_args,
-                        payload,
+                    feedback_message=_planner_tool_feedback_detail(
+                        decision.tool, normalized_args, parsed_payload
                     ),
                 )
             )
