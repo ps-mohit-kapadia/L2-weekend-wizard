@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any, Iterable, List
 
-from schemas.agent import ToolObservation
 from schemas.tools import (
     BookResults,
     DogResult,
@@ -26,18 +25,14 @@ def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
         return payload_text
 
 
-def _observation_fields(observation: Any) -> tuple[str, dict[str, Any], Any]:
-    tool_name = getattr(observation, "tool_name", "")
+def _step_fields(step: Any) -> tuple[str, dict[str, Any], Any]:
+    tool_name = getattr(step, "tool_name", "")
     args = dict(
-        getattr(observation, "normalized_args", None)
-        or getattr(observation, "args", None)
-        or getattr(observation, "raw_args", None)
+        getattr(step, "normalized_args", None)
+        or getattr(step, "raw_args", None)
         or {}
     )
-    payload = getattr(observation, "parsed_payload", None)
-    if payload is None and tool_name:
-        payload = parse_tool_payload_text(tool_name, getattr(observation, "payload", ""))
-    return tool_name, args, payload
+    return tool_name, args, getattr(step, "parsed_payload", None)
 
 
 def _coords_label(args: dict[str, Any]) -> str:
@@ -132,13 +127,15 @@ def _fact_line(tool_name: str, args: dict[str, Any], payload: Any) -> str | None
     return None
 
 
-def build_grounded_items(user_prompt: str, observations: Iterable[Any]) -> List[Any]:
-    """Return simple objects with title/detail for compatibility checks."""
+def build_grounded_items(user_prompt: str, steps: Iterable[Any]) -> List[Any]:
+    """Return simple objects with title/detail from execution steps."""
     items: List[Any] = []
     lowered = user_prompt.lower()
 
-    for observation in observations:
-        tool_name, args, payload = _observation_fields(observation)
+    for step in steps:
+        if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
+            continue
+        tool_name, args, payload = _step_fields(step)
         detail_line = _detail_line(tool_name, args, payload, compact=False)
         if not detail_line:
             continue
@@ -151,22 +148,6 @@ def build_grounded_items(user_prompt: str, observations: Iterable[Any]) -> List[
     return items
 
 
-def render_compact_observation_summaries(
-    user_prompt: str,
-    tool_observations: List[ToolObservation],
-) -> List[str]:
-    """Render compact grounded observation summaries for prompts."""
-    rendered: List[str] = []
-    for observation in tool_observations:
-        tool_name, args, payload = _observation_fields(observation)
-        line = _detail_line(tool_name, args, payload, compact=True)
-        if line:
-            rendered.append(line)
-    if not rendered and "weekend" in user_prompt.lower():
-        rendered.append("- Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
-    return rendered
-
-
 def render_compact_step_summaries(
     user_prompt: str,
     steps: List[Any],
@@ -176,7 +157,7 @@ def render_compact_step_summaries(
     for step in steps:
         if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
             continue
-        tool_name, args, payload = _observation_fields(step)
+        tool_name, args, payload = _step_fields(step)
         line = _detail_line(tool_name, args, payload, compact=True)
         if line:
             rendered.append(line)
@@ -203,7 +184,7 @@ def compose_grounded_answer_from_steps(
     detail_lines: List[str] = []
     fact_lines: List[str] = []
     for step in tool_steps:
-        tool_name, args, payload = _observation_fields(step)
+        tool_name, args, payload = _step_fields(step)
         detail_line = _detail_line(tool_name, args, payload, compact=False)
         if detail_line:
             detail_lines.append(detail_line)
@@ -222,44 +203,6 @@ def compose_grounded_answer_from_steps(
         body = detail_lines
         outro = ["Enjoy the vibe and follow the links if something catches your eye."] if is_plan_request else []
         return "\n".join([intro, *body, *outro])
-
-    if len(fact_lines) == 1:
-        return fact_lines[0]
-    if fact_lines:
-        return " ".join(fact_lines)
-    return answer
-
-
-def compose_grounded_answer_from_observations(
-    user_prompt: str,
-    answer: str,
-    tool_observations: List[ToolObservation],
-) -> str:
-    """Compose a grounded answer from output observations for compatibility/tests only."""
-    if not tool_observations:
-        return answer
-
-    detail_lines: List[str] = []
-    fact_lines: List[str] = []
-    for observation in tool_observations:
-        tool_name, args, payload = _observation_fields(observation)
-        detail_line = _detail_line(tool_name, args, payload, compact=False)
-        if detail_line:
-            detail_lines.append(detail_line)
-        fact_line = _fact_line(tool_name, args, payload)
-        if fact_line:
-            fact_lines.append(fact_line)
-
-    if not detail_lines and not fact_lines:
-        return answer
-
-    lowered = user_prompt.lower()
-    is_plan_request = any(word in lowered for word in ("plan", "weekend", "saturday", "sunday"))
-
-    if len(tool_observations) > 1 or is_plan_request:
-        intro = "Weekend Wizard Plan" if is_plan_request else "Weekend Wizard Results"
-        outro = ["Enjoy the vibe and follow the links if something catches your eye."] if is_plan_request else []
-        return "\n".join([intro, *detail_lines, *outro])
 
     if len(fact_lines) == 1:
         return fact_lines[0]

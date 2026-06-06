@@ -4,13 +4,12 @@ import unittest
 from types import SimpleNamespace
 
 from agent.grounding import (
-    compose_grounded_answer_from_observations,
+    compose_grounded_answer_from_steps,
     render_compact_step_summaries,
 )
 from agent.policies.guardrails import analyze_request
 from agent.prompts import build_react_messages, build_reflection_messages
-from schemas.agent import ToolObservation
-from schemas.tools import DogResult, GeoResult, JokeResult, ToolError, WeatherResult
+from schemas.tools import BookResults, DogResult, GeoResult, JokeResult, ToolError, WeatherResult
 
 
 class PromptingTests(unittest.TestCase):
@@ -163,51 +162,79 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn("https://example.com/dog.jpg", messages[1]["content"])
 
     def test_compose_grounded_answer_returns_single_tool_fact(self) -> None:
-        tool_observations = [
-            ToolObservation(tool_name="random_joke", args={}, payload='{"joke": "A precise joke."}'),
+        steps = [
+            SimpleNamespace(
+                kind="tool_call",
+                tool_name="random_joke",
+                normalized_args={},
+                parsed_payload=JokeResult(joke="A precise joke."),
+            ),
         ]
 
-        grounded = compose_grounded_answer_from_observations(
+        grounded = compose_grounded_answer_from_steps(
             "Tell me a joke.",
             "Placeholder answer.",
-            tool_observations,
+            steps,
         )
 
         self.assertEqual(grounded, "Joke: A precise joke.")
 
     def test_compose_grounded_answer_prefers_fetched_facts_for_plan_requests(self) -> None:
-        tool_observations = [
-            ToolObservation(
+        steps = [
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="city_to_coords",
-                args={},
-                payload='{"city": "New York", "latitude": 40.7128, "longitude": -74.0060, "country": "United States"}',
+                normalized_args={},
+                parsed_payload=GeoResult(
+                    city="New York",
+                    latitude=40.7128,
+                    longitude=-74.0060,
+                    country="United States",
+                ),
             ),
-            ToolObservation(
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="get_weather",
-                args={},
-                payload='{"temperature": 4.0, "temperature_unit": "C", "weather_summary": "clear sky"}',
+                normalized_args={},
+                parsed_payload=WeatherResult(
+                    latitude=40.7128,
+                    longitude=-74.0060,
+                    temperature=4.0,
+                    temperature_unit="C",
+                    weather_summary="clear sky",
+                ),
             ),
-            ToolObservation(
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="book_recs",
-                args={},
-                payload='{"topic": "mystery", "results": [{"title": "A Caribbean Mystery", "author": "Agatha Christie"}, {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"}]}',
+                normalized_args={},
+                parsed_payload=BookResults(
+                    topic="mystery",
+                    count=2,
+                    results=[
+                        {"title": "A Caribbean Mystery", "author": "Agatha Christie"},
+                        {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"},
+                    ],
+                ),
             ),
-            ToolObservation(
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="random_joke",
-                args={},
-                payload='{"joke": "Fetched joke text."}',
+                normalized_args={},
+                parsed_payload=JokeResult(joke="Fetched joke text."),
             ),
-            ToolObservation(
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="random_dog",
-                args={},
-                payload='{"image_url": "https://example.com/dog.jpg"}',
+                normalized_args={},
+                parsed_payload=DogResult(status="success", image_url="https://example.com/dog.jpg"),
             ),
         ]
 
-        composed = compose_grounded_answer_from_observations(
+        composed = compose_grounded_answer_from_steps(
             "Plan a cozy Saturday in New York with weather, books, a joke, and a dog pic.",
             "Hallucinated answer here.",
-            tool_observations,
+            steps,
         )
 
         self.assertTrue(composed.startswith("Weekend Wizard Plan"))
@@ -219,23 +246,37 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn("Hallucinated answer here.", composed)
 
     def test_compose_grounded_answer_preserves_two_weather_observations(self) -> None:
-        tool_observations = [
-            ToolObservation(
+        steps = [
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="get_weather",
-                args={"latitude": 41.85003, "longitude": -87.65005},
-                payload='{"temperature": 11.2, "temperature_unit": "C", "weather_summary": "clear sky"}',
+                normalized_args={"latitude": 41.85003, "longitude": -87.65005},
+                parsed_payload=WeatherResult(
+                    latitude=41.85003,
+                    longitude=-87.65005,
+                    temperature=11.2,
+                    temperature_unit="C",
+                    weather_summary="clear sky",
+                ),
             ),
-            ToolObservation(
+            SimpleNamespace(
+                kind="tool_call",
                 tool_name="get_weather",
-                args={"latitude": 40.71427, "longitude": -74.00597},
-                payload='{"temperature": 6.1, "temperature_unit": "C", "weather_summary": "light rain"}',
+                normalized_args={"latitude": 40.71427, "longitude": -74.00597},
+                parsed_payload=WeatherResult(
+                    latitude=40.71427,
+                    longitude=-74.00597,
+                    temperature=6.1,
+                    temperature_unit="C",
+                    weather_summary="light rain",
+                ),
             ),
         ]
 
-        composed = compose_grounded_answer_from_observations(
+        composed = compose_grounded_answer_from_steps(
             "Compare the weather in Chicago and New York.",
             "Placeholder answer.",
-            tool_observations,
+            steps,
         )
 
         self.assertIn("Weekend Wizard Results", composed)
