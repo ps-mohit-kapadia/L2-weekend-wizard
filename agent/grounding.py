@@ -43,113 +43,164 @@ def _coords_label(args: dict[str, Any]) -> str:
     return f"{latitude}, {longitude}"
 
 
-def extract_step_semantics(tool_name: str, args: dict[str, Any], payload: Any) -> dict[str, str | None]:
-    """Extract shared semantic text fragments from one parsed execution step."""
-    semantics = {
+def _empty_semantics() -> dict[str, str | None]:
+    return {
         "planner_line": None,
         "detail_line": None,
         "fact_line": None,
     }
 
-    if tool_name == "city_to_coords":
-        if isinstance(payload, ToolError):
-            line = "- City Lookup: unavailable ({})".format(payload.details or payload.error)
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, GeoResult):
-            line = f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            semantics["fact_line"] = f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}."
-            return semantics
-        return semantics
 
-    if tool_name == "get_weather":
-        if isinstance(payload, ToolError):
-            line = f"- Weather: {_coords_label(args)} unavailable ({payload.details or payload.error})"
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, WeatherResult) and payload.temperature is not None:
-            detail_line = (
-                f"- Weather: {_coords_label(args)}: "
-                f"{payload.temperature}{payload.temperature_unit or ''}, "
-                f"{payload.weather_summary or 'current conditions'}"
-            )
-            semantics["planner_line"] = detail_line
-            semantics["detail_line"] = detail_line
-            semantics["fact_line"] = (
+def _city_lookup_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = "- City Lookup: unavailable ({})".format(payload.details or payload.error)
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, GeoResult):
+        line = f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}.",
+        }
+    return _empty_semantics()
+
+
+def _weather_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = f"- Weather: {_coords_label(args)} unavailable ({payload.details or payload.error})"
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, WeatherResult) and payload.temperature is not None:
+        detail_line = (
+            f"- Weather: {_coords_label(args)}: "
+            f"{payload.temperature}{payload.temperature_unit or ''}, "
+            f"{payload.weather_summary or 'current conditions'}"
+        )
+        return {
+            "planner_line": detail_line,
+            "detail_line": detail_line,
+            "fact_line": (
                 f"Weather for {_coords_label(args)}: "
                 f"{payload.temperature}{payload.temperature_unit or ''}, "
                 f"{payload.weather_summary or 'current conditions'}."
-            )
-            return semantics
-        return semantics
+            ),
+        }
+    return _empty_semantics()
 
-    if tool_name == "book_recs":
-        if isinstance(payload, ToolError):
-            line = "- Books: unavailable ({})".format(payload.details or payload.error)
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, BookResults) and payload.results:
-            titles = [
-                f"{book.title} by {book.author}"
-                for book in payload.results[:2]
-                if book.title
-            ]
-            if titles:
-                rendered_titles = "; ".join(titles)
-                semantics["planner_line"] = f"- Books: {rendered_titles}"
-                semantics["detail_line"] = f"- Books: {rendered_titles}"
-                semantics["fact_line"] = f"Book ideas for {payload.topic}: {rendered_titles}."
-                return semantics
-        return semantics
 
-    if tool_name == "random_joke":
-        if isinstance(payload, ToolError):
-            line = "- Joke: unavailable ({})".format(payload.details or payload.error)
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, JokeResult):
-            line = f"- Joke: {payload.joke}"
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            semantics["fact_line"] = f"Joke: {payload.joke}"
-            return semantics
-        return semantics
+def _book_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = "- Books: unavailable ({})".format(payload.details or payload.error)
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, BookResults) and payload.results:
+        titles = [
+            f"{book.title} by {book.author}"
+            for book in payload.results[:2]
+            if book.title
+        ]
+        if titles:
+            rendered_titles = "; ".join(titles)
+            line = f"- Books: {rendered_titles}"
+            return {
+                "planner_line": line,
+                "detail_line": line,
+                "fact_line": f"Book ideas for {payload.topic}: {rendered_titles}.",
+            }
+    return _empty_semantics()
 
-    if tool_name == "random_dog":
-        if isinstance(payload, ToolError):
-            line = "- Dog Pic: unavailable ({})".format(payload.details or payload.error)
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, DogResult):
-            semantics["planner_line"] = "- Dog Pic: fetched one dog image"
-            semantics["detail_line"] = f"- Dog Pic: {payload.image_url}"
-            semantics["fact_line"] = f"Dog pic: {payload.image_url}"
-            return semantics
-        return semantics
 
-    if tool_name == "trivia":
-        if isinstance(payload, ToolError):
-            line = "- Trivia: unavailable ({})".format(payload.details or payload.error)
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            return semantics
-        if isinstance(payload, TriviaResult):
-            choices = payload.incorrect_answers + [payload.correct_answer]
-            line = f"- Trivia: {payload.question} Choices: {', '.join(choices)}"
-            semantics["planner_line"] = line
-            semantics["detail_line"] = line
-            semantics["fact_line"] = f"Trivia: {payload.question} Choices: {', '.join(choices)}."
-            return semantics
-        return semantics
+def _joke_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = "- Joke: unavailable ({})".format(payload.details or payload.error)
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, JokeResult):
+        line = f"- Joke: {payload.joke}"
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": f"Joke: {payload.joke}",
+        }
+    return _empty_semantics()
 
-    return semantics
+
+def _dog_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = "- Dog Pic: unavailable ({})".format(payload.details or payload.error)
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, DogResult):
+        return {
+            "planner_line": "- Dog Pic: fetched one dog image",
+            "detail_line": f"- Dog Pic: {payload.image_url}",
+            "fact_line": f"Dog pic: {payload.image_url}",
+        }
+    return _empty_semantics()
+
+
+def _trivia_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    if isinstance(payload, ToolError):
+        line = "- Trivia: unavailable ({})".format(payload.details or payload.error)
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": None,
+        }
+    if isinstance(payload, TriviaResult):
+        choices = payload.incorrect_answers + [payload.correct_answer]
+        line = f"- Trivia: {payload.question} Choices: {', '.join(choices)}"
+        return {
+            "planner_line": line,
+            "detail_line": line,
+            "fact_line": f"Trivia: {payload.question} Choices: {', '.join(choices)}.",
+        }
+    return _empty_semantics()
+
+
+GROUNDING_RENDERERS = {
+    "city_to_coords": _city_lookup_semantics,
+    "get_weather": _weather_semantics,
+    "book_recs": _book_semantics,
+    "random_joke": _joke_semantics,
+    "random_dog": _dog_semantics,
+    "trivia": _trivia_semantics,
+}
+
+
+def _validate_grounding_renderers() -> None:
+    for tool_name, renderer in GROUNDING_RENDERERS.items():
+        if not tool_name:
+            raise RuntimeError("Grounding renderer registry contains an empty tool name")
+        if not callable(renderer):
+            raise RuntimeError(f"Grounding renderer for {tool_name} must be callable")
+
+
+_validate_grounding_renderers()
+
+
+def extract_step_semantics(tool_name: str, args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+    """Extract shared semantic text fragments from one parsed execution step."""
+    renderer = GROUNDING_RENDERERS.get(tool_name)
+    if renderer is None:
+        return _empty_semantics()
+    return renderer(args, payload)
 
 
 def build_grounded_items(user_prompt: str, steps: Iterable[Any]) -> List[Any]:
