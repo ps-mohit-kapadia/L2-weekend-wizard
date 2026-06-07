@@ -195,6 +195,20 @@ def _render_planner_messages(state: ExecutionState) -> List[Dict[str, str]]:
     """Render planner-visible transcript from semantic execution state."""
     messages: List[Dict[str, str]] = [{"role": "user", "content": state.user_prompt}]
     for step in state.steps:
+        if step.kind == "finish_blocked":
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"Thought: {step.thought}\n"
+                        "Action: finish\n"
+                        f"Final Answer: {step.final_answer}"
+                    ),
+                }
+            )
+            if step.feedback_message:
+                messages.append({"role": "tool", "content": step.feedback_message})
+            continue
         if step.kind not in {"tool_call", "tool_invalid", "tool_skip"}:
             continue
         planner_args = step.normalized_args or step.raw_args or {}
@@ -403,6 +417,24 @@ def _category_label(tool_name: str) -> str:
     }.get(tool_name, tool_name.replace("_", " "))
 
 
+def _category_markers(tool_name: str) -> tuple[str, ...]:
+    return {
+        "get_weather": ("weather",),
+        "book_recs": ("books", "book", "book ideas", "mystery book"),
+        "random_joke": ("joke",),
+        "random_dog": ("dog pic", "dog photo", "dog", "pawsome pic"),
+        "trivia": ("trivia",),
+    }.get(tool_name, (_category_label(tool_name),))
+
+
+def _pending_requested_categories(state: ExecutionState) -> List[str]:
+    pending: List[str] = []
+    for tool_name, status in (state.fulfillment or {}).items():
+        if not status.fulfilled and not status.degraded:
+            pending.append(tool_name)
+    return pending
+
+
 def _reflection_preserves_grounded_content(
     user_prompt: str,
     state: ExecutionState,
@@ -498,6 +530,10 @@ def _reflection_preserves_grounded_content(
             return False
         if status.fulfilled and category_fragment not in reflected_normalized:
             return False
+        if not status.fulfilled and not status.degraded:
+            for marker in _category_markers(tool_name):
+                if _normalize_answer_text(marker) in reflected_normalized:
+                    return False
 
     return True
 
@@ -646,6 +682,23 @@ async def orchestrate_interaction(
             return result
 
         if decision.action == "finish":
+            pending_categories = _pending_requested_categories(state)
+            if pending_categories:
+                state.steps.append(
+                    ExecutionStep(
+                        kind="finish_blocked",
+                        thought=decision.thought,
+                        outcome="pending_requested_work",
+                        final_answer=decision.final_answer or "",
+                        feedback_message=(
+                            "Finish blocked: requested work is still pending for "
+                            + ", ".join(_category_label(tool_name) for tool_name in pending_categories)
+                            + ". Fetch the remaining requested categories or surface a supported failure first."
+                        ),
+                    )
+                )
+                state.used_fallback = True
+                continue
             draft_answer = decision.final_answer or ""
             state.final_answer = draft_answer
             state.steps.append(

@@ -678,6 +678,8 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_react.side_effect = [
             {"thought": "Resolve Chicago first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "Chicago"}},
             {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
+            {"thought": "Now fetch weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 41.85003, "longitude": -87.65005}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is the weather."},
         ]
 
         tool_gateway = AsyncMock()
@@ -688,6 +690,15 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "latitude": 41.85003,
                     "longitude": -87.65005,
                     "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 41.85003,
+                    "longitude": -87.65005,
+                    "temperature": 11.2,
+                    "temperature_unit": "C",
+                    "weather_summary": "clear sky",
                 }
             ),
         ]
@@ -703,11 +714,15 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="What's the weather in Chicago?",
         )
 
-        self.assertEqual(tool_gateway.call_tool.await_count, 1)
-        self.assertEqual(mock_react.call_count, 2)
-        self.assertEqual(result.answer, "Here are both weather results.")
-        self.assertEqual(len(result.tool_observations), 1)
+        self.assertEqual(tool_gateway.call_tool.await_count, 2)
+        self.assertEqual(mock_react.call_count, 4)
+        self.assertEqual(
+            result.answer,
+            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
+        )
+        self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(result.tool_observations[0].tool_name, "city_to_coords")
+        self.assertEqual(result.tool_observations[1].tool_name, "get_weather")
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
     @patch("agent.orchestrator.llm_react_json")
@@ -1181,6 +1196,166 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.used_fallback)
         self.assertIn("41.85003, -87.65005", result.answer)
         self.assertIn("40.71427, -74.00597", result.answer)
+
+    @patch(
+        "agent.orchestrator.llm_reflection_json",
+        return_value={
+            "answer": (
+                "Weekend Wizard Plan\n"
+                "- Weather: 40.71427, -74.00597: 32.5C, overcast\n"
+                "- Mystery Book Ideas: Invented Book One; Invented Book Two\n"
+                "- Joke: Invented joke.\n"
+                "- Pawsome Pic: [Insert adorable dog photo here]"
+            )
+        },
+    )
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_reflection_cannot_invent_pending_requested_categories(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is your cozy Saturday plan."},
+            {"thought": "Need books.", "action": "tool", "tool": "book_recs", "args": {"topic": "mystery", "limit": 2}},
+            {"thought": "Need one joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "Need one dog photo.", "action": "tool", "tool": "random_dog", "args": {}},
+            {"thought": "I have enough information.", "action": "finish", "final_answer": "Here is your cozy Saturday plan."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 32.5,
+                    "temperature_unit": "C",
+                    "weather_summary": "overcast",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "topic": "mystery",
+                    "count": 2,
+                    "results": [
+                        {"title": "A Caribbean Mystery", "author": "Agatha Christie"},
+                        {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"},
+                    ],
+                }
+            ),
+            fake_tool_result({"joke": "A fetched joke."}),
+            fake_tool_result({"status": "success", "image_url": "https://example.com/dog.jpg"}),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=[
+                "city_to_coords",
+                "get_weather",
+                "book_recs",
+                "random_joke",
+                "random_dog",
+            ],
+            model_name="demo-model",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
+        )
+
+        self.assertTrue(result.used_fallback)
+        self.assertEqual(tool_gateway.call_tool.await_count, 5)
+        self.assertIn("Books:", result.answer)
+        self.assertIn("Joke:", result.answer)
+        self.assertIn("Dog Pic:", result.answer)
+        self.assertNotIn("Invented Book One", result.answer)
+
+    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_react_json")
+    async def test_finish_is_blocked_while_requested_categories_are_pending(
+        self,
+        mock_react: Mock,
+        _mock_reflection: Mock,
+    ) -> None:
+        mock_react.side_effect = [
+            {"thought": "Need coordinates first.", "action": "tool", "tool": "city_to_coords", "args": {"city": "New York"}},
+            {"thought": "Now get weather.", "action": "tool", "tool": "get_weather", "args": {"latitude": 40.71427, "longitude": -74.00597}},
+            {"thought": "I can answer now.", "action": "finish", "final_answer": "Here is your cozy Saturday plan."},
+            {"thought": "Need books.", "action": "tool", "tool": "book_recs", "args": {"topic": "mystery", "limit": 2}},
+            {"thought": "Need one joke.", "action": "tool", "tool": "random_joke", "args": {}},
+            {"thought": "Need one dog photo.", "action": "tool", "tool": "random_dog", "args": {}},
+            {"thought": "I have enough information.", "action": "finish", "final_answer": "Here is your cozy Saturday plan."},
+        ]
+
+        tool_gateway = AsyncMock()
+        tool_gateway.call_tool.side_effect = [
+            fake_tool_result(
+                {
+                    "city": "New York",
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "country": "United States",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "latitude": 40.71427,
+                    "longitude": -74.00597,
+                    "temperature": 32.5,
+                    "temperature_unit": "C",
+                    "weather_summary": "overcast",
+                }
+            ),
+            fake_tool_result(
+                {
+                    "topic": "mystery",
+                    "count": 2,
+                    "results": [
+                        {"title": "A Caribbean Mystery", "author": "Agatha Christie"},
+                        {"title": "The Mysterious Affair at Styles", "author": "Agatha Christie"},
+                    ],
+                }
+            ),
+            fake_tool_result({"joke": "A fetched joke."}),
+            fake_tool_result({"status": "success", "image_url": "https://example.com/dog.jpg"}),
+        ]
+
+        context = OrchestratorContext(
+            history=[],
+            tool_names=[
+                "city_to_coords",
+                "get_weather",
+                "book_recs",
+                "random_joke",
+                "random_dog",
+            ],
+            model_name="demo-model",
+        )
+
+        result = await orchestrate_interaction(
+            tool_gateway=tool_gateway,
+            context=context,
+            user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
+        )
+
+        self.assertEqual(tool_gateway.call_tool.await_count, 5)
+        self.assertEqual(mock_react.call_count, 6)
+        self.assertIn("Books:", result.answer)
+        self.assertIn("Joke:", result.answer)
+        self.assertIn("Dog Pic:", result.answer)
 
     @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
     @patch("agent.orchestrator.llm_react_json")

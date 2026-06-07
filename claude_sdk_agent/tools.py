@@ -7,6 +7,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 from claude_sdk_agent.config import ClaudeSdkAgentConfig
+from pydantic import BaseModel
 from tools.books import book_recs as l2_book_recs
 from tools.entertainment import random_dog as l2_random_dog
 from tools.entertainment import random_joke as l2_random_joke
@@ -15,8 +16,10 @@ from tools.geo import city_to_coords as l2_city_to_coords
 from tools.weather import get_weather as l2_get_weather
 
 
-def _tool_result_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _tool_result_from_payload(payload: Any) -> dict[str, Any]:
     """Convert a Weekend Wizard payload into a Claude SDK MCP tool result."""
+    if isinstance(payload, BaseModel):
+        payload = payload.model_dump()
     text = json.dumps(payload)
     is_error = isinstance(payload, dict) and "error" in payload
     return {

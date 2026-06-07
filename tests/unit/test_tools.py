@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import requests
 from unittest.mock import Mock, patch
 
+from schemas.tools import BookResults, ToolError, WeatherResult
 from tools.books import book_recs
 from tools.shared import SAFE_TOOL_ERROR_DETAIL, error_payload, get_json
 from tools.weather import get_weather
@@ -26,9 +27,10 @@ class ToolTests(unittest.TestCase):
 
         result = book_recs("sci-fi", limit=1)
 
-        self.assertEqual(result["topic"], "sci-fi")
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(result["results"][0]["title"], "Dune")
+        self.assertIsInstance(result, BookResults)
+        self.assertEqual(result.topic, "sci-fi")
+        self.assertEqual(result.count, 1)
+        self.assertEqual(result.results[0].title, "Dune")
 
     @patch("tools.weather.get_json")
     def test_get_weather_maps_summary_fields(self, mock_get_json: Mock) -> None:
@@ -47,16 +49,18 @@ class ToolTests(unittest.TestCase):
 
         result = get_weather(12.97, 77.59)
 
-        self.assertEqual(result["temperature"], 22.5)
-        self.assertEqual(result["weather_summary"], "mainly clear")
-        self.assertEqual(result["wind_speed_unit"], "km/h")
+        self.assertIsInstance(result, WeatherResult)
+        self.assertEqual(result.temperature, 22.5)
+        self.assertEqual(result.weather_summary, "mainly clear")
+        self.assertEqual(result.wind_speed_unit, "km/h")
 
     def test_error_payload_returns_consistent_shape(self) -> None:
         payload = error_payload("weather", RuntimeError("https://internal.example.local boom"))
 
-        self.assertEqual(payload["error"], "weather request failed")
-        self.assertEqual(payload["details"], SAFE_TOOL_ERROR_DETAIL)
-        self.assertNotIn("internal.example.local", payload["details"])
+        self.assertIsInstance(payload, ToolError)
+        self.assertEqual(payload.error, "weather request failed")
+        self.assertEqual(payload.details, SAFE_TOOL_ERROR_DETAIL)
+        self.assertNotIn("internal.example.local", payload.details)
 
     @patch("tools.shared.time.sleep", return_value=None)
     @patch("tools.shared.requests.get")

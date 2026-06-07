@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, List
 
 import requests
 
 from mcp_runtime.registry import mcp
+from schemas.tools import BookItem, BookResults, ToolError
 from tools.shared import error_payload, get_json
 
 
 @mcp.tool()
-def book_recs(topic: str, limit: int = 5) -> Dict[str, Any]:
+def book_recs(topic: str, limit: int = 5) -> BookResults | ToolError:
     """Simple book suggestions for a topic via Open Library search."""
     safe_limit = max(1, min(limit, 10))
 
@@ -22,15 +23,15 @@ def book_recs(topic: str, limit: int = 5) -> Dict[str, Any]:
         return error_payload("books", exc)
 
     docs = data.get("docs", [])
-    picks: List[Dict[str, Any]] = []
+    picks: List[BookItem] = []
     for doc in docs[:safe_limit]:
         picks.append(
-            {
-                "title": doc.get("title"),
-                "author": (doc.get("author_name") or ["Unknown"])[0],
-                "year": doc.get("first_publish_year"),
-                "work": doc.get("key"),
-            }
+            BookItem(
+                title=doc.get("title"),
+                author=(doc.get("author_name") or ["Unknown"])[0],
+                year=doc.get("first_publish_year"),
+                work=doc.get("key"),
+            )
         )
 
-    return {"topic": topic, "count": len(picks), "results": picks}
+    return BookResults(topic=topic, count=len(picks), results=picks)

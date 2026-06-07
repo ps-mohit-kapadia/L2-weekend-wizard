@@ -9,6 +9,7 @@ import requests
 
 from config.config import get_settings
 from logger.logging import get_logger
+from schemas.tools import ToolError
 
 
 logger = get_logger("tools.shared")
@@ -57,15 +58,15 @@ def get_json(url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
     raise last_exception
 
 
-def error_payload(source: str, exc: Exception) -> Dict[str, str]:
-    """Build a consistent error payload for failed tool requests.
+def error_payload(source: str, exc: Exception) -> ToolError:
+    """Build a consistent typed error payload for failed tool requests.
 
     Args:
         source: Logical source name for the failed request.
         exc: The exception raised during request processing.
 
     Returns:
-        A serializable error payload for tool responses.
+        A typed error payload for tool responses.
     """
     logger.warning("%s request failed: %s", source, exc)
-    return {"error": f"{source} request failed", "details": SAFE_TOOL_ERROR_DETAIL}
+    return ToolError(error=f"{source} request failed", details=SAFE_TOOL_ERROR_DETAIL)

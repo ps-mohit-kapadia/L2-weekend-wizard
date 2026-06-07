@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import requests
 
 from mcp_runtime.registry import mcp
+from schemas.tools import ToolError, WeatherResult
 from tools.shared import error_payload, get_json
 
 
@@ -41,7 +42,7 @@ WEATHER_CODES = {
 
 
 @mcp.tool()
-def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
+def get_weather(latitude: float, longitude: float) -> WeatherResult | ToolError:
     """Current weather for coordinates via Open-Meteo."""
     params = {
         "latitude": latitude,
@@ -59,14 +60,14 @@ def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
     units = data.get("current_units", {})
     weather_code = current.get("weather_code")
 
-    return {
-        "latitude": latitude,
-        "longitude": longitude,
-        "observed_at": current.get("time"),
-        "temperature": current.get("temperature_2m"),
-        "temperature_unit": units.get("temperature_2m", "C"),
-        "wind_speed": current.get("wind_speed_10m"),
-        "wind_speed_unit": units.get("wind_speed_10m", "km/h"),
-        "weather_code": weather_code,
-        "weather_summary": WEATHER_CODES.get(weather_code, "unknown conditions"),
-    }
+    return WeatherResult(
+        latitude=latitude,
+        longitude=longitude,
+        observed_at=current.get("time"),
+        temperature=current.get("temperature_2m"),
+        temperature_unit=units.get("temperature_2m", "C"),
+        wind_speed=current.get("wind_speed_10m"),
+        wind_speed_unit=units.get("wind_speed_10m", "km/h"),
+        weather_code=weather_code,
+        weather_summary=WEATHER_CODES.get(weather_code, "unknown conditions"),
+    )

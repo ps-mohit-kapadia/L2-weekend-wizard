@@ -17,6 +17,7 @@ from claude_sdk_agent.tools import (
     random_joke_tool,
     trivia_tool,
 )
+from schemas.tools import JokeResult
 
 
 class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
@@ -82,7 +83,7 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[1]["label"], "weekend-multi-tool")
         self.assertIn("config", results[1])
 
-    @patch("claude_sdk_agent.tools.l2_random_joke", return_value={"joke": "A fetched joke."})
+    @patch("claude_sdk_agent.tools.l2_random_joke", return_value=JokeResult(joke="A fetched joke."))
     async def test_random_joke_tool_wraps_existing_l2_behavior(self, _mock_joke) -> None:
         result = await random_joke_tool.handler({})
 
