@@ -12,6 +12,7 @@ from agent.grounding import (
     extract_step_semantics,
     render_compact_step_summaries,
 )
+from agent.tool_specs import get_tool_spec
 from agent.policies.guardrails import (
     RequestAnalysis,
     analyze_request,
@@ -142,7 +143,8 @@ def _initialize_fulfillment(
 
 def _update_fulfillment(state: ExecutionState, tool_name: str, payload: Any) -> None:
     """Update fulfillment state after one parsed tool result."""
-    if tool_name == "city_to_coords":
+    spec = get_tool_spec(tool_name)
+    if not spec.fulfills_requested_work:
         return
     status = (state.fulfillment or {}).get(tool_name)
     if status is None:
@@ -326,8 +328,9 @@ def normalize_tool_args(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Normalize and repair ReAct-produced tool args before execution."""
     args = dict(args or {})
+    spec = get_tool_spec(tool_name)
 
-    if tool_name == "city_to_coords":
+    if spec.arg_policy == "city":
         city = (
             args.get("city")
             or (state.request_analysis.city if state.request_analysis is not None else None)
@@ -337,7 +340,7 @@ def normalize_tool_args(
             return None, "city is required"
         return {"city": str(city)}, None
 
-    if tool_name == "get_weather":
+    if spec.arg_policy == "weather_coords":
         latitude = args.get("latitude")
         longitude = args.get("longitude")
         if latitude is None or longitude is None:
@@ -347,7 +350,7 @@ def normalize_tool_args(
         except (TypeError, ValueError):
             return None, "latitude and longitude must be numeric"
 
-    if tool_name == "book_recs":
+    if spec.arg_policy == "book_recs":
         topic = (
             args.get("topic")
             or args.get("param")
@@ -367,7 +370,7 @@ def normalize_tool_args(
             safe_limit = 3
         return {"topic": str(topic), "limit": safe_limit}, None
 
-    if tool_name in {"random_joke", "random_dog", "trivia"}:
+    if spec.arg_policy == "empty":
         return {}, None
 
     return args, None
@@ -408,23 +411,11 @@ def _normalize_answer_text(text: str) -> str:
 
 
 def _category_label(tool_name: str) -> str:
-    return {
-        "get_weather": "weather",
-        "book_recs": "books",
-        "random_joke": "joke",
-        "random_dog": "dog pic",
-        "trivia": "trivia",
-    }.get(tool_name, tool_name.replace("_", " "))
+    return get_tool_spec(tool_name).category_label
 
 
 def _category_markers(tool_name: str) -> tuple[str, ...]:
-    return {
-        "get_weather": ("weather",),
-        "book_recs": ("books", "book", "book ideas", "mystery book"),
-        "random_joke": ("joke",),
-        "random_dog": ("dog pic", "dog photo", "dog", "pawsome pic"),
-        "trivia": ("trivia",),
-    }.get(tool_name, (_category_label(tool_name),))
+    return get_tool_spec(tool_name).markers
 
 
 def _pending_requested_categories(state: ExecutionState) -> List[str]:
