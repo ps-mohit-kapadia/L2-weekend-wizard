@@ -57,7 +57,6 @@ class ExecutionStep:
     tool_name: str = ""
     raw_args: Dict[str, Any] | None = None
     normalized_args: Dict[str, Any] | None = None
-    payload: str = ""
     parsed_payload: Any = None
     outcome: str = ""
     feedback_message: str = ""
@@ -87,8 +86,14 @@ class ExecutionState:
 
 def _serialize_tool_payload(payload: Any) -> str:
     """Serialize one extracted tool payload for traces and output compatibility."""
+    if hasattr(payload, "model_dump"):
+        return json.dumps(payload.model_dump())
     if hasattr(payload, "model_dump_json"):
-        return payload.model_dump_json()
+        dumped = payload.model_dump_json()
+        try:
+            return json.dumps(json.loads(dumped))
+        except json.JSONDecodeError:
+            return dumped
     if isinstance(payload, (dict, list)):
         return json.dumps(payload)
     return str(payload)
@@ -122,11 +127,6 @@ def _extract_tool_payload(result: Any) -> Any:
         except json.JSONDecodeError:
             return dumped
     return str(result)
-
-
-def render_tool_result(result: Any) -> str:
-    """Serialize an MCP tool result into plain text for storage and grounding."""
-    return _serialize_tool_payload(_extract_tool_payload(result))
 
 
 def _initialize_fulfillment(
@@ -173,21 +173,18 @@ def build_interaction_result(
     )
 
 
-def _tool_error_payload(tool_name: str, details: str) -> str:
-    return json.dumps({"error": f"{tool_name} failed", "details": details})
-
-
 def _derive_tool_observations(state: ExecutionState) -> List[ToolObservation]:
     """Project tool observations from semantic execution steps."""
     observations: List[ToolObservation] = []
     for step in state.steps:
-        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name or not step.payload:
+        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
             continue
+        payload = _serialize_tool_payload(step.parsed_payload)
         observations.append(
             ToolObservation(
                 tool_name=step.tool_name,
                 args=step.normalized_args or step.raw_args or {},
-                payload=step.payload,
+                payload=payload,
             )
         )
     return observations
@@ -278,7 +275,7 @@ async def execute_tool_call(
     step_number: int,
     trace: RequestTrace | None = None,
 ) -> Tuple[str, Any]:
-    """Invoke one MCP tool and return both serialized and structured payload forms."""
+    """Invoke one MCP tool and return the raw extracted payload plus trace text."""
     try:
         if trace is not None:
             trace.add_event(
@@ -291,7 +288,7 @@ async def execute_tool_call(
         started = time.perf_counter()
         result = await tool_gateway.call_tool(tool_name, args)
         raw_payload = _extract_tool_payload(result)
-        payload = _serialize_tool_payload(raw_payload)
+        payload_text = _serialize_tool_payload(raw_payload)
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info("Tool %s completed", tool_name)
         if trace is not None:
@@ -300,14 +297,14 @@ async def execute_tool_call(
                 step_number=step_number,
                 tool_name=tool_name,
                 args=args,
-                result=truncate_repr(payload),
+                result=truncate_repr(payload_text),
                 duration_ms=duration_ms,
             )
-        return payload, raw_payload
+        return payload_text, raw_payload
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
         raw_payload = {"error": f"{tool_name} failed", "details": SAFE_TOOL_INVOCATION_DETAIL}
-        payload = _serialize_tool_payload(raw_payload)
+        payload_text = _serialize_tool_payload(raw_payload)
         if trace is not None:
             duration_ms = int((time.perf_counter() - started) * 1000)
             trace.add_event(
@@ -315,10 +312,10 @@ async def execute_tool_call(
                 step_number=step_number,
                 tool_name=tool_name,
                 args=args,
-                result=truncate_repr(payload),
+                result=truncate_repr(payload_text),
                 duration_ms=duration_ms,
             )
-        return payload, raw_payload
+        return payload_text, raw_payload
 
 
 def normalize_tool_args(
@@ -713,7 +710,6 @@ async def orchestrate_interaction(
             decision.tool, decision.args, state
         )
         if normalized_args is None:
-            payload = _tool_error_payload(decision.tool, error or "invalid args")
             parsed_payload = parse_tool_payload(
                 decision.tool,
                 {"error": f"{decision.tool} failed", "details": error or "invalid args"},
@@ -724,7 +720,6 @@ async def orchestrate_interaction(
                     thought=decision.thought,
                     tool_name=decision.tool,
                     raw_args=decision.args,
-                    payload=payload,
                     parsed_payload=parsed_payload,
                     outcome="invalid_args",
                     feedback_message=_planner_tool_feedback_detail(
@@ -777,7 +772,7 @@ async def orchestrate_interaction(
             continue
         else:
             duplicate_skip_counts[_planner_message_signature(decision.tool, normalized_args)] = 0
-            payload, raw_payload = await execute_tool_call(
+            _, raw_payload = await execute_tool_call(
                 tool_gateway,
                 decision.tool,
                 normalized_args,
@@ -792,7 +787,6 @@ async def orchestrate_interaction(
                     tool_name=decision.tool,
                     raw_args=decision.args,
                     normalized_args=normalized_args,
-                    payload=payload,
                     parsed_payload=parsed_payload,
                     outcome="completed",
                     feedback_message=_planner_tool_feedback_detail(
