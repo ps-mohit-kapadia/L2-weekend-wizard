@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Grounding helpers for tool-result parsing and final answer composition."""
 
-import json
 from typing import Any, Iterable, List
 
 from schemas.tools import (
@@ -13,16 +12,7 @@ from schemas.tools import (
     ToolError,
     TriviaResult,
     WeatherResult,
-    parse_tool_payload,
 )
-
-
-def parse_tool_payload_text(tool_name: str, payload_text: str) -> Any:
-    """Parse one serialized tool payload into a typed payload when possible."""
-    try:
-        return parse_tool_payload(tool_name, json.loads(payload_text))
-    except json.JSONDecodeError:
-        return payload_text
 
 
 def _step_fields(step: Any) -> tuple[str, dict[str, Any], Any]:
