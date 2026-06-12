@@ -2,16 +2,8 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-import requests
-
-from api import (
-    MODEL_UNAVAILABLE_DETAIL,
-    OLLAMA_UNREACHABLE_DETAIL,
-    build_not_ready_response,
-    evaluate_runtime_readiness,
-)
+from api import build_readiness_response
 
 
 class _FakeReadyApp:
@@ -22,9 +14,17 @@ class _FakeReadyApp:
 
 
 class HealthTests(unittest.TestCase):
-    def test_evaluate_runtime_readiness_reflects_initialized_runtime(self) -> None:
-        with patch("api.list_available_models", return_value=["llama3.2:latest"]):
-            response = evaluate_runtime_readiness(_FakeReadyApp())
+    def test_build_readiness_response_reflects_ready_runtime(self) -> None:
+        response = build_readiness_response(
+            status="ready",
+            server_path=Path("main.py"),
+            model_name="llama3.2:latest",
+            wizard=_FakeReadyApp(),
+            details=None,
+            provider_name="ollama",
+            provider_reachable=True,
+            model_available=True,
+        )
 
         self.assertEqual(response.status, "ready")
         self.assertEqual(response.tool_count, 2)
@@ -36,8 +36,17 @@ class HealthTests(unittest.TestCase):
         self.assertTrue(response.checks.tools_discovered)
         self.assertIsNone(response.details)
 
-    def test_build_not_ready_response_captures_runtime_failure(self) -> None:
-        response = build_not_ready_response(Path("main.py"), "llama3.2:latest", "startup boom")
+    def test_build_readiness_response_captures_runtime_failure(self) -> None:
+        response = build_readiness_response(
+            status="not_ready",
+            server_path=Path("main.py"),
+            model_name="llama3.2:latest",
+            wizard=None,
+            details="startup boom",
+            provider_name="ollama",
+            provider_reachable=False,
+            model_available=False,
+        )
 
         self.assertEqual(response.status, "not_ready")
         self.assertTrue(response.checks.model_resolved)
@@ -48,23 +57,20 @@ class HealthTests(unittest.TestCase):
         self.assertFalse(response.checks.tools_discovered)
         self.assertEqual(response.details, "startup boom")
 
-    def test_evaluate_runtime_readiness_returns_not_ready_when_model_is_missing(self) -> None:
-        with patch("api.list_available_models", return_value=["different-model"]):
-            response = evaluate_runtime_readiness(_FakeReadyApp())
+    def test_build_readiness_response_treats_non_ollama_provider_as_not_applicable(self) -> None:
+        response = build_readiness_response(
+            status="ready",
+            server_path=Path("main.py"),
+            model_name="remote-model",
+            wizard=None,
+            details=None,
+            provider_name="aiplatform",
+            provider_reachable=False,
+            model_available=False,
+        )
 
-        self.assertEqual(response.status, "not_ready")
+        self.assertTrue(response.checks.model_available)
         self.assertTrue(response.checks.ollama_reachable)
-        self.assertFalse(response.checks.model_available)
-        self.assertEqual(response.details, MODEL_UNAVAILABLE_DETAIL)
-
-    def test_evaluate_runtime_readiness_returns_not_ready_when_ollama_is_unreachable(self) -> None:
-        with patch("api.list_available_models", side_effect=requests.RequestException("offline")):
-            response = evaluate_runtime_readiness(_FakeReadyApp())
-
-        self.assertEqual(response.status, "not_ready")
-        self.assertFalse(response.checks.ollama_reachable)
-        self.assertFalse(response.checks.model_available)
-        self.assertEqual(response.details, OLLAMA_UNREACHABLE_DETAIL)
 
 
 if __name__ == "__main__":

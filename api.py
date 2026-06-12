@@ -13,8 +13,8 @@ import requests
 import uvicorn
 
 from application.service import WeekendWizardApp
+from config.config import get_settings
 from llm_client import discover_model
-from llm_client import list_available_models
 from logger.logging import get_logger
 from logger.tracing.request_trace import create_trace, render_trace
 from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChecks, ReadinessResponse
@@ -30,125 +30,36 @@ MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
 STARTING_READINESS_DETAIL = "API runtime is starting."
 
 
-def build_not_ready_response(
+def build_readiness_response(
+    *,
+    status: str,
     server_path: Path,
     model_name: str,
-    details: str,
+    wizard: WeekendWizardApp | None,
+    details: str | None,
+    provider_name: str,
+    provider_reachable: bool,
+    model_available: bool,
 ) -> ReadinessResponse:
-    """Build a readiness payload for a failed or unavailable API runtime."""
+    """Build the canonical readiness payload from authoritative lifecycle state."""
+    tool_names = wizard.tool_names if wizard is not None else ()
+    mcp_session_ready = wizard is not None and wizard.is_initialized
+    tools_discovered = bool(tool_names)
+    provider_uses_ollama = provider_name == "ollama"
+    effective_server_path = wizard.server_path if wizard is not None else server_path
+
     return ReadinessResponse(
-        status="not_ready",
+        status=status,
         model_name=model_name,
-        tool_count=0,
+        tool_count=len(tool_names),
         checks=ReadinessChecks(
             model_resolved=bool(model_name.strip()),
-            model_available=False,
-            server_path_exists=server_path.exists(),
-            ollama_reachable=False,
-            mcp_session_ready=False,
-            tools_discovered=False,
+            model_available=model_available if provider_uses_ollama else True,
+            server_path_exists=effective_server_path.exists(),
+            ollama_reachable=provider_reachable if provider_uses_ollama else True,
+            mcp_session_ready=mcp_session_ready,
+            tools_discovered=tools_discovered,
         ),
-        details=details,
-    )
-
-
-def build_unexpected_not_ready_response(
-    server_path: Path,
-    model_name: str,
-) -> ReadinessResponse:
-    """Build a sanitized readiness payload for unexpected startup/runtime failures."""
-    return build_not_ready_response(
-        server_path,
-        model_name,
-        UNEXPECTED_READINESS_ERROR_DETAIL,
-    )
-
-
-def build_starting_not_ready_response(
-    server_path: Path,
-    model_name: str,
-) -> ReadinessResponse:
-    """Build a readiness payload for a runtime that is still warming."""
-    return build_not_ready_response(
-        server_path,
-        model_name,
-        STARTING_READINESS_DETAIL,
-    )
-
-
-def evaluate_runtime_readiness(app: WeekendWizardApp) -> ReadinessResponse:
-    """Evaluate whether an initialized API runtime is ready to serve."""
-    checks = ReadinessChecks(
-        model_resolved=bool(app.model_name.strip()),
-        model_available=False,
-        server_path_exists=app.server_path.exists(),
-        ollama_reachable=False,
-        mcp_session_ready=app.is_initialized,
-        tools_discovered=bool(app.tool_names),
-    )
-    details: str | None = None
-
-    if not checks.model_resolved:
-        details = "No Ollama model was resolved for this session."
-    elif not checks.server_path_exists:
-        details = MCP_SERVER_MISSING_DETAIL
-    elif not checks.mcp_session_ready:
-        details = "Application runtime is not initialized."
-    elif not checks.tools_discovered:
-        details = "Startup check could not discover any MCP tools."
-
-    if details is None:
-        try:
-            available_models = list_available_models(timeout=5)
-            checks.ollama_reachable = True
-            checks.model_available = app.model_name in available_models
-            if not checks.model_available:
-                details = MODEL_UNAVAILABLE_DETAIL
-        except requests.RequestException as exc:
-            logger.warning("Ollama readiness check failed: %s", exc)
-            details = OLLAMA_UNREACHABLE_DETAIL
-
-    status = "ready" if details is None and all(checks.model_dump().values()) else "not_ready"
-    return ReadinessResponse(
-        status=status,
-        model_name=app.model_name,
-        tool_count=len(app.tool_names),
-        checks=checks,
-        details=details,
-    )
-
-
-def build_startup_ready_response(app: WeekendWizardApp) -> ReadinessResponse:
-    """Build the initial startup readiness snapshot from validated startup state.
-
-    This reuses the just-completed startup model validation instead of issuing an
-    immediate second Ollama model-listing call during the same startup path.
-    """
-    checks = ReadinessChecks(
-        model_resolved=bool(app.model_name.strip()),
-        model_available=True,
-        server_path_exists=app.server_path.exists(),
-        ollama_reachable=True,
-        mcp_session_ready=app.is_initialized,
-        tools_discovered=bool(app.tool_names),
-    )
-    details: str | None = None
-
-    if not checks.model_resolved:
-        details = "No Ollama model was resolved for this session."
-    elif not checks.server_path_exists:
-        details = MCP_SERVER_MISSING_DETAIL
-    elif not checks.mcp_session_ready:
-        details = "Application runtime is not initialized."
-    elif not checks.tools_discovered:
-        details = "Startup check could not discover any MCP tools."
-
-    status = "ready" if details is None and all(checks.model_dump().values()) else "not_ready"
-    return ReadinessResponse(
-        status=status,
-        model_name=app.model_name,
-        tool_count=len(app.tool_names),
-        checks=checks,
         details=details,
     )
 
@@ -161,15 +72,46 @@ async def close_wizard_if_present(wizard: WeekendWizardApp | None) -> None:
 
 async def warm_runtime(app: FastAPI, server_path: Path) -> None:
     """Warm the shared runtime in the background and publish readiness state."""
+    settings = get_settings()
+    provider_name = settings.llm_provider
     model_name = ""
     wizard: WeekendWizardApp | None = None
 
     try:
         model_name = discover_model(None)
-        app.state.readiness = build_starting_not_ready_response(server_path, model_name)
+        app.state.readiness = build_readiness_response(
+            status="not_ready",
+            server_path=server_path,
+            model_name=model_name,
+            wizard=None,
+            details=STARTING_READINESS_DETAIL,
+            provider_name=provider_name,
+            provider_reachable=False,
+            model_available=False,
+        )
         wizard = WeekendWizardApp(server_path, model_name, ["mcp-server"])
         await wizard.__aenter__()
-        readiness = build_startup_ready_response(wizard)
+        details: str | None = None
+        runtime_server_path = wizard.server_path
+        if not model_name.strip():
+            details = "No Ollama model was resolved for this session."
+        elif not runtime_server_path.exists():
+            details = MCP_SERVER_MISSING_DETAIL
+        elif not wizard.is_initialized:
+            details = "Application runtime is not initialized."
+        elif not wizard.tool_names:
+            details = "Startup check could not discover any MCP tools."
+
+        readiness = build_readiness_response(
+            status="ready" if details is None else "not_ready",
+            server_path=server_path,
+            model_name=model_name,
+            wizard=wizard,
+            details=details,
+            provider_name=provider_name,
+            provider_reachable=True,
+            model_available=True,
+        )
         if readiness.status != "ready":
             logger.warning("API runtime is not ready: %s", readiness.details)
             app.state.readiness = readiness
@@ -185,7 +127,25 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
     except Exception as exc:
         logger.exception("API runtime startup failed: %s", exc)
         await close_wizard_if_present(wizard)
-        app.state.readiness = build_unexpected_not_ready_response(server_path, model_name)
+        provider_uses_ollama = provider_name == "ollama"
+        details = UNEXPECTED_READINESS_ERROR_DETAIL
+        if isinstance(exc, requests.RequestException):
+            details = OLLAMA_UNREACHABLE_DETAIL
+        elif str(exc).startswith("Could not reach Ollama"):
+            details = OLLAMA_UNREACHABLE_DETAIL
+        elif str(exc).startswith("Configured Ollama model is not available"):
+            details = MODEL_UNAVAILABLE_DETAIL
+
+        app.state.readiness = build_readiness_response(
+            status="not_ready",
+            server_path=server_path,
+            model_name=model_name,
+            wizard=None,
+            details=details,
+            provider_name=provider_name,
+            provider_reachable=not provider_uses_ollama or details != OLLAMA_UNREACHABLE_DETAIL,
+            model_available=not provider_uses_ollama or details != MODEL_UNAVAILABLE_DETAIL,
+        )
 
 
 @asynccontextmanager
@@ -200,8 +160,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     project_dir = Path(__file__).resolve().parent
     server_path = project_dir / "main.py"
+    provider_name = get_settings().llm_provider
     app.state.wizard = None
-    app.state.readiness = build_starting_not_ready_response(server_path, "")
+    app.state.readiness = build_readiness_response(
+        status="not_ready",
+        server_path=server_path,
+        model_name="",
+        wizard=None,
+        details=STARTING_READINESS_DETAIL,
+        provider_name=provider_name,
+        provider_reachable=False,
+        model_available=False,
+    )
     app.state.startup_task = asyncio.create_task(warm_runtime(app, server_path))
     try:
         yield
@@ -237,10 +207,7 @@ def create_api() -> FastAPI:
     @app.get("/ready", response_model=ReadinessResponse)
     async def ready() -> JSONResponse:
         """Return a readiness signal for the Weekend Wizard application."""
-        wizard = getattr(app.state, "wizard", None)
-        response = evaluate_runtime_readiness(wizard) if wizard is not None else app.state.readiness
-        app.state.readiness = response
-
+        response = app.state.readiness
         status_code = 200 if response.status == "ready" else 503
         return JSONResponse(status_code=status_code, content=response.model_dump())
 
@@ -259,9 +226,9 @@ def create_api() -> FastAPI:
         """
         trace = create_trace(request.prompt)
         wizard = getattr(app.state, "wizard", None)
+        readiness = app.state.readiness
         try:
-            if wizard is None or not wizard.is_initialized:
-                readiness = app.state.readiness
+            if readiness.status != "ready" or wizard is None or not wizard.is_initialized:
                 logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
                 raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
 

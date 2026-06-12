@@ -99,7 +99,6 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]),
             TestClient(api.create_api()) as client,
         ):
             response = client.get("/health")
@@ -128,7 +127,6 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.list_available_models", return_value=["llama3.2:latest"]) as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             payload = self._wait_for_ready_status(client, "ready")
@@ -138,7 +136,6 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(payload["checks"]["mcp_session_ready"])
         self.assertTrue(payload["checks"]["model_available"])
         self.assertTrue(payload["checks"]["ollama_reachable"])
-        mock_list_models.assert_called_once_with(timeout=5)
 
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
         with (
@@ -159,7 +156,6 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", return_value=fake_app),
-            patch("api.list_available_models") as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
@@ -180,7 +176,6 @@ class ApiTests(unittest.TestCase):
             created_context,
         )
         self.assertIn("trace", fake_app.run_interaction.await_args.kwargs)
-        mock_list_models.assert_not_called()
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
@@ -232,16 +227,14 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _ExplodingWizardApp),
-            patch("api.list_available_models") as mock_list_models,
             TestClient(api.create_api()) as client,
         ):
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"], api.UNEXPECTED_CHAT_ERROR_DETAIL)
-        mock_list_models.assert_not_called()
 
-    def test_chat_endpoint_does_not_recompute_full_readiness_per_request(self) -> None:
+    def test_ready_endpoint_does_not_recompute_readiness_after_startup(self) -> None:
         fake_app = _FakeWizardApp()
         ready_response = ReadinessResponse(
             status="ready",
@@ -262,13 +255,29 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", return_value=fake_app),
-            patch("api.evaluate_runtime_readiness", side_effect=[ready_response]),
             TestClient(api.create_api()) as client,
         ):
-            self._wait_for_ready_status(client, "ready")
-            response = client.post("/chat", json={"prompt": "hello"})
+            app_instance = client.app
+            app_instance.state.readiness = ready_response
+            response = client.get("/ready")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), ready_response.model_dump())
+
+    def test_ready_endpoint_reports_ready_for_aiplatform_without_ollama_probe(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.get_settings") as mock_get_settings,
+            patch("api.discover_model", return_value="gpt-like-model"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value.llm_provider = "aiplatform"
+            payload = self._wait_for_ready_status(client, "ready")
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["checks"]["model_available"])
+        self.assertTrue(payload["checks"]["ollama_reachable"])
 
 
 if __name__ == "__main__":
