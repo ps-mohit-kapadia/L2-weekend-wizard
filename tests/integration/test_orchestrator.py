@@ -1283,11 +1283,19 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Dog Pic:", result.answer)
         self.assertNotIn("Invented Book One", result.answer)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch(
+        "agent.orchestrator.run_reflection",
+        return_value=(
+            "Weather: overcast, 32.5C.\nBooks: A Caribbean Mystery; The Mysterious Affair at Styles.\nJoke: A fetched joke.\nDog Pic: https://example.com/dog.jpg",
+            False,
+        ),
+    )
+    @patch("agent.orchestrator._reflection_preserves_grounded_content", return_value=True)
     @patch("agent.orchestrator.llm_react_json")
     async def test_finish_is_blocked_while_requested_categories_are_pending(
         self,
         mock_react: Mock,
+        _mock_preservation_gate: Mock,
         _mock_reflection: Mock,
     ) -> None:
         mock_react.side_effect = [
@@ -1351,6 +1359,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
         )
 
+        self.assertFalse(result.used_fallback)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
         self.assertEqual(mock_react.call_count, 6)
         self.assertIn("Books:", result.answer)

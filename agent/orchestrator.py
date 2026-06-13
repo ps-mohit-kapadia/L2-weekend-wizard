@@ -685,7 +685,6 @@ async def orchestrate_interaction(
                         ),
                     )
                 )
-                state.used_fallback = True
                 continue
             draft_answer = decision.final_answer or ""
             state.final_answer = draft_answer
