@@ -5,22 +5,13 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from agent.policies.guardrails import RequestAnalysis
-
-
-_TOOL_SPECS = {
-    "city_to_coords": 'city_to_coords args={"city":"New York"}',
-    "get_weather": 'get_weather args={"latitude":40.7128,"longitude":-74.0060}',
-    "book_recs": 'book_recs args={"topic":"mystery","limit":3}',
-    "random_joke": "random_joke args={}",
-    "random_dog": "random_dog args={}",
-    "trivia": "trivia args={}",
-}
+from agent.tool_specs import TOOL_SPECS
 
 
 def _tool_lines(tool_names: Iterable[str]) -> str:
     available = set(tool_names)
-    ordered = [tool_name for tool_name in _TOOL_SPECS if tool_name in available]
-    return "\n".join(f"- {_TOOL_SPECS[tool_name]}" for tool_name in ordered)
+    ordered = [tool_name for tool_name in TOOL_SPECS if tool_name in available]
+    return "\n".join(f"- {TOOL_SPECS[tool_name].prompt_example}" for tool_name in ordered)
 
 
 def build_react_messages(
