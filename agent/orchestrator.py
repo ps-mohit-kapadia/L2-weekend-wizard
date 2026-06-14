@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
+    build_grounded_facts,
     compose_grounded_answer_from_steps,
-    extract_step_semantics,
     render_compact_step_summaries,
 )
 from agent.tool_specs import get_tool_spec
@@ -35,16 +35,11 @@ from schemas.agent import (
 )
 from schemas.tools import (
     BookArgs,
-    BookResults,
     CityArgs,
-    DogResult,
     EmptyArgs,
-    JokeResult,
     ToolError,
     ToolArgs,
-    TriviaResult,
     WeatherArgs,
-    WeatherResult,
     dump_tool_args,
     parse_tool_payload,
 )
@@ -269,10 +264,20 @@ def _planner_tool_feedback_detail(
     args: ToolArgs | Dict[str, Any],
     parsed: Any,
 ) -> str:
-    """Render planner-local tool feedback from shared extracted step semantics."""
-    planner_line = extract_step_semantics(tool_name, args, parsed)["planner_line"]
-    if planner_line:
-        return planner_line
+    """Render planner-local tool feedback from shared grounded facts."""
+    facts = build_grounded_facts(
+        [
+            ExecutionStep(
+                kind="tool_call",
+                tool_name=tool_name,
+                normalized_args=args if not isinstance(args, dict) else None,
+                raw_args=args if isinstance(args, dict) else None,
+                parsed_payload=parsed,
+            )
+        ]
+    )
+    if facts:
+        return facts[0].display_text
     return f"- {tool_name}: completed"
 
 
@@ -445,79 +450,10 @@ def _reflection_preserves_grounded_content(
     if not grounded_lines:
         return True
 
-    successful_weather = 0
-
-    for step in state.steps:
-        if step.kind != "tool_call":
-            continue
-        tool_name = step.tool_name
-        payload = step.parsed_payload
-        if tool_name == "city_to_coords":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-            continue
-
-        if tool_name == "get_weather":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-                if SAFE_TOOL_INVOCATION_DETAIL in _normalize_answer_text(payload.details or ""):
-                    if SAFE_TOOL_INVOCATION_DETAIL not in reflected_normalized:
-                        return False
-                continue
-            if isinstance(payload, WeatherResult) and payload.temperature is not None:
-                successful_weather += 1
-                temperature_fragment = _normalize_answer_text(
-                    f"{payload.temperature}{payload.temperature_unit or ''}"
-                )
-                if temperature_fragment not in reflected_normalized:
-                    return False
-                summary_fragment = _normalize_answer_text(payload.weather_summary or "current conditions")
-                if summary_fragment and summary_fragment not in reflected_normalized:
-                    return False
-                continue
-
-        if tool_name == "book_recs":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-                continue
-            if isinstance(payload, BookResults) and payload.results:
-                for book in payload.results[:2]:
-                    if book.title and _normalize_answer_text(book.title) not in reflected_normalized:
-                        return False
-                continue
-
-        if tool_name == "random_joke":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-                continue
-            if isinstance(payload, JokeResult):
-                if _normalize_answer_text(payload.joke) not in reflected_normalized:
-                    return False
-                continue
-
-        if tool_name == "random_dog":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-                continue
-            if isinstance(payload, DogResult):
-                if _normalize_answer_text(payload.image_url) not in reflected_normalized:
-                    return False
-                continue
-
-        if tool_name == "trivia":
-            if isinstance(payload, ToolError):
-                if "unavailable" not in reflected_normalized:
-                    return False
-                continue
-            if isinstance(payload, TriviaResult):
-                if _normalize_answer_text(payload.question) not in reflected_normalized:
-                    return False
-                continue
+    for fact in build_grounded_facts(state.steps):
+        for evidence in fact.required_evidence:
+            if evidence and _normalize_answer_text(evidence) not in reflected_normalized:
+                return False
 
     for tool_name, status in (state.fulfillment or {}).items():
         category_fragment = _normalize_answer_text(_category_label(tool_name))

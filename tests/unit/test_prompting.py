@@ -136,7 +136,7 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn('{"error":"get_weather failed"', messages[1]["content"])
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
 
-    def test_build_reflection_messages_avoid_raw_url_payload_rendering(self) -> None:
+    def test_build_reflection_messages_include_grounded_dog_url_without_raw_payload_blob(self) -> None:
         step_summary_lines = render_compact_step_summaries(
             "Plan a cozy Saturday with a dog pic.",
             [
@@ -157,9 +157,8 @@ class PromptingTests(unittest.TestCase):
             "Here is a dog pic.",
         )
 
-        self.assertIn("- Dog Pic: fetched one dog image", messages[1]["content"])
+        self.assertIn("- Dog Pic: https://example.com/dog.jpg", messages[1]["content"])
         self.assertNotIn('{"status":"success","image_url"', messages[1]["content"])
-        self.assertNotIn("https://example.com/dog.jpg", messages[1]["content"])
 
     def test_compose_grounded_answer_returns_single_tool_fact(self) -> None:
         steps = [
