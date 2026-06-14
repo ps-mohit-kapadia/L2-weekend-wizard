@@ -274,7 +274,7 @@ async def execute_tool_call(
     *,
     step_number: int,
     trace: RequestTrace | None = None,
-) -> Tuple[str, Any]:
+) -> Any:
     """Invoke one MCP tool and return the raw extracted payload plus trace text."""
     try:
         if trace is not None:
@@ -288,7 +288,6 @@ async def execute_tool_call(
         started = time.perf_counter()
         result = await tool_gateway.call_tool(tool_name, args)
         raw_payload = _extract_tool_payload(result)
-        payload_text = _serialize_tool_payload(raw_payload)
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info("Tool %s completed", tool_name)
         if trace is not None:
@@ -297,14 +296,13 @@ async def execute_tool_call(
                 step_number=step_number,
                 tool_name=tool_name,
                 args=args,
-                result=truncate_repr(payload_text),
+                result=truncate_repr(_serialize_tool_payload(raw_payload)),
                 duration_ms=duration_ms,
             )
-        return payload_text, raw_payload
+        return raw_payload
     except ToolInvocationError as exc:
         logger.exception("Tool %s failed: %s", tool_name, exc)
         raw_payload = {"error": f"{tool_name} failed", "details": SAFE_TOOL_INVOCATION_DETAIL}
-        payload_text = _serialize_tool_payload(raw_payload)
         if trace is not None:
             duration_ms = int((time.perf_counter() - started) * 1000)
             trace.add_event(
@@ -312,10 +310,10 @@ async def execute_tool_call(
                 step_number=step_number,
                 tool_name=tool_name,
                 args=args,
-                result=truncate_repr(payload_text),
+                result=truncate_repr(_serialize_tool_payload(raw_payload)),
                 duration_ms=duration_ms,
             )
-        return payload_text, raw_payload
+        return raw_payload
 
 
 def normalize_tool_args(
@@ -771,7 +769,7 @@ async def orchestrate_interaction(
             continue
         else:
             duplicate_skip_counts[_planner_message_signature(decision.tool, normalized_args)] = 0
-            _, raw_payload = await execute_tool_call(
+            raw_payload = await execute_tool_call(
                 tool_gateway,
                 decision.tool,
                 normalized_args,
