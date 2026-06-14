@@ -10,24 +10,28 @@ from schemas.tools import (
     GeoResult,
     JokeResult,
     ToolError,
+    ToolArgs,
     TriviaResult,
+    WeatherArgs,
     WeatherResult,
+    dump_tool_args,
 )
 
 
-def _step_fields(step: Any) -> tuple[str, dict[str, Any], Any]:
+def _step_fields(step: Any) -> tuple[str, ToolArgs | dict[str, Any], Any]:
     tool_name = getattr(step, "tool_name", "")
-    args = dict(
-        getattr(step, "normalized_args", None)
-        or getattr(step, "raw_args", None)
-        or {}
-    )
+    args = getattr(step, "normalized_args", None) or getattr(step, "raw_args", None) or {}
     return tool_name, args, getattr(step, "parsed_payload", None)
 
 
-def _coords_label(args: dict[str, Any]) -> str:
-    latitude = args.get("latitude")
-    longitude = args.get("longitude")
+def _coords_label(args: ToolArgs | dict[str, Any]) -> str:
+    if isinstance(args, WeatherArgs):
+        latitude = args.latitude
+        longitude = args.longitude
+    else:
+        dumped = dump_tool_args(args)
+        latitude = dumped.get("latitude")
+        longitude = dumped.get("longitude")
     if latitude is None or longitude is None:
         return "requested location"
     return f"{latitude}, {longitude}"
@@ -41,7 +45,7 @@ def _empty_semantics() -> dict[str, str | None]:
     }
 
 
-def _city_lookup_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _city_lookup_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = "- City Lookup: unavailable ({})".format(payload.details or payload.error)
         return {
@@ -59,7 +63,7 @@ def _city_lookup_semantics(args: dict[str, Any], payload: Any) -> dict[str, str 
     return _empty_semantics()
 
 
-def _weather_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _weather_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = f"- Weather: {_coords_label(args)} unavailable ({payload.details or payload.error})"
         return {
@@ -85,7 +89,7 @@ def _weather_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | No
     return _empty_semantics()
 
 
-def _book_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _book_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = "- Books: unavailable ({})".format(payload.details or payload.error)
         return {
@@ -110,7 +114,7 @@ def _book_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]
     return _empty_semantics()
 
 
-def _joke_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _joke_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = "- Joke: unavailable ({})".format(payload.details or payload.error)
         return {
@@ -128,7 +132,7 @@ def _joke_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]
     return _empty_semantics()
 
 
-def _dog_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _dog_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = "- Dog Pic: unavailable ({})".format(payload.details or payload.error)
         return {
@@ -145,7 +149,7 @@ def _dog_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
     return _empty_semantics()
 
 
-def _trivia_semantics(args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def _trivia_semantics(args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     if isinstance(payload, ToolError):
         line = "- Trivia: unavailable ({})".format(payload.details or payload.error)
         return {
@@ -185,7 +189,7 @@ def _validate_grounding_renderers() -> None:
 _validate_grounding_renderers()
 
 
-def extract_step_semantics(tool_name: str, args: dict[str, Any], payload: Any) -> dict[str, str | None]:
+def extract_step_semantics(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> dict[str, str | None]:
     """Extract shared semantic text fragments from one parsed execution step."""
     renderer = GROUNDING_RENDERERS.get(tool_name)
     if renderer is None:

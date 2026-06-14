@@ -1,10 +1,46 @@
 from __future__ import annotations
 
-"""Typed models for MCP tool payloads used by grounding and validation."""
+"""Typed models for MCP tool args and payloads used by grounding and validation."""
 
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, TypeAdapter
+
+
+class EmptyArgs(BaseModel):
+    """Typed input for tools that accept no arguments."""
+
+
+class CityArgs(BaseModel):
+    """Typed input for city lookup tools."""
+
+    city: str
+
+
+class WeatherArgs(BaseModel):
+    """Typed input for weather lookup tools."""
+
+    latitude: float
+    longitude: float
+
+
+class BookArgs(BaseModel):
+    """Typed input for book recommendation tools."""
+
+    topic: str
+    limit: int
+
+
+ToolArgs = EmptyArgs | CityArgs | WeatherArgs | BookArgs
+
+
+def dump_tool_args(args: ToolArgs | Dict[str, Any] | None) -> Dict[str, Any]:
+    """Project typed tool args to a plain dict at transport/output boundaries."""
+    if args is None:
+        return {}
+    if isinstance(args, BaseModel):
+        return args.model_dump()
+    return dict(args)
 
 
 class ToolError(BaseModel):

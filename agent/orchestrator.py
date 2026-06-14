@@ -34,12 +34,18 @@ from schemas.agent import (
     validate_react_decision,
 )
 from schemas.tools import (
+    BookArgs,
     BookResults,
+    CityArgs,
     DogResult,
+    EmptyArgs,
     JokeResult,
     ToolError,
+    ToolArgs,
     TriviaResult,
+    WeatherArgs,
     WeatherResult,
+    dump_tool_args,
     parse_tool_payload,
 )
 
@@ -57,7 +63,7 @@ class ExecutionStep:
     thought: str = ""
     tool_name: str = ""
     raw_args: Dict[str, Any] | None = None
-    normalized_args: Dict[str, Any] | None = None
+    normalized_args: ToolArgs | None = None
     parsed_payload: Any = None
     outcome: str = ""
     feedback_message: str = ""
@@ -184,7 +190,7 @@ def _derive_tool_observations(state: ExecutionState) -> List[ToolObservation]:
         observations.append(
             ToolObservation(
                 tool_name=step.tool_name,
-                args=step.normalized_args or step.raw_args or {},
+                args=dump_tool_args(step.normalized_args or step.raw_args),
                 payload=payload,
             )
         )
@@ -211,7 +217,7 @@ def _render_planner_messages(state: ExecutionState) -> List[Dict[str, str]]:
             continue
         if step.kind not in {"tool_call", "tool_invalid", "tool_skip"}:
             continue
-        planner_args = step.normalized_args or step.raw_args or {}
+        planner_args = dump_tool_args(step.normalized_args or step.raw_args)
         messages.append(
             {
                 "role": "assistant",
@@ -231,34 +237,36 @@ def _render_planner_messages(state: ExecutionState) -> List[Dict[str, str]]:
 def has_successful_duplicate_observation(
     steps: List[ExecutionStep],
     tool_name: str,
-    args: Dict[str, Any],
+    args: ToolArgs,
 ) -> bool:
     """Return whether an identical successful observation already exists."""
+    expected_args = dump_tool_args(args)
     for step in steps:
         if step.kind != "tool_call":
             continue
-        observed_args = step.normalized_args or step.raw_args or {}
-        if step.tool_name != tool_name or observed_args != args:
+        observed_args = dump_tool_args(step.normalized_args or step.raw_args)
+        if step.tool_name != tool_name or observed_args != expected_args:
             continue
         if not isinstance(step.parsed_payload, ToolError):
             return True
     return False
 
 
-def _format_observation_args(args: Dict[str, Any]) -> str:
+def _format_observation_args(args: ToolArgs | Dict[str, Any] | None) -> str:
     """Render tool args compactly for planner-visible assistant/tool messages."""
-    if not args:
+    dumped = dump_tool_args(args)
+    if not dumped:
         return "{}"
-    return json.dumps(args, sort_keys=True, separators=(",", ":"))
+    return json.dumps(dumped, sort_keys=True, separators=(",", ":"))
 
 
-def _planner_message_signature(tool_name: str, args: Dict[str, Any]) -> str:
+def _planner_message_signature(tool_name: str, args: ToolArgs | Dict[str, Any] | None) -> str:
     return f"{tool_name}:{_format_observation_args(args)}"
 
 
 def _planner_tool_feedback_detail(
     tool_name: str,
-    args: Dict[str, Any],
+    args: ToolArgs | Dict[str, Any],
     parsed: Any,
 ) -> str:
     """Render planner-local tool feedback from shared extracted step semantics."""
@@ -321,7 +329,7 @@ def normalize_tool_args(
     tool_name: str,
     args: Dict[str, Any],
     state: ExecutionState,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> Tuple[Optional[ToolArgs], Optional[str]]:
     """Normalize and repair ReAct-produced tool args before execution."""
     args = dict(args or {})
     spec = get_tool_spec(tool_name)
@@ -334,7 +342,7 @@ def normalize_tool_args(
         )
         if not city:
             return None, "city is required"
-        return {"city": str(city)}, None
+        return CityArgs(city=str(city)), None
 
     if spec.arg_policy == "weather_coords":
         latitude = args.get("latitude")
@@ -342,7 +350,7 @@ def normalize_tool_args(
         if latitude is None or longitude is None:
             return None, "latitude and longitude are required"
         try:
-            return {"latitude": float(latitude), "longitude": float(longitude)}, None
+            return WeatherArgs(latitude=float(latitude), longitude=float(longitude)), None
         except (TypeError, ValueError):
             return None, "latitude and longitude must be numeric"
 
@@ -364,12 +372,12 @@ def normalize_tool_args(
             safe_limit = max(1, min(int(limit), 10))
         except (TypeError, ValueError):
             safe_limit = 3
-        return {"topic": str(topic), "limit": safe_limit}, None
+        return BookArgs(topic=str(topic), limit=safe_limit), None
 
     if spec.arg_policy == "empty":
-        return {}, None
+        return EmptyArgs(), None
 
-    return args, None
+    return EmptyArgs(), None
 
 
 def validate_react_decision_semantics(
@@ -738,14 +746,14 @@ async def orchestrate_interaction(
             logger.info(
                 "Skipping duplicate successful tool call for %s with args=%s and continuing",
                 decision.tool,
-                normalized_args,
+                dump_tool_args(normalized_args),
             )
             if trace is not None:
                 trace.add_event(
                     "duplicate_tool_call_skipped",
                     step_number=step_number,
                     tool_name=decision.tool,
-                    args=normalized_args,
+                    args=dump_tool_args(normalized_args),
                     decision_summary=decision.thought,
                 )
             signature = _planner_message_signature(decision.tool, normalized_args)
@@ -769,7 +777,7 @@ async def orchestrate_interaction(
                 logger.info(
                     "Planner stuck on repeated duplicate successful tool call for %s with args=%s; finalizing early",
                     decision.tool,
-                    normalized_args,
+                    dump_tool_args(normalized_args),
                 )
                 state.used_fallback = True
                 break
@@ -779,7 +787,7 @@ async def orchestrate_interaction(
             raw_payload = await execute_tool_call(
                 tool_gateway,
                 decision.tool,
-                normalized_args,
+                dump_tool_args(normalized_args),
                 step_number=step_number,
                 trace=trace,
             )
