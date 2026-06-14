@@ -11,7 +11,12 @@ import requests
 from config.config import get_settings
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace
-from schemas.agent import validate_react_decision, validate_reflection_result
+from schemas.agent import (
+    ReactDecision,
+    ReflectionResult,
+    validate_react_decision,
+    validate_reflection_result,
+)
 
 logger = get_logger("llm_client")
 
@@ -200,22 +205,12 @@ def extract_json(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
-def _validate_decision_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    validate_react_decision(payload)
-    return payload
+def _extract_valid_decision_json(text: str) -> ReactDecision:
+    return validate_react_decision(extract_json(text))
 
 
-def _extract_valid_decision_json(text: str) -> Dict[str, Any]:
-    return _validate_decision_payload(extract_json(text))
-
-
-def _validate_reflection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    validate_reflection_result(payload)
-    return payload
-
-
-def _extract_valid_reflection_json(text: str) -> Dict[str, Any]:
-    return _validate_reflection_payload(extract_json(text))
+def _extract_valid_reflection_json(text: str) -> ReflectionResult:
+    return validate_reflection_result(extract_json(text))
 
 
 def llm_react_json(
@@ -224,7 +219,7 @@ def llm_react_json(
     *,
     allowed_tools: List[str],
     trace: RequestTrace | None = None,
-) -> Dict[str, Any]:
+) -> ReactDecision:
     """Return one bounded ReAct decision from Ollama."""
     raw = call_model(messages, model, temperature=0.2, json_mode=True, trace=trace)
 
@@ -279,7 +274,7 @@ def llm_reflection_json(
     model: str,
     *,
     trace: RequestTrace | None = None,
-) -> Dict[str, Any]:
+) -> ReflectionResult:
     """Return a JSON reflection payload from Ollama."""
     raw = call_model(messages, model, temperature=0.0, json_mode=True, trace=trace)
 

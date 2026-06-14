@@ -29,6 +29,7 @@ from schemas.agent import (
     InteractionResult,
     OrchestratorContext,
     ReactDecision,
+    ReflectionResult,
     ToolObservation,
     validate_react_decision,
 )
@@ -537,7 +538,12 @@ def run_reflection(
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name, trace=trace)
-        return reflected["answer"].strip(), False
+        answer = (
+            reflected.answer
+            if isinstance(reflected, ReflectionResult)
+            else str(reflected["answer"])
+        )
+        return answer.strip(), False
     except Exception as exc:
         logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
         return draft_answer, True
@@ -633,13 +639,14 @@ async def orchestrate_interaction(
             request_analysis=state.request_analysis,
         )
         try:
-            raw_decision = llm_react_json(
+            decision = llm_react_json(
                 react_messages,
                 context.model_name,
                 allowed_tools=context.tool_names,
                 trace=trace,
             )
-            decision = validate_react_decision(raw_decision)
+            if not isinstance(decision, ReactDecision):
+                decision = validate_react_decision(decision)
             validate_react_decision_semantics(decision, context.tool_names)
         except Exception as exc:
             logger.exception("ReAct decision failed: %s", exc)

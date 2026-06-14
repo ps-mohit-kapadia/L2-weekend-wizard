@@ -93,14 +93,14 @@ class LlmClientTests(unittest.TestCase):
             allowed_tools=["random_joke"],
         )
 
-        self.assertEqual(result["action"], "tool")
-        self.assertEqual(result["tool"], "random_joke")
+        self.assertEqual(result.action, "tool")
+        self.assertEqual(result.tool, "random_joke")
 
     @patch("llm_client.call_model", return_value='{"answer":"tightened"}')
     def test_llm_reflection_json_returns_model_json(self, _call_model: Mock) -> None:
         result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["answer"], "tightened")
+        self.assertEqual(result.answer, "tightened")
 
     @patch(
         "llm_client.call_model",
@@ -116,7 +116,7 @@ class LlmClientTests(unittest.TestCase):
             allowed_tools=["random_joke"],
         )
 
-        self.assertEqual(result["action"], "finish")
+        self.assertEqual(result.action, "finish")
 
     @patch("llm_client.call_model", side_effect=requests.RequestException("offline"))
     def test_llm_react_json_raises_when_model_request_fails_in_normal_mode(self, _call_model: Mock) -> None:
@@ -201,7 +201,7 @@ class LlmClientTests(unittest.TestCase):
     def test_llm_reflection_json_repairs_invalid_shape(self, _call_model: Mock) -> None:
         result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result["answer"], "tightened")
+        self.assertEqual(result.answer, "tightened")
 
     @patch("llm_client.requests.get")
     @patch("llm_client.get_settings")
