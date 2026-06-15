@@ -367,8 +367,8 @@ def normalize_tool_args(
             or infer_book_topic(state.user_prompt)
         )
         limit = (
-            args.get("limit")
-            or (state.request_analysis.book_limit if state.request_analysis is not None else None)
+            (state.request_analysis.book_limit if state.request_analysis is not None else None)
+            or args.get("limit")
             or infer_book_limit(state.user_prompt)
         )
         if not topic:

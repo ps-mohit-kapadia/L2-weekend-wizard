@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, List
 
 from schemas.tools import (
+    BookArgs,
     BookResults,
     DogResult,
     GeoResult,
@@ -126,9 +127,10 @@ def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
             )
         ]
     if isinstance(payload, BookResults) and payload.results:
+        requested_limit = args.limit if isinstance(args, BookArgs) else payload.count
         titles = [
             f"{book.title} by {book.author}"
-            for book in payload.results[:2]
+            for book in payload.results[:requested_limit]
             if book.title
         ]
         if titles:
