@@ -456,11 +456,6 @@ def _reflection_preserves_grounded_content(
                 return False
 
     for tool_name, status in (state.fulfillment or {}).items():
-        category_fragment = _normalize_answer_text(_category_label(tool_name))
-        if status.degraded and "unavailable" not in reflected_normalized:
-            return False
-        if status.fulfilled and category_fragment not in reflected_normalized:
-            return False
         if not status.fulfilled and not status.degraded:
             for marker in _category_markers(tool_name):
                 if _normalize_answer_text(marker) in reflected_normalized:
