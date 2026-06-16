@@ -28,7 +28,6 @@ class GroundedFact:
     label: str
     display_text: str
     sentence: str | None = None
-    required_evidence: tuple[str, ...] = ()
     required: bool = True
     status: str = "success"
 
@@ -64,7 +63,6 @@ def _city_lookup_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Gr
                 id="city_lookup:1",
                 label="City Lookup",
                 display_text=f"- City Lookup: unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -91,7 +89,6 @@ def _weather_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Ground
                 id="weather:1",
                 label="Weather",
                 display_text=f"- Weather: {location} unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -113,10 +110,6 @@ def _weather_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Ground
                     f"{payload.temperature}{payload.temperature_unit or ''}, "
                     f"{summary}."
                 ),
-                required_evidence=(
-                    f"{payload.temperature}{payload.temperature_unit or ''}",
-                    summary,
-                ),
             )
         ]
     return _empty_facts()
@@ -130,7 +123,6 @@ def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
                 id="books:1",
                 label="Books",
                 display_text=f"- Books: unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -149,7 +141,6 @@ def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
                     label="Books",
                     display_text=f"- Books: {rendered_titles}",
                     sentence=f"Book ideas for {payload.topic}: {rendered_titles}.",
-                    required_evidence=tuple(titles),
                 )
             ]
     return _empty_facts()
@@ -163,7 +154,6 @@ def _joke_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
                 id="joke:1",
                 label="Joke",
                 display_text=f"- Joke: unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -174,7 +164,6 @@ def _joke_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
                 label="Joke",
                 display_text=f"- Joke: {payload.joke}",
                 sentence=f"Joke: {payload.joke}",
-                required_evidence=(payload.joke,),
             )
         ]
     return _empty_facts()
@@ -188,7 +177,6 @@ def _dog_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFa
                 id="dog_pic:1",
                 label="Dog Pic",
                 display_text=f"- Dog Pic: unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -199,7 +187,6 @@ def _dog_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFa
                 label="Dog Pic",
                 display_text=f"- Dog Pic: {payload.image_url}",
                 sentence=f"Dog pic: {payload.image_url}",
-                required_evidence=(payload.image_url,),
             )
         ]
     return _empty_facts()
@@ -213,7 +200,6 @@ def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Grounde
                 id="trivia:1",
                 label="Trivia",
                 display_text=f"- Trivia: unavailable ({detail})",
-                required_evidence=("unavailable", detail),
                 status="failed",
             )
         ]
@@ -227,7 +213,6 @@ def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Grounde
                 label="Trivia",
                 display_text=display,
                 sentence=f"Trivia: {payload.question} Choices: {rendered_choices}.",
-                required_evidence=(payload.question,),
             )
         ]
     return _empty_facts()

@@ -1033,7 +1033,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "Joke: A fetched joke. Hope that brightens your day."},
+        return_value={
+            "answer": "Joke: A fetched joke. Hope that brightens your day.",
+            "preserved_fact_ids": ["joke:1"],
+        },
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_can_polish_grounded_answer_without_dropping_core_fact(
@@ -1059,7 +1062,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "The weather in Paris is 18.3°C and mainly clear right now."},
+        return_value={
+            "answer": "The weather in Paris is 18.3°C and mainly clear right now.",
+            "preserved_fact_ids": ["weather:1"],
+        },
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_can_return_natural_weather_answer_without_city_lookup_scaffolding(

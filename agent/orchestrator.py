@@ -453,16 +453,12 @@ def _reflection_preserves_grounded_content(
         return True
 
     facts = build_grounded_facts(state.steps)
-    if preserved_fact_ids:
-        preserved_ids = set(preserved_fact_ids)
-        for fact in facts:
-            if fact.required and fact.id not in preserved_ids:
-                return False
-
-    for fact in facts:
-        for evidence in fact.required_evidence:
-            if evidence and _normalize_answer_text(evidence) not in reflected_normalized:
-                return False
+    required_fact_ids = {fact.id for fact in facts if fact.required}
+    if required_fact_ids:
+        if not preserved_fact_ids:
+            return False
+        if not required_fact_ids <= set(preserved_fact_ids):
+            return False
 
     for tool_name, status in (state.fulfillment or {}).items():
         if not status.fulfilled and not status.degraded:
