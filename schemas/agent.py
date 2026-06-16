@@ -21,6 +21,7 @@ class ReflectionResult(BaseModel):
     """One-shot reflection payload used to revise the final grounded answer."""
 
     answer: str
+    preserved_fact_ids: List[str] = Field(default_factory=list)
 
 
 class ToolObservation(BaseModel):

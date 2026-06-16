@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Grounding helpers for tool-result parsing and final answer composition."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Iterable, List
 
 from schemas.tools import (
@@ -24,10 +24,12 @@ from schemas.tools import (
 class GroundedFact:
     """One grounded fact projected from execution truth for answer/reflection use."""
 
+    id: str
     label: str
     display_text: str
     sentence: str | None = None
     required_evidence: tuple[str, ...] = ()
+    required: bool = True
     status: str = "success"
 
 
@@ -59,6 +61,7 @@ def _city_lookup_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Gr
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="city_lookup:1",
                 label="City Lookup",
                 display_text=f"- City Lookup: unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -69,9 +72,11 @@ def _city_lookup_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Gr
         display = f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
         return [
             GroundedFact(
+                id="city_lookup:1",
                 label="City Lookup",
                 display_text=display,
                 sentence=f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}.",
+                required=False,
             )
         ]
     return _empty_facts()
@@ -83,6 +88,7 @@ def _weather_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Ground
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="weather:1",
                 label="Weather",
                 display_text=f"- Weather: {location} unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -99,6 +105,7 @@ def _weather_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Ground
         summary = payload.weather_summary or "current conditions"
         return [
             GroundedFact(
+                id="weather:1",
                 label="Weather",
                 display_text=display,
                 sentence=(
@@ -120,6 +127,7 @@ def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="books:1",
                 label="Books",
                 display_text=f"- Books: unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -137,6 +145,7 @@ def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
             rendered_titles = "; ".join(titles)
             return [
                 GroundedFact(
+                    id="books:1",
                     label="Books",
                     display_text=f"- Books: {rendered_titles}",
                     sentence=f"Book ideas for {payload.topic}: {rendered_titles}.",
@@ -151,6 +160,7 @@ def _joke_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="joke:1",
                 label="Joke",
                 display_text=f"- Joke: unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -160,6 +170,7 @@ def _joke_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedF
     if isinstance(payload, JokeResult):
         return [
             GroundedFact(
+                id="joke:1",
                 label="Joke",
                 display_text=f"- Joke: {payload.joke}",
                 sentence=f"Joke: {payload.joke}",
@@ -174,6 +185,7 @@ def _dog_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFa
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="dog_pic:1",
                 label="Dog Pic",
                 display_text=f"- Dog Pic: unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -183,6 +195,7 @@ def _dog_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFa
     if isinstance(payload, DogResult):
         return [
             GroundedFact(
+                id="dog_pic:1",
                 label="Dog Pic",
                 display_text=f"- Dog Pic: {payload.image_url}",
                 sentence=f"Dog pic: {payload.image_url}",
@@ -197,6 +210,7 @@ def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Grounde
         detail = payload.details or payload.error
         return [
             GroundedFact(
+                id="trivia:1",
                 label="Trivia",
                 display_text=f"- Trivia: unavailable ({detail})",
                 required_evidence=("unavailable", detail),
@@ -209,6 +223,7 @@ def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Grounde
         display = f"- Trivia: {payload.question} Choices: {rendered_choices}"
         return [
             GroundedFact(
+                id="trivia:1",
                 label="Trivia",
                 display_text=display,
                 sentence=f"Trivia: {payload.question} Choices: {rendered_choices}.",
@@ -250,11 +265,15 @@ def extract_grounded_facts(tool_name: str, args: ToolArgs | dict[str, Any], payl
 def build_grounded_facts(steps: Iterable[Any]) -> list[GroundedFact]:
     """Build grounded facts from execution-step state."""
     facts: list[GroundedFact] = []
+    fact_counts: dict[str, int] = {}
     for step in steps:
         if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
             continue
         tool_name, args, payload = _step_fields(step)
-        facts.extend(extract_grounded_facts(tool_name, args, payload))
+        for fact in extract_grounded_facts(tool_name, args, payload):
+            fact_prefix = fact.id.split(":", 1)[0]
+            fact_counts[fact_prefix] = fact_counts.get(fact_prefix, 0) + 1
+            facts.append(replace(fact, id=f"{fact_prefix}:{fact_counts[fact_prefix]}"))
     return facts
 
 
@@ -283,6 +302,17 @@ def render_compact_step_summaries(
     rendered = [fact.display_text for fact in build_grounded_facts(steps)]
     if not rendered and "weekend" in user_prompt.lower():
         rendered.append("- Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
+    return rendered
+
+
+def render_reflection_observations(
+    user_prompt: str,
+    steps: List[Any],
+) -> List[str]:
+    """Render grounded observations with fact IDs for reflection contract validation."""
+    rendered = [f"[{fact.id}] {fact.display_text}" for fact in build_grounded_facts(steps)]
+    if not rendered and "weekend" in user_prompt.lower():
+        rendered.append("[detail:1] - Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
     return rendered
 
 

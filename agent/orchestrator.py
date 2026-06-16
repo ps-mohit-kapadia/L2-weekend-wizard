@@ -11,6 +11,7 @@ from agent.grounding import (
     build_grounded_facts,
     compose_grounded_answer_from_steps,
     render_compact_step_summaries,
+    render_reflection_observations,
 )
 from agent.tool_specs import get_tool_spec
 from agent.policies.guardrails import (
@@ -440,6 +441,7 @@ def _reflection_preserves_grounded_content(
     state: ExecutionState,
     grounded: str,
     reflected: str,
+    preserved_fact_ids: List[str] | None = None,
 ) -> bool:
     """Return whether reflection preserved the grounded answer's required facts."""
     reflected_normalized = _normalize_answer_text(reflected)
@@ -450,7 +452,14 @@ def _reflection_preserves_grounded_content(
     if not grounded_lines:
         return True
 
-    for fact in build_grounded_facts(state.steps):
+    facts = build_grounded_facts(state.steps)
+    if preserved_fact_ids:
+        preserved_ids = set(preserved_fact_ids)
+        for fact in facts:
+            if fact.required and fact.id not in preserved_ids:
+                return False
+
+    for fact in facts:
         for evidence in fact.required_evidence:
             if evidence and _normalize_answer_text(evidence) not in reflected_normalized:
                 return False
@@ -471,9 +480,9 @@ def run_reflection(
     draft_answer: str,
     *,
     trace: RequestTrace | None = None,
-) -> Tuple[str, bool]:
+) -> Tuple[str, bool, List[str]]:
     """Run one quality pass over the grounded draft and fall back on failure."""
-    step_summary_lines = render_compact_step_summaries(user_prompt, state.steps)
+    step_summary_lines = render_reflection_observations(user_prompt, state.steps)
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
         reflected = llm_reflection_json(messages, context.model_name, trace=trace)
@@ -482,10 +491,15 @@ def run_reflection(
             if isinstance(reflected, ReflectionResult)
             else str(reflected["answer"])
         )
-        return answer.strip(), False
+        preserved_fact_ids = (
+            reflected.preserved_fact_ids
+            if isinstance(reflected, ReflectionResult)
+            else list(reflected.get("preserved_fact_ids", []))
+        )
+        return answer.strip(), False, preserved_fact_ids
     except Exception as exc:
         logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
-        return draft_answer, True
+        return draft_answer, True, []
 
 
 def build_react_failure_answer() -> str:
@@ -516,9 +530,14 @@ def finalize_after_execution(
         if _derive_tool_observations(state)
         else draft_answer
     )
-    final_answer, reflection_used_fallback = run_reflection(
+    reflection_result = run_reflection(
         context, user_prompt, state, grounded, trace=trace
     )
+    if len(reflection_result) == 2:
+        final_answer, reflection_used_fallback = reflection_result
+        preserved_fact_ids = []
+    else:
+        final_answer, reflection_used_fallback, preserved_fact_ids = reflection_result
     tool_observations = _derive_tool_observations(state)
     if tool_observations and not reflection_used_fallback:
         if not _reflection_preserves_grounded_content(
@@ -526,6 +545,7 @@ def finalize_after_execution(
             state,
             grounded,
             final_answer,
+            preserved_fact_ids,
         ):
             logger.info(
                 "Reflection drifted from grounded content; returning grounded draft instead"

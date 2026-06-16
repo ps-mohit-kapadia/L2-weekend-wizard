@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, Mock, patch
 from agent.prompts import build_react_messages
 from agent.orchestrator import (
     ExecutionState,
+    ExecutionStep,
     FulfillmentState,
     SAFE_TOOL_INVOCATION_DETAIL,
     _initialize_fulfillment,
+    _reflection_preserves_grounded_content,
     _update_fulfillment,
     orchestrate_interaction,
     validate_react_decision_semantics,
@@ -53,6 +55,28 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(state.fulfillment["get_weather"].fulfilled)
         self.assertFalse(state.fulfillment["get_weather"].degraded)
+
+    def test_reflection_contract_rejects_missing_required_fact_id(self) -> None:
+        state = ExecutionState(
+            user_prompt="Tell me a joke.",
+            steps=[
+                ExecutionStep(
+                    kind="tool_call",
+                    tool_name="random_joke",
+                    parsed_payload=JokeResult(joke="A fetched joke."),
+                )
+            ],
+        )
+
+        preserved = _reflection_preserves_grounded_content(
+            "Tell me a joke.",
+            state,
+            "Joke: A fetched joke.",
+            "Joke: A fetched joke.",
+            ["weather:1"],
+        )
+
+        self.assertFalse(preserved)
 
     def test_requested_category_becomes_fulfilled_or_degraded(self) -> None:
         state = ExecutionState(
