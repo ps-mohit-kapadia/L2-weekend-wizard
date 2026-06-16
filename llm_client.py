@@ -227,7 +227,7 @@ def llm_react_json(
         return _extract_valid_decision_json(raw)
     except Exception:
         logger.warning(
-            "Model returned invalid ReAct decision payload; attempting one repair pass"
+            "Model returned invalid ReAct decision payload; attempting one repair pass | event=react.decision_invalid reason=invalid_decision_payload repair_attempt=1"
         )
         allowed_tool_lines = "\n".join(f"- {tool_name}" for tool_name in allowed_tools)
         repair_messages = [
@@ -262,7 +262,9 @@ def llm_react_json(
         try:
             return _extract_valid_decision_json(repaired)
         except Exception as exc:
-            logger.exception("Repair pass did not produce a valid ReAct decision")
+            logger.exception(
+                "Repair pass did not produce a valid ReAct decision | event=react.repair_failed reason=invalid_decision_payload"
+            )
             preview = raw.strip().replace("\n", " ")[:200]
             raise ValueError(
                 f"Model returned invalid ReAct decision JSON after one repair attempt. Raw output preview: {preview}"
@@ -282,7 +284,7 @@ def llm_reflection_json(
         return _extract_valid_reflection_json(raw)
     except Exception:
         logger.warning(
-            "Model returned invalid reflection payload; attempting one repair pass"
+            "Model returned invalid reflection payload; attempting one repair pass | event=reflection.invalid_payload reason=invalid_reflection_payload repair_attempt=1"
         )
         repair_messages = [
             {
@@ -300,7 +302,9 @@ def llm_reflection_json(
         try:
             return _extract_valid_reflection_json(repaired)
         except Exception as exc:
-            logger.exception("Repair pass did not produce a valid reflection payload")
+            logger.exception(
+                "Repair pass did not produce a valid reflection payload | event=reflection.repair_failed reason=invalid_reflection_payload"
+            )
             preview = raw.strip().replace("\n", " ")[:200]
             raise ValueError(
                 f"Model returned invalid reflection JSON after one repair attempt. Raw output preview: {preview}"

@@ -494,7 +494,10 @@ def run_reflection(
         )
         return answer.strip(), False, preserved_fact_ids
     except Exception as exc:
-        logger.warning("Reflection failed; returning grounded draft instead: %s", exc)
+        logger.warning(
+            "Reflection failed; returning grounded draft instead: %s | event=reflection.failed reason=reflection_error fallback=grounded_draft",
+            exc,
+        )
         return draft_answer, True, []
 
 
@@ -543,8 +546,11 @@ def finalize_after_execution(
             final_answer,
             preserved_fact_ids,
         ):
+            required_fact_ids = {fact.id for fact in build_grounded_facts(state.steps) if fact.required}
+            missing_fact_ids = sorted(required_fact_ids - set(preserved_fact_ids))
             logger.info(
-                "Reflection drifted from grounded content; returning grounded draft instead"
+                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_required_facts missing_fact_ids=%s fallback=grounded_draft",
+                missing_fact_ids,
             )
             final_answer = grounded
             reflection_used_fallback = True
@@ -632,6 +638,11 @@ async def orchestrate_interaction(
         if decision.action == "finish":
             pending_categories = _pending_requested_categories(state)
             if pending_categories:
+                logger.info(
+                    "Finish blocked: requested work is still pending for %s | event=react.finish_blocked reason=pending_requested_work pending=%s",
+                    ", ".join(_category_label(tool_name) for tool_name in pending_categories),
+                    ",".join(pending_categories),
+                )
                 state.steps.append(
                     ExecutionStep(
                         kind="finish_blocked",

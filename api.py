@@ -271,9 +271,12 @@ def create_api() -> FastAPI:
             logger.info(render_trace(trace))
 
         logger.info(
-            "Completed /chat request with %d observations, fallback=%s, answer length=%d",
+            "Completed /chat request with %d observations, fallback=%s, answer length=%d | event=request.completed fallback=%s observations_count=%d answer_length=%d",
             len(result.tool_observations),
             result.used_fallback,
+            len(result.answer),
+            str(result.used_fallback).lower(),
+            len(result.tool_observations),
             len(result.answer),
         )
         return ChatResponse(
