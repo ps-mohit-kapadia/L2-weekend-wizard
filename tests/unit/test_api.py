@@ -86,13 +86,33 @@ class ApiTests(unittest.TestCase):
     def test_ready_endpoint_returns_503_when_model_discovery_fails_during_startup(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
-            patch("api.discover_model", side_effect=RuntimeError("offline")),
+            patch("api.discover_model", side_effect=RuntimeError("offline")) as mock_discover_model,
             TestClient(api.create_api()) as client,
         ):
             payload = self._wait_for_ready_status(client, "not_ready")
 
         self.assertEqual(payload["status"], "not_ready")
         self.assertEqual(payload["details"], api.UNEXPECTED_READINESS_ERROR_DETAIL)
+        self.assertEqual(mock_discover_model.call_count, 1)
+
+    def test_ready_endpoint_recovers_when_startup_failure_is_retryable(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.STARTUP_RETRY_INTERVAL_SECONDS", 0),
+            patch(
+                "api.discover_model",
+                side_effect=[
+                    RuntimeError("Could not reach Ollama to validate model 'llama3.2:latest': offline"),
+                    "llama3.2:latest",
+                ],
+            ) as mock_discover_model,
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            payload = self._wait_for_ready_status(client, "ready")
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(mock_discover_model.call_count, 2)
 
     def test_health_endpoint_returns_ok(self) -> None:
         with (

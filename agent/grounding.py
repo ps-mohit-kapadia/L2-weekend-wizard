@@ -206,13 +206,13 @@ def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[Grounde
     if isinstance(payload, TriviaResult):
         choices = payload.incorrect_answers + [payload.correct_answer]
         rendered_choices = ", ".join(choices)
-        display = f"- Trivia: {payload.question} Choices: {rendered_choices}"
+        display = f"- Trivia: {payload.question} Choices: {rendered_choices}. Answer: {payload.correct_answer}"
         return [
             GroundedFact(
                 id="trivia:1",
                 label="Trivia",
                 display_text=display,
-                sentence=f"Trivia: {payload.question} Choices: {rendered_choices}.",
+                sentence=f"Trivia: {payload.question} Choices: {rendered_choices}. Answer: {payload.correct_answer}.",
             )
         ]
     return _empty_facts()

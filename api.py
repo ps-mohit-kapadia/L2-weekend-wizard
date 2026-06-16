@@ -28,6 +28,18 @@ OLLAMA_UNREACHABLE_DETAIL = "Ollama is not reachable."
 MODEL_UNAVAILABLE_DETAIL = "Resolved model is not available in Ollama."
 MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
 STARTING_READINESS_DETAIL = "API runtime is starting."
+STARTUP_RETRY_INTERVAL_SECONDS = 5.0
+
+
+def classify_startup_failure(exc: Exception) -> tuple[str, bool]:
+    """Classify startup failures by user-facing detail and recovery policy."""
+    if isinstance(exc, requests.RequestException):
+        return OLLAMA_UNREACHABLE_DETAIL, True
+    if str(exc).startswith("Could not reach Ollama"):
+        return OLLAMA_UNREACHABLE_DETAIL, True
+    if str(exc).startswith("Configured Ollama model is not available"):
+        return MODEL_UNAVAILABLE_DETAIL, False
+    return UNEXPECTED_READINESS_ERROR_DETAIL, False
 
 
 def build_readiness_response(
@@ -76,6 +88,7 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
     provider_name = settings.llm_provider
     model_name = ""
     wizard: WeekendWizardApp | None = None
+    app.state.startup_retryable = False
 
     try:
         model_name = discover_model(None)
@@ -128,13 +141,8 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
         logger.exception("API runtime startup failed: %s", exc)
         await close_wizard_if_present(wizard)
         provider_uses_ollama = provider_name == "ollama"
-        details = UNEXPECTED_READINESS_ERROR_DETAIL
-        if isinstance(exc, requests.RequestException):
-            details = OLLAMA_UNREACHABLE_DETAIL
-        elif str(exc).startswith("Could not reach Ollama"):
-            details = OLLAMA_UNREACHABLE_DETAIL
-        elif str(exc).startswith("Configured Ollama model is not available"):
-            details = MODEL_UNAVAILABLE_DETAIL
+        details, retryable = classify_startup_failure(exc)
+        app.state.startup_retryable = retryable
 
         app.state.readiness = build_readiness_response(
             status="not_ready",
@@ -146,6 +154,17 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
             provider_reachable=not provider_uses_ollama or details != OLLAMA_UNREACHABLE_DETAIL,
             model_available=not provider_uses_ollama or details != MODEL_UNAVAILABLE_DETAIL,
         )
+
+
+async def supervise_runtime(app: FastAPI, server_path: Path) -> None:
+    """Own runtime startup and retry only failures that can recover in-process."""
+    while not getattr(app.state, "startup_stopped", False):
+        await warm_runtime(app, server_path)
+        readiness = app.state.readiness
+        if readiness.status == "ready" or not getattr(app.state, "startup_retryable", False):
+            return
+        logger.info("Retrying API runtime startup after retryable readiness failure: %s", readiness.details)
+        await asyncio.sleep(STARTUP_RETRY_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -162,6 +181,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     server_path = project_dir / "main.py"
     provider_name = get_settings().llm_provider
     app.state.wizard = None
+    app.state.startup_retryable = False
+    app.state.startup_stopped = False
     app.state.readiness = build_readiness_response(
         status="not_ready",
         server_path=server_path,
@@ -172,10 +193,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         provider_reachable=False,
         model_available=False,
     )
-    app.state.startup_task = asyncio.create_task(warm_runtime(app, server_path))
+    app.state.startup_task = asyncio.create_task(supervise_runtime(app, server_path))
     try:
         yield
     finally:
+        app.state.startup_stopped = True
         startup_task: asyncio.Task[None] | None = getattr(app.state, "startup_task", None)
         if startup_task is not None and not startup_task.done():
             startup_task.cancel()
