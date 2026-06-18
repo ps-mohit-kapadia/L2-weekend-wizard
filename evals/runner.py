@@ -18,6 +18,18 @@ DEFAULT_TIMEOUT_SECONDS = 1200
 
 @dataclass(frozen=True)
 class EvalCase:
+    """One acceptance eval case loaded from JSONL.
+
+    Attributes:
+        id: Stable case identifier used in reports.
+        prompt: User prompt sent to the Weekend Wizard `/chat` endpoint.
+        expected_tools: Tool names that must appear in tool observations.
+        required_answer_markers: Text markers that must appear in the answer.
+        forbidden_tools: Tool names that must not appear in tool observations.
+        forbidden_answer_markers: Text markers that must not appear in the answer.
+        max_observations: Maximum allowed number of tool observations.
+    """
+
     id: str
     prompt: str
     expected_tools: list[str]
@@ -29,6 +41,16 @@ class EvalCase:
 
 @dataclass(frozen=True)
 class EvalResult:
+    """Result for one evaluated acceptance case.
+
+    Attributes:
+        case_id: Stable identifier of the evaluated case.
+        passed: Whether the case satisfied all rubric checks.
+        failures: Human-readable failure reasons.
+        observed_tools: Tool names observed in the `/chat` response.
+        answer_preview: Short answer excerpt for diagnostics.
+    """
+
     case_id: str
     passed: bool
     failures: list[str]
@@ -37,6 +59,12 @@ class EvalResult:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the eval runner.
+
+    Returns:
+        Parsed command-line namespace.
+    """
+
     parser = argparse.ArgumentParser(description="Run Weekend Wizard evals against /chat.")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"API base URL. Default: {DEFAULT_API_URL}")
     parser.add_argument("--cases", type=Path, default=Path(__file__).with_name("cases.jsonl"))
@@ -46,6 +74,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_cases(path: Path) -> list[EvalCase]:
+    """Load eval cases from a JSONL file.
+
+    Args:
+        path: Path to the JSONL case file.
+
+    Returns:
+        Eval cases in file order.
+
+    Raises:
+        RuntimeError: If no cases are found.
+        json.JSONDecodeError: If a case line is not valid JSON.
+        TypeError: If a case payload does not match `EvalCase`.
+    """
+
     cases: list[EvalCase] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
@@ -58,6 +100,21 @@ def load_cases(path: Path) -> list[EvalCase]:
 
 
 def post_chat(api_url: str, prompt: str, timeout: int) -> dict[str, Any]:
+    """Send one prompt to the Weekend Wizard `/chat` endpoint.
+
+    Args:
+        api_url: Base URL for the Weekend Wizard API.
+        prompt: User prompt for the eval case.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Parsed JSON response payload.
+
+    Raises:
+        RuntimeError: If the API response is non-JSON, non-200, or not an object.
+        requests.RequestException: If the HTTP request fails.
+    """
+
     response = requests.post(f"{api_url.rstrip('/')}/chat", json={"prompt": prompt}, timeout=timeout)
     try:
         payload = response.json()
@@ -72,6 +129,16 @@ def post_chat(api_url: str, prompt: str, timeout: int) -> dict[str, Any]:
 
 
 def evaluate_case(case: EvalCase, payload: dict[str, Any]) -> EvalResult:
+    """Evaluate one `/chat` response against one case contract.
+
+    Args:
+        case: Eval case containing expected and forbidden behavior.
+        payload: Parsed `/chat` response payload.
+
+    Returns:
+        Case result with pass/fail status and diagnostics.
+    """
+
     answer = str(payload.get("answer") or "")
     observations = payload.get("tool_observations") or []
     observed_tools = [
@@ -112,6 +179,15 @@ def evaluate_case(case: EvalCase, payload: dict[str, Any]) -> EvalResult:
 
 
 def render_report(results: list[EvalResult]) -> str:
+    """Render eval results as a Markdown report.
+
+    Args:
+        results: Eval results to summarize.
+
+    Returns:
+        Markdown report text.
+    """
+
     passed = sum(1 for result in results if result.passed)
     lines = [
         "# Weekend Wizard Eval Report",
@@ -132,6 +208,8 @@ def render_report(results: list[EvalResult]) -> str:
 
 
 def main() -> None:
+    """Run all configured eval cases and write the Markdown report."""
+
     args = parse_args()
     cases = load_cases(args.cases)
     results: list[EvalResult] = []
