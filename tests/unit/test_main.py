@@ -26,6 +26,36 @@ class MainEntrypointTests(unittest.TestCase):
 
         mock_run_api.assert_called_once()
 
+    @patch("main.asyncio.run")
+    def test_main_dispatches_to_chat_subcommand(self, mock_asyncio_run: Mock) -> None:
+        with patch("main.run_chat_cli", new=Mock(return_value="chat-coro")) as mock_run_chat_cli:
+            main.main(["chat", "Tell me", "one joke."])
+
+        mock_run_chat_cli.assert_called_once_with(
+            Path(main.__file__).resolve().parent,
+            "Tell me one joke.",
+            False,
+        )
+        mock_asyncio_run.assert_called_once_with("chat-coro")
+
+    @patch("main.asyncio.run")
+    def test_main_dispatches_chat_with_observations_flag(self, mock_asyncio_run: Mock) -> None:
+        with patch("main.run_chat_cli", new=Mock(return_value="chat-coro")) as mock_run_chat_cli:
+            main.main(["chat", "Tell me one joke.", "--show-observations"])
+
+        mock_run_chat_cli.assert_called_once_with(
+            Path(main.__file__).resolve().parent,
+            "Tell me one joke.",
+            True,
+        )
+        mock_asyncio_run.assert_called_once_with("chat-coro")
+
+    def test_main_rejects_chat_without_prompt(self) -> None:
+        with self.assertRaises(SystemExit) as captured:
+            main.main(["chat"])
+
+        self.assertIn("Usage: python main.py chat", str(captured.exception))
+
     @patch("main.subprocess.run")
     @patch("main.sys.executable", "python")
     @patch("pathlib.Path.exists", return_value=True)
