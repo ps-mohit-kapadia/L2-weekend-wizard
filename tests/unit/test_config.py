@@ -32,6 +32,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_max_retries, 4)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.25)
         self.assertEqual(settings.log_level, "INFO")
+        self.assertIsNone(settings.api_key)
+        self.assertEqual(settings.max_prompt_chars, 4000)
+        self.assertEqual(settings.rate_limit_requests, 20)
+        self.assertEqual(settings.rate_limit_window_seconds, 60)
         self.assertEqual(settings.llm_provider, "ollama")
         self.assertEqual(settings.ollama_url, "http://localhost:11434/api/chat")
         self.assertEqual(settings.aiplatform_base_url, "https://aiapidev.3ecompany.com")
@@ -62,6 +66,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.http_max_retries, 2)
         self.assertEqual(settings.http_retry_backoff_seconds, 0.5)
         self.assertEqual(settings.log_level, "WARNING")
+        self.assertIsNone(settings.api_key)
+        self.assertEqual(settings.max_prompt_chars, 4000)
+        self.assertEqual(settings.rate_limit_requests, 20)
+        self.assertEqual(settings.rate_limit_window_seconds, 60)
         self.assertEqual(settings.llm_provider, "ollama")
         self.assertEqual(settings.preferred_models, ("llama3.1:8b",))
 
@@ -98,6 +106,9 @@ class ConfigTests(unittest.TestCase):
         for name, value in (
             ("WEEKEND_WIZARD_REQUEST_TIMEOUT", "0"),
             ("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", "-1"),
+            ("WEEKEND_WIZARD_MAX_PROMPT_CHARS", "0"),
+            ("WEEKEND_WIZARD_RATE_LIMIT_REQUESTS", "0"),
+            ("WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS", "0"),
         ):
             with self.subTest(name=name, value=value):
                 with patch.dict(os.environ, {name: value}, clear=True):

@@ -90,6 +90,10 @@ class Settings:
     aiplatform_chat_path: str
     preferred_models: Tuple[str, ...]
     log_level: str
+    api_key: str | None
+    max_prompt_chars: int
+    rate_limit_requests: int
+    rate_limit_window_seconds: int
 
 
 @lru_cache(maxsize=1)
@@ -115,4 +119,8 @@ def get_settings() -> Settings:
         ),
         preferred_models=(os.getenv("MODEL", "llama3.1:8b"),),
         log_level=_env_log_level("WEEKEND_WIZARD_LOG_LEVEL", "WARNING"),
+        api_key=os.getenv("WEEKEND_WIZARD_API_KEY"),
+        max_prompt_chars=_env_positive_int("WEEKEND_WIZARD_MAX_PROMPT_CHARS", 4000),
+        rate_limit_requests=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_REQUESTS", 20),
+        rate_limit_window_seconds=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS", 60),
     )

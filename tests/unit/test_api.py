@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import time
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 import api
+from config.config import get_settings
 from schemas.agent import InteractionResult, ToolObservation
 from schemas.api import ReadinessChecks, ReadinessResponse
 
@@ -63,6 +65,15 @@ class _ExplodingWizardApp(_FakeWizardApp):
     def __init__(self, *_args, **_kwargs) -> None:
         super().__init__(*_args, **_kwargs)
         self.run_interaction = AsyncMock(side_effect=RuntimeError("internal boom"))
+
+
+class _NeverCompletingWizardApp(_FakeWizardApp):
+    def __init__(self, *_args, **_kwargs) -> None:
+        super().__init__(*_args, **_kwargs)
+        self.run_interaction = AsyncMock(side_effect=self._never_complete)
+
+    async def _never_complete(self, *_args, **_kwargs) -> None:
+        await asyncio.sleep(10)
 
 
 class ApiTests(unittest.TestCase):
@@ -202,6 +213,117 @@ class ApiTests(unittest.TestCase):
         self.assertIn("REQUEST TRACE:", joined)
         self.assertIn("EVENT: interaction_started", joined)
         self.assertIn("EVENT: interaction_completed", joined)
+
+    def test_chat_endpoint_allows_requests_without_configured_api_key(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            TestClient(api.create_api()) as client,
+        ):
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_chat_endpoint_rejects_missing_api_key_when_configured(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"], api.UNAUTHORIZED_DETAIL)
+
+    def test_chat_endpoint_rejects_wrong_api_key_when_configured(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
+            response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "wrong"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"], api.UNAUTHORIZED_DETAIL)
+
+    def test_chat_endpoint_accepts_configured_api_key(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
+            response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "secret"})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_health_and_ready_do_not_require_api_key(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
+            health_response = client.get("/health")
+            ready_payload = self._wait_for_ready_status(client, "ready")
+
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(ready_payload["status"], "ready")
+
+    def test_chat_endpoint_rejects_prompt_over_configured_limit(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), max_prompt_chars=5)
+            response = client.post("/chat", json={"prompt": "too long"})
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["detail"], api.PROMPT_TOO_LARGE_DETAIL)
+
+    def test_chat_endpoint_rate_limits_by_client(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _FakeWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), rate_limit_requests=1)
+            first_response = client.post("/chat", json={"prompt": "hello"})
+            second_response = client.post("/chat", json={"prompt": "hello again"})
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertEqual(second_response.json()["detail"], api.RATE_LIMITED_DETAIL)
+
+    def test_chat_endpoint_returns_504_when_interaction_times_out(self) -> None:
+        with (
+            patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
+            patch("api.discover_model", return_value="llama3.2:latest"),
+            patch("api.WeekendWizardApp", _NeverCompletingWizardApp),
+            patch("api.get_settings") as mock_get_settings,
+            TestClient(api.create_api()) as client,
+        ):
+            mock_get_settings.return_value = replace(get_settings(), request_timeout=0.001)
+            response = client.post("/chat", json={"prompt": "hello"})
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(response.json()["detail"], api.REQUEST_TIMEOUT_DETAIL)
 
     def test_chat_endpoint_emits_trace_even_when_interaction_fails(self) -> None:
         with (

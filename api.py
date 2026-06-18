@@ -5,15 +5,16 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+import time
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
 import uvicorn
 
 from application.service import WeekendWizardApp
-from config.config import get_settings
+from config.config import Settings, get_settings
 from llm_client import discover_model
 from logger.logging import get_logger
 from logger.tracing.request_trace import create_trace, render_trace
@@ -29,6 +30,10 @@ MODEL_UNAVAILABLE_DETAIL = "Resolved model is not available in Ollama."
 MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
 STARTING_READINESS_DETAIL = "API runtime is starting."
 STARTUP_RETRY_INTERVAL_SECONDS = 5.0
+UNAUTHORIZED_DETAIL = "Invalid or missing API key."
+PROMPT_TOO_LARGE_DETAIL = "Prompt is too large."
+RATE_LIMITED_DETAIL = "Too many requests. Please try again later."
+REQUEST_TIMEOUT_DETAIL = "Weekend Wizard request timed out."
 
 
 def classify_startup_failure(exc: Exception) -> tuple[str, bool]:
@@ -74,6 +79,38 @@ def build_readiness_response(
         ),
         details=details,
     )
+
+
+def require_api_key(request: Request, api_key: str | None) -> None:
+    """Require a matching API key when one is configured."""
+    if api_key is None:
+        return
+    if request.headers.get("X-API-Key") != api_key:
+        raise HTTPException(status_code=401, detail=UNAUTHORIZED_DETAIL)
+
+
+def enforce_prompt_limit(prompt: str, max_chars: int) -> None:
+    """Reject prompts that exceed the configured API boundary limit."""
+    if len(prompt) > max_chars:
+        raise HTTPException(status_code=413, detail=PROMPT_TOO_LARGE_DETAIL)
+
+
+def _client_id(request: Request) -> str:
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",", maxsplit=1)[0].strip()
+    return request.client.host if request.client is not None else "unknown"
+
+
+def enforce_rate_limit(app: FastAPI, client_id: str, settings: Settings) -> None:
+    """Apply a simple in-memory fixed-window rate limit for local/demo API use."""
+    now = time.monotonic()
+    window_start, count = app.state.rate_limits.get(client_id, (now, 0))
+    if now - window_start >= settings.rate_limit_window_seconds:
+        window_start, count = now, 0
+    if count >= settings.rate_limit_requests:
+        raise HTTPException(status_code=429, detail=RATE_LIMITED_DETAIL)
+    app.state.rate_limits[client_id] = (window_start, count + 1)
 
 
 async def close_wizard_if_present(wizard: WeekendWizardApp | None) -> None:
@@ -183,6 +220,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.wizard = None
     app.state.startup_retryable = False
     app.state.startup_stopped = False
+    app.state.rate_limits = {}
     app.state.readiness = build_readiness_response(
         status="not_ready",
         server_path=server_path,
@@ -234,7 +272,7 @@ def create_api() -> FastAPI:
         return JSONResponse(status_code=status_code, content=response.model_dump())
 
     @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
+    async def chat(http_request: Request, request: ChatRequest) -> ChatResponse:
         """Run one Weekend Wizard interaction through the shared app service.
 
         Args:
@@ -246,6 +284,11 @@ def create_api() -> FastAPI:
         Raises:
             HTTPException: If startup or interaction execution fails.
         """
+        settings = get_settings()
+        require_api_key(http_request, settings.api_key)
+        enforce_prompt_limit(request.prompt, settings.max_prompt_chars)
+        enforce_rate_limit(app, _client_id(http_request), settings)
+
         trace = create_trace(request.prompt)
         wizard = getattr(app.state, "wizard", None)
         readiness = app.state.readiness
@@ -259,9 +302,15 @@ def create_api() -> FastAPI:
                 len(request.prompt),
             )
             context = wizard.create_interaction_context()
-            result = await wizard.run_interaction(request.prompt, context=context, trace=trace)
+            result = await asyncio.wait_for(
+                wizard.run_interaction(request.prompt, context=context, trace=trace),
+                timeout=settings.request_timeout,
+            )
         except HTTPException:
             raise
+        except asyncio.TimeoutError as exc:
+            logger.warning("Chat request timed out after %ss", settings.request_timeout)
+            raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
         except Exception as exc:
             logger.exception("Chat request failed: %s", exc)
             raise HTTPException(status_code=500, detail=UNEXPECTED_CHAT_ERROR_DETAIL) from exc
