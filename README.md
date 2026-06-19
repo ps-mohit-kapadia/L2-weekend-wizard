@@ -95,7 +95,7 @@ flowchart TD
 5. Steps 2 to 4 repeat until the model chooses `finish` or the max step budget is reached.
 6. Grounding builds a draft answer from real observations.
 7. The reflection LLM performs one lightweight correction pass.
-8. The final grounded answer is returned to the UI.
+8. The final grounded answer is returned through the active access layer.
 
 ---
 
@@ -161,8 +161,20 @@ weekend-wizard/
 |
 |- schemas/
 |  |- agent.py
+|  |- a2a.py
 |  |- api.py
 |  |- tools.py
+|
+|- docs/
+|  |- a2a.md
+|  |- agent-contract.md
+|  |- sdk-migration.md
+|
+|- evals/
+|  |- cases.jsonl
+|  |- report.md
+|  |- rubric.md
+|  |- runner.py
 |
 |- tools/
 |  |- books.py
@@ -170,9 +182,6 @@ weekend-wizard/
 |  |- geo.py
 |  |- shared.py
 |  |- weather.py
-|
-|- docs/                    # parallel L3 Claude SDK migration docs
-|  |- sdk-migration.md
 |
 |- scripts/                 # parallel L3 Claude SDK runner/smoke entrypoints
 |  |- run_claude_sdk_agent.py
@@ -183,6 +192,7 @@ weekend-wizard/
 |  |  |- smoke_test.py
 |  |- integration/
 |  |- unit/
+|     |- test_a2a.py
 ```
 
 ---
@@ -372,6 +382,8 @@ python .\main.py mcp-server
 ```
 
 ### 8. Run evals
+
+Start the API first, then run:
 
 ```powershell
 .\.venv\Scripts\python.exe .\evals\runner.py

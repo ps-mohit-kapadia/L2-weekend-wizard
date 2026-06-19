@@ -52,7 +52,7 @@ Access layers may expose this differently:
 - HTTP API returns `answer` and `tool_observations`.
 - CLI prints the answer and optionally tool observations.
 - Streamlit renders the answer and expandable tool observations.
-- A2A should expose the answer as an artifact over the A2A envelope.
+- A2A exposes the answer as a text artifact over the A2A envelope.
 
 ## Bounded Scope
 
