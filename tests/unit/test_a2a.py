@@ -35,6 +35,16 @@ class _FakeWizardApp:
 
 
 class A2ATests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._settings_patch = patch(
+            "api.get_settings",
+            return_value=replace(get_settings(), api_key=None, llm_provider="ollama"),
+        )
+        self._settings_patch.start()
+
+    def tearDown(self) -> None:
+        self._settings_patch.stop()
+
     def _wait_for_ready_status(self, client: TestClient, expected_status: str) -> dict:
         deadline = time.monotonic() + 1.0
         last_payload: dict = {}
@@ -85,9 +95,11 @@ class A2ATests(unittest.TestCase):
             TestClient(api.create_api()) as client,
         ):
             self._wait_for_ready_status(client, "ready")
-            response = client.post("/a2a/jsonrpc", json=self._message_send_payload())
+            with self.assertLogs("weekend_wizard.agent.api", level="INFO") as captured:
+                response = client.post("/a2a/jsonrpc", json=self._message_send_payload())
 
         payload = response.json()
+        joined = "\n".join(captured.output)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["jsonrpc"], "2.0")
         self.assertEqual(payload["id"], "req-1")
@@ -96,6 +108,8 @@ class A2ATests(unittest.TestCase):
             payload["result"]["artifacts"][0]["parts"][0]["text"],
             "Trivia: demo. Answer: demo.",
         )
+        self.assertIn("request_id=req_", joined)
+        self.assertIn("interface=a2a", joined)
         fake_app.run_interaction.assert_awaited_once()
 
     def test_a2a_rejects_invalid_jsonrpc_version(self) -> None:
@@ -158,7 +172,7 @@ class A2ATests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings", return_value=replace(get_settings(), max_prompt_chars=5)),
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, max_prompt_chars=5)),
             TestClient(api.create_api()) as client,
         ):
             response = client.post("/a2a/jsonrpc", json=self._message_send_payload("too long"))
@@ -171,7 +185,7 @@ class A2ATests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings", return_value=replace(get_settings(), rate_limit_requests=1)),
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, rate_limit_requests=1)),
             TestClient(api.create_api()) as client,
         ):
             self._wait_for_ready_status(client, "ready")

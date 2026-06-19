@@ -22,7 +22,7 @@ class ConfigTests(unittest.TestCase):
                 "WEEKEND_WIZARD_LOG_LEVEL": "INFO",
                 "OLLAMA_URL": "http://localhost:11434/api/chat",
             },
-            clear=False,
+            clear=True,
         ):
             get_settings.cache_clear()
             settings = get_settings()

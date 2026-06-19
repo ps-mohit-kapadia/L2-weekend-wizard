@@ -29,6 +29,7 @@ etc
 .vscode
 jira.md
 /review
+logs/*.log
 
 .env
 

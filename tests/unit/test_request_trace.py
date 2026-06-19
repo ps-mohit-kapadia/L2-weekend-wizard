@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
-from logger.tracing.request_trace import create_trace, render_trace, truncate_repr
+from logger.tracing.request_trace import create_trace, render_trace, truncate_repr, write_trace
 
 
 class RequestTraceTests(unittest.TestCase):
@@ -35,6 +37,18 @@ class RequestTraceTests(unittest.TestCase):
 
         self.assertLessEqual(len(rendered), 20)
         self.assertTrue(rendered.endswith("..."))
+
+    def test_write_trace_appends_rendered_trace(self) -> None:
+        trace = create_trace("hello world")
+
+        with TemporaryDirectory() as directory:
+            log_path = Path(directory) / "trace.log"
+            write_trace(trace, log_path)
+
+            contents = log_path.read_text(encoding="utf-8")
+
+        self.assertIn(f"REQUEST TRACE: {trace.request_id}", contents)
+        self.assertTrue(contents.endswith("\n\n"))
 
 
 if __name__ == "__main__":

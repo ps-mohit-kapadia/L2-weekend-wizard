@@ -77,6 +77,16 @@ class _NeverCompletingWizardApp(_FakeWizardApp):
 
 
 class ApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._settings_patch = patch(
+            "api.get_settings",
+            return_value=replace(get_settings(), api_key=None, llm_provider="ollama"),
+        )
+        self._settings_patch.start()
+
+    def tearDown(self) -> None:
+        self._settings_patch.stop()
+
     def _wait_for_ready_status(
         self,
         client: TestClient,
@@ -210,6 +220,8 @@ class ApiTests(unittest.TestCase):
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
+        self.assertIn("request_id=req_", joined)
+        self.assertIn("interface=chat", joined)
         self.assertIn("REQUEST TRACE:", joined)
         self.assertIn("EVENT: interaction_started", joined)
         self.assertIn("EVENT: interaction_completed", joined)
@@ -289,7 +301,7 @@ class ApiTests(unittest.TestCase):
             patch("api.get_settings") as mock_get_settings,
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), max_prompt_chars=5)
+            mock_get_settings.return_value = replace(get_settings(), api_key=None, max_prompt_chars=5)
             response = client.post("/chat", json={"prompt": "too long"})
 
         self.assertEqual(response.status_code, 413)
@@ -303,7 +315,7 @@ class ApiTests(unittest.TestCase):
             patch("api.get_settings") as mock_get_settings,
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), rate_limit_requests=1)
+            mock_get_settings.return_value = replace(get_settings(), api_key=None, rate_limit_requests=1)
             first_response = client.post("/chat", json={"prompt": "hello"})
             second_response = client.post("/chat", json={"prompt": "hello again"})
 
@@ -319,7 +331,7 @@ class ApiTests(unittest.TestCase):
             patch("api.get_settings") as mock_get_settings,
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), request_timeout=0.001)
+            mock_get_settings.return_value = replace(get_settings(), api_key=None, request_timeout=0.001)
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 504)

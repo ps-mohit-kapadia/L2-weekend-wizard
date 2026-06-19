@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
+from pathlib import Path
 from secrets import token_hex
 from typing import Any, Dict, List
 
@@ -93,3 +95,20 @@ def render_trace(trace: RequestTrace) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def write_trace(trace: RequestTrace, log_path: Path | None = None) -> None:
+    """Append one rendered request trace to the local trace log."""
+    target = log_path or Path("logs") / "trace.log"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as file:
+            file.write(render_trace(trace))
+            file.write("\n\n")
+    except OSError as exc:
+        logging.getLogger("weekend_wizard.logger.tracing.request_trace").warning(
+            "Could not write request trace %s to %s: %s",
+            trace.request_id,
+            target,
+            exc,
+        )

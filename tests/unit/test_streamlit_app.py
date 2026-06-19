@@ -50,7 +50,7 @@ class StreamlitAppTests(unittest.TestCase):
     @patch("streamlit_app.requests.post")
     @patch("streamlit_app.get_settings")
     def test_send_chat_prompt_returns_structured_response(self, mock_settings: Mock, mock_post: Mock) -> None:
-        mock_settings.return_value = SimpleNamespace(request_timeout=888)
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None)
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
@@ -64,11 +64,28 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 888)
+        self.assertEqual(mock_post.call_args.kwargs["headers"], {})
+
+    @patch("streamlit_app.requests.post")
+    @patch("streamlit_app.get_settings")
+    def test_send_chat_prompt_sends_configured_api_key(self, mock_settings: Mock, mock_post: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key="secret")
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "answer": "Weekend plan ready.",
+            "tool_observations": [],
+        }
+        mock_post.return_value = response
+
+        streamlit_app.send_chat_prompt("hello")
+
+        self.assertEqual(mock_post.call_args.kwargs["headers"], {"X-API-Key": "secret"})
 
     @patch("streamlit_app.requests.post")
     @patch("streamlit_app.get_settings")
     def test_send_chat_prompt_raises_with_api_error_detail(self, mock_settings: Mock, mock_post: Mock) -> None:
-        mock_settings.return_value = SimpleNamespace(request_timeout=888)
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None)
         response = Mock()
         response.status_code = 503
         response.json.return_value = {"detail": "Service is not ready."}

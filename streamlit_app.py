@@ -43,6 +43,14 @@ def get_api_base_url() -> str:
     return os.getenv("WEEKEND_WIZARD_API_URL", DEFAULT_API_BASE_URL).rstrip("/")
 
 
+def build_chat_headers() -> dict[str, str]:
+    """Return optional headers required by the backend chat endpoint."""
+    api_key = get_settings().api_key
+    if api_key is None:
+        return {}
+    return {"X-API-Key": api_key}
+
+
 def load_readiness() -> ReadinessResponse:
     """Fetch readiness from the FastAPI backend.
 
@@ -86,6 +94,7 @@ def send_chat_prompt(prompt: str) -> ChatResponse:
         response = requests.post(
             f"{base_url}/chat",
             json={"prompt": prompt},
+            headers=build_chat_headers(),
             timeout=get_settings().request_timeout,
         )
     except requests.RequestException as exc:

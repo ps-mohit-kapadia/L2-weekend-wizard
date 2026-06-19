@@ -17,7 +17,7 @@ from application.service import WeekendWizardApp
 from config.config import Settings, get_settings
 from llm_client import discover_model
 from logger.logging import get_logger
-from logger.tracing.request_trace import create_trace, render_trace
+from logger.tracing.request_trace import create_trace, render_trace, write_trace
 from schemas.a2a import (
     A2AAgentCapabilities,
     A2AAgentCard,
@@ -390,20 +390,46 @@ def create_api() -> FastAPI:
 
         trace = create_trace(prompt)
         try:
+            logger.info(
+                "Received A2A request with prompt length %d | event=request.started request_id=%s interface=a2a prompt_length=%d",
+                len(prompt),
+                trace.request_id,
+                len(prompt),
+            )
             result = await run_agent_prompt(app, prompt, trace, settings)
         except asyncio.TimeoutError as exc:
-            logger.warning("A2A request timed out after %ss", settings.request_timeout)
+            logger.warning(
+                "A2A request timed out after %ss | event=request.timeout request_id=%s interface=a2a status=timeout",
+                settings.request_timeout,
+                trace.request_id,
+            )
             raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
         except HTTPException as exc:
+            logger.warning(
+                "A2A request failed with HTTP error | event=request.failed request_id=%s interface=a2a status=failed status_code=%d",
+                trace.request_id,
+                exc.status_code,
+            )
             return a2a_error(request.id, -32000, str(exc.detail))
         except Exception as exc:
-            logger.exception("A2A request failed: %s", exc)
+            logger.exception(
+                "A2A request failed: %s | event=request.failed request_id=%s interface=a2a status=failed",
+                exc,
+                trace.request_id,
+            )
             return a2a_error(request.id, -32000, UNEXPECTED_CHAT_ERROR_DETAIL)
         finally:
             if not trace.events or trace.events[-1].event != "interaction_completed":
                 trace.add_event("interaction_completed")
             logger.info(render_trace(trace))
+            write_trace(trace)
 
+        logger.info(
+            "Completed A2A request with answer length %d | event=request.completed request_id=%s interface=a2a status=completed answer_length=%d",
+            len(result.answer),
+            trace.request_id,
+            len(result.answer),
+        )
         response = A2AJsonRpcResponse(
             id=request.id,
             result=A2AJsonRpcResult(
@@ -439,28 +465,40 @@ def create_api() -> FastAPI:
         trace = create_trace(request.prompt)
         try:
             logger.info(
-                "Received /chat request with prompt length %d",
+                "Received /chat request with prompt length %d | event=request.started request_id=%s interface=chat prompt_length=%d",
+                len(request.prompt),
+                trace.request_id,
                 len(request.prompt),
             )
             result = await run_agent_prompt(app, request.prompt, trace, settings)
         except HTTPException:
             raise
         except asyncio.TimeoutError as exc:
-            logger.warning("Chat request timed out after %ss", settings.request_timeout)
+            logger.warning(
+                "Chat request timed out after %ss | event=request.timeout request_id=%s interface=chat status=timeout",
+                settings.request_timeout,
+                trace.request_id,
+            )
             raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
         except Exception as exc:
-            logger.exception("Chat request failed: %s", exc)
+            logger.exception(
+                "Chat request failed: %s | event=request.failed request_id=%s interface=chat status=failed",
+                exc,
+                trace.request_id,
+            )
             raise HTTPException(status_code=500, detail=UNEXPECTED_CHAT_ERROR_DETAIL) from exc
         finally:
             if not trace.events or trace.events[-1].event != "interaction_completed":
                 trace.add_event("interaction_completed")
             logger.info(render_trace(trace))
+            write_trace(trace)
 
         logger.info(
-            "Completed /chat request with %d observations, fallback=%s, answer length=%d | event=request.completed fallback=%s observations_count=%d answer_length=%d",
+            "Completed /chat request with %d observations, fallback=%s, answer length=%d | event=request.completed request_id=%s interface=chat status=completed fallback=%s observations_count=%d answer_length=%d",
             len(result.tool_observations),
             result.used_fallback,
             len(result.answer),
+            trace.request_id,
             str(result.used_fallback).lower(),
             len(result.tool_observations),
             len(result.answer),
