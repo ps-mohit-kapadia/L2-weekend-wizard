@@ -155,10 +155,7 @@ Current access interfaces:
 - CLI: `python main.py chat "<prompt>"`
 - HTTP API: `/chat`, `/health`, `/ready`
 - Streamlit UI: `python main.py streamlit`
-
-Planned access interface:
-
-- A2A-compatible adapter exposing the same agent contract to other agents
+- A2A-compatible adapter: `/.well-known/agent.json`, `/a2a/jsonrpc`
 
 ## Evaluation Gate
 
@@ -178,14 +175,14 @@ The eval gate checks tool coverage, forbidden tool use, observation bounds, answ
 - Local LLM latency can be high for multi-step prompts.
 - Behavior quality depends on the configured local model.
 - API rate limiting is in-memory and intended for local/demo use.
-- A2A compatibility is planned but not yet implemented.
+- A2A compatibility is limited to a minimal synchronous text adapter.
 - The agent is intentionally limited to supported public-data tools.
 
 ## Future Hardening
 
 Planned or possible hardening:
 
-- A2A-compatible access adapter
+- broader A2A support for streaming, cancellation, task polling, and signed Agent Cards
 - external gateway or distributed rate limiting for multi-process deployment
 - richer eval reports with historical comparison
 - stronger production auth such as OAuth/JWT if deployed beyond local/demo scope

@@ -18,6 +18,19 @@ from config.config import Settings, get_settings
 from llm_client import discover_model
 from logger.logging import get_logger
 from logger.tracing.request_trace import create_trace, render_trace
+from schemas.a2a import (
+    A2AAgentCapabilities,
+    A2AAgentCard,
+    A2AAgentSkill,
+    A2AArtifact,
+    A2AJsonRpcError,
+    A2AJsonRpcRequest,
+    A2AJsonRpcResponse,
+    A2AJsonRpcResult,
+    A2APart,
+    A2ATaskStatus,
+)
+from schemas.agent import InteractionResult
 from schemas.api import ChatRequest, ChatResponse, HealthResponse, ReadinessChecks, ReadinessResponse
 
 
@@ -34,6 +47,18 @@ UNAUTHORIZED_DETAIL = "Invalid or missing API key."
 PROMPT_TOO_LARGE_DETAIL = "Prompt is too large."
 RATE_LIMITED_DETAIL = "Too many requests. Please try again later."
 REQUEST_TIMEOUT_DETAIL = "Weekend Wizard request timed out."
+A2A_UNSUPPORTED_METHOD_DETAIL = "Unsupported A2A method."
+A2A_INVALID_REQUEST_DETAIL = "Invalid A2A JSON-RPC request."
+A2A_INVALID_PARAMS_DETAIL = "Invalid A2A message params."
+
+
+def a2a_error(request_id: str | int | None, code: int, message: str) -> JSONResponse:
+    """Build one JSON-RPC error response for A2A protocol failures."""
+    response = A2AJsonRpcResponse(
+        id=request_id,
+        error=A2AJsonRpcError(code=code, message=message),
+    )
+    return JSONResponse(content=response.model_dump(exclude_none=True))
 
 
 def classify_startup_failure(exc: Exception) -> tuple[str, bool]:
@@ -111,6 +136,44 @@ def enforce_rate_limit(app: FastAPI, client_id: str, settings: Settings) -> None
     if count >= settings.rate_limit_requests:
         raise HTTPException(status_code=429, detail=RATE_LIMITED_DETAIL)
     app.state.rate_limits[client_id] = (window_start, count + 1)
+
+
+def extract_a2a_prompt(params: dict[str, object] | None) -> str | None:
+    """Extract the first text part from a minimal A2A message/send payload."""
+    if not isinstance(params, dict):
+        return None
+    message = params.get("message")
+    if not isinstance(message, dict):
+        return None
+    parts = message.get("parts")
+    if not isinstance(parts, list):
+        return None
+    for part in parts:
+        if isinstance(part, dict) and part.get("kind") == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                return text
+    return None
+
+
+async def run_agent_prompt(
+    app: FastAPI,
+    prompt: str,
+    trace,
+    settings: Settings,
+) -> InteractionResult:
+    """Run one prompt through the shared ready runtime."""
+    wizard = getattr(app.state, "wizard", None)
+    readiness = app.state.readiness
+    if readiness.status != "ready" or wizard is None or not wizard.is_initialized:
+        logger.warning("Rejecting agent request because runtime is not ready: %s", readiness.details)
+        raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
+
+    context = wizard.create_interaction_context()
+    return await asyncio.wait_for(
+        wizard.run_interaction(prompt, context=context, trace=trace),
+        timeout=settings.request_timeout,
+    )
 
 
 async def close_wizard_if_present(wizard: WeekendWizardApp | None) -> None:
@@ -271,6 +334,90 @@ def create_api() -> FastAPI:
         status_code = 200 if response.status == "ready" else 503
         return JSONResponse(status_code=status_code, content=response.model_dump())
 
+    @app.get("/.well-known/agent.json", response_model=A2AAgentCard)
+    async def agent_card(request: Request) -> A2AAgentCard:
+        """Return the A2A Agent Card for Weekend Wizard discovery."""
+        base_url = str(request.base_url).rstrip("/")
+        return A2AAgentCard(
+            name="Weekend Wizard",
+            description="Grounded weekend-planning agent using weather, books, jokes, dog photos, and trivia.",
+            url=f"{base_url}/a2a/jsonrpc",
+            version="1.0.0",
+            protocolVersion="0.3.0",
+            capabilities=A2AAgentCapabilities(streaming=False),
+            defaultInputModes=["text/plain"],
+            defaultOutputModes=["text/plain"],
+            skills=[
+                A2AAgentSkill(
+                    id="weekend_planning",
+                    name="Weekend Planning",
+                    description="Plan a weekend using supported public-data tools.",
+                ),
+                A2AAgentSkill(
+                    id="weather",
+                    name="Weather Lookup",
+                    description="Fetch current weather by coordinates or city lookup.",
+                ),
+                A2AAgentSkill(
+                    id="book_recommendations",
+                    name="Book Recommendations",
+                    description="Fetch book recommendations for a topic.",
+                ),
+                A2AAgentSkill(
+                    id="entertainment",
+                    name="Jokes, Dog Photos, and Trivia",
+                    description="Fetch one safe joke, dog photo, or trivia question.",
+                ),
+            ],
+        )
+
+    @app.post("/a2a/jsonrpc", response_model=A2AJsonRpcResponse)
+    async def a2a_jsonrpc(http_request: Request, request: A2AJsonRpcRequest) -> JSONResponse:
+        """Handle minimal synchronous A2A JSON-RPC message/send requests."""
+        if request.jsonrpc != "2.0":
+            return a2a_error(request.id, -32600, A2A_INVALID_REQUEST_DETAIL)
+        if request.method != "message/send":
+            return a2a_error(request.id, -32601, A2A_UNSUPPORTED_METHOD_DETAIL)
+
+        prompt = extract_a2a_prompt(request.params)
+        if prompt is None:
+            return a2a_error(request.id, -32602, A2A_INVALID_PARAMS_DETAIL)
+
+        settings = get_settings()
+        require_api_key(http_request, settings.api_key)
+        enforce_prompt_limit(prompt, settings.max_prompt_chars)
+        enforce_rate_limit(app, _client_id(http_request), settings)
+
+        trace = create_trace(prompt)
+        try:
+            result = await run_agent_prompt(app, prompt, trace, settings)
+        except asyncio.TimeoutError as exc:
+            logger.warning("A2A request timed out after %ss", settings.request_timeout)
+            raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
+        except HTTPException as exc:
+            return a2a_error(request.id, -32000, str(exc.detail))
+        except Exception as exc:
+            logger.exception("A2A request failed: %s", exc)
+            return a2a_error(request.id, -32000, UNEXPECTED_CHAT_ERROR_DETAIL)
+        finally:
+            if not trace.events or trace.events[-1].event != "interaction_completed":
+                trace.add_event("interaction_completed")
+            logger.info(render_trace(trace))
+
+        response = A2AJsonRpcResponse(
+            id=request.id,
+            result=A2AJsonRpcResult(
+                status=A2ATaskStatus(state="completed"),
+                artifacts=[
+                    A2AArtifact(
+                        name="weekend_wizard_answer",
+                        parts=[A2APart(kind="text", text=result.answer)],
+                    )
+                ],
+            ),
+        )
+        return JSONResponse(content=response.model_dump(exclude_none=True))
+
     @app.post("/chat", response_model=ChatResponse)
     async def chat(http_request: Request, request: ChatRequest) -> ChatResponse:
         """Run one Weekend Wizard interaction through the shared app service.
@@ -290,22 +437,12 @@ def create_api() -> FastAPI:
         enforce_rate_limit(app, _client_id(http_request), settings)
 
         trace = create_trace(request.prompt)
-        wizard = getattr(app.state, "wizard", None)
-        readiness = app.state.readiness
         try:
-            if readiness.status != "ready" or wizard is None or not wizard.is_initialized:
-                logger.warning("Rejecting chat request because runtime is not ready: %s", readiness.details)
-                raise HTTPException(status_code=503, detail=readiness.details or "Service is not ready.")
-
             logger.info(
                 "Received /chat request with prompt length %d",
                 len(request.prompt),
             )
-            context = wizard.create_interaction_context()
-            result = await asyncio.wait_for(
-                wizard.run_interaction(request.prompt, context=context, trace=trace),
-                timeout=settings.request_timeout,
-            )
+            result = await run_agent_prompt(app, request.prompt, trace, settings)
         except HTTPException:
             raise
         except asyncio.TimeoutError as exc:
