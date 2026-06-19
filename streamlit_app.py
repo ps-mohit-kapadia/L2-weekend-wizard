@@ -3,7 +3,9 @@ from __future__ import annotations
 """Streamlit interface for Weekend Wizard."""
 
 import os
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -17,6 +19,8 @@ from schemas.api import ChatResponse, ReadinessResponse
 logger = get_logger("agent.streamlit")
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+TRACE_LOG_PATH = Path("logs") / "trace.log"
+TRACE_READ_BYTES = 1_000_000
 
 
 @dataclass
@@ -122,6 +126,44 @@ def reset_chat() -> None:
     logger.info("Reset Streamlit chat history")
 
 
+def latest_assistant_turn() -> ChatTurn | None:
+    """Return the latest assistant turn from the current Streamlit transcript."""
+    for turn in reversed(st.session_state.get("chat_turns", [])):
+        if turn.role == "assistant":
+            return turn
+    return None
+
+
+def latest_user_prompt() -> str | None:
+    """Return the latest user prompt from the current Streamlit transcript."""
+    for turn in reversed(st.session_state.get("chat_turns", [])):
+        if turn.role == "user":
+            return turn.content
+    return None
+
+
+def load_trace_by_correlation_id(correlation_id: str) -> str | None:
+    """Return the rendered backend trace block for one correlation id when available."""
+    if not TRACE_LOG_PATH.exists():
+        return None
+
+    with TRACE_LOG_PATH.open("rb") as file:
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(max(0, size - TRACE_READ_BYTES))
+        contents = file.read().decode("utf-8", errors="replace")
+
+    marker = f"CORRELATION ID: {correlation_id}"
+    marker_index = contents.rfind(marker)
+    if marker_index == -1:
+        return None
+
+    block_start = contents.rfind("=" * 48, 0, marker_index)
+    next_block_start = contents.find(f"\n{'=' * 48}\nCORRELATION ID:", marker_index)
+    block_end = len(contents) if next_block_start == -1 else next_block_start
+    return contents[max(0, block_start):block_end].strip()
+
+
 def render_sidebar(readiness: ReadinessResponse) -> None:
     """Render Streamlit sidebar controls and backend details."""
     with st.sidebar:
@@ -160,6 +202,49 @@ def render_chat_history() -> None:
                             language="json",
                         )
 
+
+def render_observability(readiness: ReadinessResponse) -> None:
+    """Render production diagnostics for the latest Streamlit interaction."""
+    latest_turn = latest_assistant_turn()
+    st.subheader("Runtime Posture")
+    st.write(f"Provider: `{readiness.provider}`")
+    st.write(f"Model: `{readiness.model_name}`")
+    st.write(f"Tools discovered: `{readiness.tool_count}`")
+    st.write(f"Auth configured: `{readiness.checks.auth_configured}`")
+    st.write(f"Rate limit: `{readiness.rate_limit_requests}/{readiness.rate_limit_window_seconds}s`")
+    st.write(f"Trace logging: `{readiness.checks.trace_logging_configured}`")
+
+    st.subheader("Last Run")
+    if latest_turn is None or latest_turn.correlation_id is None:
+        st.info("Run a chat request to see request-level observability.")
+        return
+
+    st.write(f"Correlation ID: `{latest_turn.correlation_id}`")
+    st.write(f"Tool observations: `{len(latest_turn.tool_observations or [])}`")
+    st.write(f"Answer length: `{len(latest_turn.content)}`")
+
+    prompt = latest_user_prompt()
+    if prompt:
+        st.subheader("Replay Request")
+        header_line = '  -Headers @{"X-API-Key"="<configured>"} `\n' if get_settings().api_key else ""
+        body = json.dumps({"prompt": prompt})
+        st.code(
+            "Invoke-RestMethod -Method Post `\n"
+            f"  -Uri {get_api_base_url()}/chat `\n"
+            f"{header_line}"
+            '  -ContentType "application/json" `\n'
+            f"  -Body '{body}'",
+            language="powershell",
+        )
+
+    st.subheader("Backend Trace")
+    trace_block = load_trace_by_correlation_id(latest_turn.correlation_id)
+    if trace_block is None:
+        st.warning("Trace block was not found in logs/trace.log yet.")
+        return
+    st.code(trace_block, language="text")
+
+
 def append_result(result: ChatResponse) -> None:
     """Append one assistant result to the Streamlit transcript."""
     st.session_state.chat_turns.append(
@@ -172,23 +257,8 @@ def append_result(result: ChatResponse) -> None:
     )
 
 
-def run_app() -> None:
-    """Render the Streamlit Weekend Wizard interface."""
-    st.set_page_config(page_title="Weekend Wizard", page_icon="W", layout="wide")
-    st.title("Weekend Wizard")
-    st.caption("Plan your weekend with a Streamlit demo backed by the FastAPI service.")
-
-    if "chat_turns" not in st.session_state:
-        st.session_state.chat_turns = []
-
-    try:
-        readiness = load_readiness()
-    except Exception as exc:
-        logger.exception("Streamlit readiness check failed: %s", exc)
-        st.error(str(exc))
-        return
-
-    render_sidebar(readiness)
+def render_chat_tab(readiness: ReadinessResponse) -> None:
+    """Render the main chat workflow."""
     if readiness.status != "ready":
         st.error(readiness.details or "Weekend Wizard API is not ready.")
         return
@@ -230,6 +300,30 @@ def run_app() -> None:
                             language="json",
                         )
     append_result(result)
+
+
+def run_app() -> None:
+    """Render the Streamlit Weekend Wizard interface."""
+    st.set_page_config(page_title="Weekend Wizard", page_icon="W", layout="wide")
+    st.title("Weekend Wizard")
+    st.caption("Plan your weekend with a Streamlit demo backed by the FastAPI service.")
+
+    if "chat_turns" not in st.session_state:
+        st.session_state.chat_turns = []
+
+    try:
+        readiness = load_readiness()
+    except Exception as exc:
+        logger.exception("Streamlit readiness check failed: %s", exc)
+        st.error(str(exc))
+        return
+
+    render_sidebar(readiness)
+    chat_tab, observability_tab = st.tabs(["Chat", "Observability"])
+    with chat_tab:
+        render_chat_tab(readiness)
+    with observability_tab:
+        render_observability(readiness)
 
 
 if __name__ == "__main__":
