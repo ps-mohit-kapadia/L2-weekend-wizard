@@ -22,6 +22,8 @@ The agent decides one next step at a time, calls MCP tools when needed, observes
 
 For the parallel Level 3 Claude Agent SDK migration path, see [docs/sdk-migration.md](docs/sdk-migration.md).
 
+For access interfaces, runtime controls, examples, and quality gates, see [docs/production-readiness.md](docs/production-readiness.md).
+
 ## L3 Claude SDK Path
 
 This branch also includes a parallel Claude Agent SDK implementation under `claude_sdk_agent/`.
@@ -168,6 +170,7 @@ weekend-wizard/
 |- docs/
 |  |- a2a.md
 |  |- agent-contract.md
+|  |- production-readiness.md
 |  |- sdk-migration.md
 |
 |- evals/
