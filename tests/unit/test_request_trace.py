@@ -4,7 +4,7 @@ import unittest
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
-from logger.tracing.request_trace import create_trace, render_trace, truncate_repr, write_trace
+from logger.tracing.request_trace import create_trace, render_trace, trace_llm_decision, truncate_repr, write_trace
 
 
 class RequestTraceTests(unittest.TestCase):
@@ -29,6 +29,27 @@ class RequestTraceTests(unittest.TestCase):
         self.assertIn("EVENT: interaction_started", rendered)
         self.assertIn("EVENT: llm_call_completed", rendered)
         self.assertIn("* duration_ms: 123", rendered)
+
+    def test_trace_llm_decision_adds_canonical_event(self) -> None:
+        trace = create_trace("hello world")
+
+        trace_llm_decision(
+            trace,
+            phase="react",
+            step_number=1,
+            action="tool",
+            tool_name="get_weather",
+            accepted=True,
+            reason="tool_selected",
+        )
+
+        event = trace.events[-1]
+        self.assertEqual(event.event, "llm_decision")
+        self.assertEqual(event.data["phase"], "react")
+        self.assertEqual(event.data["step_number"], 1)
+        self.assertEqual(event.data["tool_name"], "get_weather")
+        self.assertTrue(event.data["accepted"])
+        self.assertEqual(event.data["reason"], "tool_selected")
 
     def test_truncate_repr_limits_long_values(self) -> None:
         text = "x" * 1000

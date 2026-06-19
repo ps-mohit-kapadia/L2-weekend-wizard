@@ -24,7 +24,7 @@ from agent.policies.guardrails import (
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
-from logger.tracing.request_trace import RequestTrace, truncate_repr
+from logger.tracing.request_trace import RequestTrace, trace_llm_decision, truncate_repr
 from mcp_runtime.client import ToolGateway, ToolInvocationError
 from schemas.agent import (
     InteractionResult,
@@ -498,6 +498,13 @@ def run_reflection(
             "Reflection failed; returning grounded draft instead: %s | event=reflection.failed reason=reflection_error fallback=grounded_draft",
             exc,
         )
+        trace_llm_decision(
+            trace,
+            phase="reflection",
+            action="accept",
+            accepted=False,
+            reason="reflection_error",
+        )
         return draft_answer, True, []
 
 
@@ -552,8 +559,31 @@ def finalize_after_execution(
                 "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_required_facts missing_fact_ids=%s fallback=grounded_draft",
                 missing_fact_ids,
             )
+            trace_llm_decision(
+                trace,
+                phase="reflection",
+                action="accept",
+                accepted=False,
+                reason="reflection_missing_required_facts",
+            )
             final_answer = grounded
             reflection_used_fallback = True
+        else:
+            trace_llm_decision(
+                trace,
+                phase="reflection",
+                action="accept",
+                accepted=True,
+                reason="reflection_preserved_grounded_content",
+            )
+    elif not reflection_used_fallback:
+        trace_llm_decision(
+            trace,
+            phase="reflection",
+            action="accept",
+            accepted=True,
+            reason="reflection_accepted",
+        )
     result = build_interaction_result(
         context.history,
         answer=final_answer,
@@ -638,6 +668,14 @@ async def orchestrate_interaction(
         if decision.action == "finish":
             pending_categories = _pending_requested_categories(state)
             if pending_categories:
+                trace_llm_decision(
+                    trace,
+                    phase="react",
+                    step_number=step_number,
+                    action="finish",
+                    accepted=False,
+                    reason="pending_requested_work",
+                )
                 logger.info(
                     "Finish blocked: requested work is still pending for %s | event=react.finish_blocked reason=pending_requested_work pending=%s",
                     ", ".join(_category_label(tool_name) for tool_name in pending_categories),
@@ -657,6 +695,14 @@ async def orchestrate_interaction(
                     )
                 )
                 continue
+            trace_llm_decision(
+                trace,
+                phase="react",
+                step_number=step_number,
+                action="finish",
+                accepted=True,
+                reason="finish_selected",
+            )
             draft_answer = decision.final_answer or ""
             state.final_answer = draft_answer
             state.steps.append(
@@ -680,6 +726,15 @@ async def orchestrate_interaction(
             decision.tool, decision.args, state
         )
         if normalized_args is None:
+            trace_llm_decision(
+                trace,
+                phase="react",
+                step_number=step_number,
+                action="tool",
+                tool_name=decision.tool,
+                accepted=False,
+                reason="invalid_tool_args",
+            )
             parsed_payload = parse_tool_payload(
                 decision.tool,
                 {"error": f"{decision.tool} failed", "details": error or "invalid args"},
@@ -701,6 +756,15 @@ async def orchestrate_interaction(
         elif has_successful_duplicate_observation(
             state.steps, decision.tool, normalized_args
         ):
+            trace_llm_decision(
+                trace,
+                phase="react",
+                step_number=step_number,
+                action="tool",
+                tool_name=decision.tool,
+                accepted=False,
+                reason="duplicate_successful_tool_call",
+            )
             logger.info(
                 "Skipping duplicate successful tool call for %s with args=%s and continuing",
                 decision.tool,
@@ -741,6 +805,15 @@ async def orchestrate_interaction(
                 break
             continue
         else:
+            trace_llm_decision(
+                trace,
+                phase="react",
+                step_number=step_number,
+                action="tool",
+                tool_name=decision.tool,
+                accepted=True,
+                reason="tool_selected",
+            )
             duplicate_skip_counts[_planner_message_signature(decision.tool, normalized_args)] = 0
             raw_payload = await execute_tool_call(
                 tool_gateway,

@@ -55,6 +55,33 @@ def create_trace(prompt: str) -> RequestTrace:
     return trace
 
 
+def trace_llm_decision(
+    trace: RequestTrace | None,
+    *,
+    phase: str,
+    action: str,
+    accepted: bool,
+    reason: str,
+    step_number: int | None = None,
+    tool_name: str | None = None,
+) -> None:
+    """Append one canonical LLM decision event when tracing is enabled."""
+    if trace is None:
+        return
+
+    data: Dict[str, Any] = {
+        "phase": phase,
+        "action": action,
+        "accepted": accepted,
+        "reason": reason,
+    }
+    if step_number is not None:
+        data["step_number"] = step_number
+    if tool_name:
+        data["tool_name"] = tool_name
+    trace.add_event("llm_decision", **data)
+
+
 def truncate_repr(value: Any, limit: int = 300) -> str:
     """Return a compact repr truncated for debugging readability."""
     rendered = repr(value)
