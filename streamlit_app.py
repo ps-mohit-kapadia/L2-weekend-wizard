@@ -167,6 +167,9 @@ def load_trace_by_correlation_id(correlation_id: str) -> str | None:
 def render_sidebar(readiness: ReadinessResponse) -> None:
     """Render Streamlit sidebar controls and backend details."""
     with st.sidebar:
+        st.title("Weekend Wizard")
+        st.caption("Operable weekend-planning agent.")
+        st.divider()
         st.header("Runtime")
         st.write(f"API: `{get_api_base_url()}`")
         st.write(f"Status: `{readiness.status}`")
@@ -305,8 +308,6 @@ def render_chat_tab(readiness: ReadinessResponse) -> None:
 def run_app() -> None:
     """Render the Streamlit Weekend Wizard interface."""
     st.set_page_config(page_title="Weekend Wizard", page_icon="W", layout="wide")
-    st.title("Weekend Wizard")
-    st.caption("Plan your weekend with a Streamlit demo backed by the FastAPI service.")
 
     if "chat_turns" not in st.session_state:
         st.session_state.chat_turns = []
