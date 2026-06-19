@@ -435,10 +435,11 @@ Confirms that the API process is alive.
 
 Checks whether the backend runtime is actually usable, including:
 
-- Ollama reachability
+- configured provider and provider reachability
 - configured model availability
 - MCP session readiness
 - discovered tools
+- auth, rate-limit, request-timeout, and trace-logging diagnostics
 
 ---
 

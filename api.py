@@ -84,6 +84,7 @@ def build_readiness_response(
     model_available: bool,
 ) -> ReadinessResponse:
     """Build the canonical readiness payload from authoritative lifecycle state."""
+    settings = get_settings()
     tool_names = wizard.tool_names if wizard is not None else ()
     mcp_session_ready = wizard is not None and wizard.is_initialized
     tools_discovered = bool(tool_names)
@@ -92,15 +93,23 @@ def build_readiness_response(
 
     return ReadinessResponse(
         status=status,
+        provider=provider_name,
         model_name=model_name,
         tool_count=len(tool_names),
+        request_timeout_seconds=settings.request_timeout,
+        rate_limit_requests=settings.rate_limit_requests,
+        rate_limit_window_seconds=settings.rate_limit_window_seconds,
         checks=ReadinessChecks(
             model_resolved=bool(model_name.strip()),
             model_available=model_available if provider_uses_ollama else True,
             server_path_exists=effective_server_path.exists(),
+            provider_reachable=provider_reachable,
             ollama_reachable=provider_reachable if provider_uses_ollama else True,
             mcp_session_ready=mcp_session_ready,
             tools_discovered=tools_discovered,
+            auth_configured=settings.api_key is not None,
+            rate_limit_configured=settings.rate_limit_requests > 0 and settings.rate_limit_window_seconds > 0,
+            trace_logging_configured=True,
         ),
         details=details,
     )

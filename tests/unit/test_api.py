@@ -173,10 +173,14 @@ class ApiTests(unittest.TestCase):
             payload = self._wait_for_ready_status(client, "ready")
 
         self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["provider"], "ollama")
         self.assertEqual(payload["tool_count"], 1)
         self.assertTrue(payload["checks"]["mcp_session_ready"])
         self.assertTrue(payload["checks"]["model_available"])
+        self.assertTrue(payload["checks"]["provider_reachable"])
         self.assertTrue(payload["checks"]["ollama_reachable"])
+        self.assertTrue(payload["checks"]["rate_limit_configured"])
+        self.assertTrue(payload["checks"]["trace_logging_configured"])
 
     def test_ready_endpoint_returns_503_when_not_ready(self) -> None:
         with (
@@ -393,15 +397,23 @@ class ApiTests(unittest.TestCase):
         fake_app = _FakeWizardApp()
         ready_response = ReadinessResponse(
             status="ready",
+            provider="ollama",
             model_name="llama3.2:latest",
             tool_count=1,
+            request_timeout_seconds=1200,
+            rate_limit_requests=20,
+            rate_limit_window_seconds=60,
             checks=ReadinessChecks(
                 model_resolved=True,
                 model_available=True,
                 server_path_exists=True,
+                provider_reachable=True,
                 ollama_reachable=True,
                 mcp_session_ready=True,
                 tools_discovered=True,
+                auth_configured=False,
+                rate_limit_configured=True,
+                trace_logging_configured=True,
             ),
             details=None,
         )
@@ -422,16 +434,17 @@ class ApiTests(unittest.TestCase):
     def test_ready_endpoint_reports_ready_for_aiplatform_without_ollama_probe(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), llm_provider="aiplatform")),
             patch("api.discover_model", return_value="gpt-like-model"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value.llm_provider = "aiplatform"
             payload = self._wait_for_ready_status(client, "ready")
 
         self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["provider"], "aiplatform")
         self.assertTrue(payload["checks"]["model_available"])
+        self.assertTrue(payload["checks"]["provider_reachable"])
         self.assertTrue(payload["checks"]["ollama_reachable"])
 
 

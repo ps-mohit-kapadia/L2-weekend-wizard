@@ -128,8 +128,16 @@ def render_sidebar(readiness: ReadinessResponse) -> None:
         st.header("Runtime")
         st.write(f"API: `{get_api_base_url()}`")
         st.write(f"Status: `{readiness.status}`")
+        st.write(f"Provider: `{readiness.provider}`")
         st.write(f"Model: `{readiness.model_name}`")
         st.write(f"Tools: `{readiness.tool_count}`")
+        with st.expander("Readiness diagnostics"):
+            st.write(f"Provider reachable: `{readiness.checks.provider_reachable}`")
+            st.write(f"MCP session ready: `{readiness.checks.mcp_session_ready}`")
+            st.write(f"Auth configured: `{readiness.checks.auth_configured}`")
+            st.write(f"Rate limit: `{readiness.rate_limit_requests}/{readiness.rate_limit_window_seconds}s`")
+            st.write(f"Request timeout: `{readiness.request_timeout_seconds}s`")
+            st.write(f"Trace logging: `{readiness.checks.trace_logging_configured}`")
         if st.button("New Chat", use_container_width=True):
             reset_chat()
             st.rerun()

@@ -27,13 +27,18 @@ class HealthTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status, "ready")
+        self.assertEqual(response.provider, "ollama")
         self.assertEqual(response.tool_count, 2)
+        self.assertGreater(response.request_timeout_seconds, 0)
         self.assertTrue(response.checks.model_resolved)
         self.assertTrue(response.checks.model_available)
         self.assertTrue(response.checks.server_path_exists)
+        self.assertTrue(response.checks.provider_reachable)
         self.assertTrue(response.checks.ollama_reachable)
         self.assertTrue(response.checks.mcp_session_ready)
         self.assertTrue(response.checks.tools_discovered)
+        self.assertTrue(response.checks.rate_limit_configured)
+        self.assertTrue(response.checks.trace_logging_configured)
         self.assertIsNone(response.details)
 
     def test_build_readiness_response_captures_runtime_failure(self) -> None:
@@ -52,6 +57,7 @@ class HealthTests(unittest.TestCase):
         self.assertTrue(response.checks.model_resolved)
         self.assertFalse(response.checks.model_available)
         self.assertTrue(response.checks.server_path_exists)
+        self.assertFalse(response.checks.provider_reachable)
         self.assertFalse(response.checks.ollama_reachable)
         self.assertFalse(response.checks.mcp_session_ready)
         self.assertFalse(response.checks.tools_discovered)
@@ -70,6 +76,7 @@ class HealthTests(unittest.TestCase):
         )
 
         self.assertTrue(response.checks.model_available)
+        self.assertFalse(response.checks.provider_reachable)
         self.assertTrue(response.checks.ollama_reachable)
 
 

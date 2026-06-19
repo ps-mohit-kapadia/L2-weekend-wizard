@@ -26,22 +26,33 @@ class ApiSchemaTests(unittest.TestCase):
     def test_readiness_response_captures_detailed_checks(self) -> None:
         response = ReadinessResponse(
             status="ready",
+            provider="ollama",
             model_name="llama3.2:latest",
             tool_count=6,
+            request_timeout_seconds=1200,
+            rate_limit_requests=20,
+            rate_limit_window_seconds=60,
             checks=ReadinessChecks(
                 model_resolved=True,
                 model_available=True,
                 server_path_exists=True,
+                provider_reachable=True,
                 ollama_reachable=True,
                 mcp_session_ready=True,
                 tools_discovered=True,
+                auth_configured=False,
+                rate_limit_configured=True,
+                trace_logging_configured=True,
             ),
         )
 
         self.assertEqual(response.status, "ready")
+        self.assertEqual(response.provider, "ollama")
         self.assertEqual(response.model_name, "llama3.2:latest")
         self.assertEqual(response.tool_count, 6)
+        self.assertEqual(response.request_timeout_seconds, 1200)
         self.assertTrue(response.checks.model_available)
+        self.assertTrue(response.checks.provider_reachable)
         self.assertTrue(response.checks.tools_discovered)
 
 

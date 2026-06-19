@@ -23,15 +23,23 @@ class StreamlitAppTests(unittest.TestCase):
         response = Mock()
         response.json.return_value = {
             "status": "ready",
+            "provider": "ollama",
             "model_name": "llama3.2:latest",
             "tool_count": 2,
+            "request_timeout_seconds": 1200,
+            "rate_limit_requests": 20,
+            "rate_limit_window_seconds": 60,
             "checks": {
                 "model_resolved": True,
                 "model_available": True,
                 "server_path_exists": True,
+                "provider_reachable": True,
                 "ollama_reachable": True,
                 "mcp_session_ready": True,
                 "tools_discovered": True,
+                "auth_configured": False,
+                "rate_limit_configured": True,
+                "trace_logging_configured": True,
             },
             "details": None,
         }
@@ -40,6 +48,7 @@ class StreamlitAppTests(unittest.TestCase):
         readiness = streamlit_app.load_readiness()
 
         self.assertEqual(readiness.status, "ready")
+        self.assertEqual(readiness.provider, "ollama")
         self.assertEqual(readiness.tool_count, 2)
 
     @patch("streamlit_app.requests.get", side_effect=requests.RequestException("offline"))

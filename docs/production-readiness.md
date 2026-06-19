@@ -60,6 +60,7 @@ When `WEEKEND_WIZARD_API_KEY` is configured, include:
 ## Observability
 
 - API lifecycle logs show startup, readiness, and request completion.
+- `/ready` exposes provider, model, tools, auth, rate-limit, timeout, trace-logging, and dependency diagnostics.
 - Request traces include LLM calls, tool calls, tool durations, observations, fallback state, and final answer length.
 - Semantic reason codes explain reflection rejection, fallback, repair, and request-completion decisions.
 
