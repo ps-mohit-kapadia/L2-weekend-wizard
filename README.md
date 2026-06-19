@@ -59,7 +59,11 @@ Weekend Wizard follows a bounded ReAct-style architecture:
 ```mermaid
 flowchart TD
     A["User Prompt"] --> B["Streamlit UI"]
+    A --> CLI["CLI chat"]
+    A --> A2A["A2A message/send"]
     B --> C["FastAPI /chat"]
+    CLI --> D["application/service.py"]
+    A2A --> C
     C --> D["application/service.py"]
     D --> E["agent/orchestrator.py"]
     E --> F["ReAct Prompt"]
@@ -78,11 +82,13 @@ flowchart TD
     Q --> R["Final Grounded Answer"]
     R --> C
     R --> B
+    R --> CLI
+    R --> A2A
 ```
 
 ### Execution Flow
 
-1. Streamlit sends the user prompt to FastAPI.
+1. Streamlit, CLI, or A2A sends the user prompt into the same runtime.
 2. The ReAct LLM produces one bounded JSON decision.
 3. If the decision is a tool call, the orchestrator validates and executes it through MCP.
 4. The tool observation is added to conversation history.
@@ -201,7 +207,7 @@ This module exposes the runtime over HTTP.
 
 Responsibilities:
 
-- expose `/chat`, `/health`, and `/ready`
+- expose `/chat`, `/health`, `/ready`, `/.well-known/agent.json`, and `/a2a/jsonrpc`
 - own the shared runtime lifecycle
 - return structured responses using the configured runtime model
 
@@ -328,10 +334,17 @@ python .\main.py api
 python .\main.py streamlit
 ```
 
+CLI chat is also available:
+
+```powershell
+python .\main.py chat "Give me one trivia question."
+```
+
 Useful URLs:
 
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/ready`
+- `http://127.0.0.1:8000/.well-known/agent.json`
 - `http://127.0.0.1:8000/docs`
 
 ---
@@ -358,6 +371,12 @@ python .\main.py mcp-server
 .\.venv\Scripts\python.exe .\tests\smoke\smoke_test.py --prompt "Tell me a joke."
 ```
 
+### 8. Run evals
+
+```powershell
+.\.venv\Scripts\python.exe .\evals\runner.py
+```
+
 ---
 
 ## Configuration
@@ -375,6 +394,10 @@ WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 
 WEEKEND_WIZARD_LOG_LEVEL=INFO
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
+WEEKEND_WIZARD_API_KEY=
+WEEKEND_WIZARD_MAX_PROMPT_CHARS=4000
+WEEKEND_WIZARD_RATE_LIMIT_REQUESTS=20
+WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
 Notes:
@@ -382,6 +405,8 @@ Notes:
 - the active runtime model is configured in [config/config.py](config/config.py)
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
+- `WEEKEND_WIZARD_API_KEY` enables `X-API-Key` protection for `/chat` and A2A calls when set
+- prompt size and rate-limit settings protect the local/demo API boundary
 
 ---
 
@@ -488,6 +513,8 @@ Limitations:
 
 - local-model latency is still noticeable, especially across multiple ReAct steps and reflection
 - runtime quality is model-sensitive, with stronger local models producing better step decisions at the cost of slower responses
+- A2A support is a minimal synchronous text adapter, not streaming or long-running task orchestration
+- API rate limiting is in-memory and intended for local/demo use
 - the system is intentionally bounded to the supported tool-backed flows rather than open-ended general agent behavior
 
 These tradeoffs prioritize:
@@ -509,5 +536,7 @@ Weekend Wizard demonstrates a local MCP-backed ReAct-style agent that:
 - executes tool calls deterministically through MCP
 - observes real tool output before deciding what to do next
 - runs one lightweight reflection pass before replying
+- exposes CLI, HTTP API, Streamlit, and minimal A2A-compatible access paths
+- includes repeatable tests and evals for regression confidence
 
 The architecture is intentionally modular, bounded, and teachable, making it a strong L2-style capstone implementation for the original assignment.
