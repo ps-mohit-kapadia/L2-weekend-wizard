@@ -268,7 +268,7 @@ def render_chat_tab(readiness: ReadinessResponse) -> None:
 
     render_chat_history()
 
-    prompt = st.chat_input("What kind of weekend are you looking for?")
+    prompt = st.session_state.pop("pending_prompt", None)
     if not prompt:
         return
 
@@ -311,6 +311,8 @@ def run_app() -> None:
 
     if "chat_turns" not in st.session_state:
         st.session_state.chat_turns = []
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
 
     try:
         readiness = load_readiness()
@@ -325,6 +327,11 @@ def run_app() -> None:
         render_chat_tab(readiness)
     with observability_tab:
         render_observability(readiness)
+
+    prompt = st.chat_input("What kind of weekend are you looking for?")
+    if prompt:
+        st.session_state.pending_prompt = prompt
+        st.rerun()
 
 
 if __name__ == "__main__":
