@@ -90,7 +90,7 @@ class ReadinessResponse(BaseModel):
     provider: str
     model_name: str
     tool_count: int
-    request_timeout_seconds: int
+    request_timeout_seconds: float
     rate_limit_requests: int
     rate_limit_window_seconds: int
     checks: ReadinessChecks

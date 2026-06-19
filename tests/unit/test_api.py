@@ -247,10 +247,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key="secret")),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 401)
@@ -261,10 +260,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key="secret")),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
             response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "wrong"})
 
         self.assertEqual(response.status_code, 401)
@@ -275,10 +273,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key="secret")),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
             response = client.post("/chat", json={"prompt": "hello"}, headers={"X-API-Key": "secret"})
 
         self.assertEqual(response.status_code, 200)
@@ -288,10 +285,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key="secret")),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key="secret")
             health_response = client.get("/health")
             ready_payload = self._wait_for_ready_status(client, "ready")
 
@@ -303,10 +299,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, max_prompt_chars=5)),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key=None, max_prompt_chars=5)
             response = client.post("/chat", json={"prompt": "too long"})
 
         self.assertEqual(response.status_code, 413)
@@ -317,10 +312,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _FakeWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, rate_limit_requests=1)),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key=None, rate_limit_requests=1)
             first_response = client.post("/chat", json={"prompt": "hello"})
             second_response = client.post("/chat", json={"prompt": "hello again"})
 
@@ -333,10 +327,9 @@ class ApiTests(unittest.TestCase):
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
             patch("api.discover_model", return_value="llama3.2:latest"),
             patch("api.WeekendWizardApp", _NeverCompletingWizardApp),
-            patch("api.get_settings") as mock_get_settings,
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, request_timeout=0.001)),
             TestClient(api.create_api()) as client,
         ):
-            mock_get_settings.return_value = replace(get_settings(), api_key=None, request_timeout=0.001)
             response = client.post("/chat", json={"prompt": "hello"})
 
         self.assertEqual(response.status_code, 504)
