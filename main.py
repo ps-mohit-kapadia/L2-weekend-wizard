@@ -43,7 +43,9 @@ def run_streamlit(project_dir: Path, args: Sequence[str] | None = None) -> None:
         raise SystemExit(completed.returncode)
 
 
-async def run_chat_cli(project_dir: Path, prompt: str, show_observations: bool = False) -> None:
+async def run_chat_cli(
+    project_dir: Path, prompt: str, show_observations: bool = False
+) -> None:
     """Run one Weekend Wizard interaction from the command line.
 
     Args:
@@ -55,7 +57,9 @@ async def run_chat_cli(project_dir: Path, prompt: str, show_observations: bool =
         RuntimeError: If model discovery or app startup fails.
     """
     model_name = discover_model(None)
-    async with WeekendWizardApp(project_dir / "main.py", model_name, ["mcp-server"]) as app:
+    async with WeekendWizardApp(
+        project_dir / "main.py", model_name, ["mcp-server"]
+    ) as app:
         context = app.create_interaction_context()
         result = await app.run_interaction(prompt, context=context)
 
@@ -95,8 +99,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         show_observations = "--show-observations" in args[1:]
         prompt_parts = [arg for arg in args[1:] if arg != "--show-observations"]
         if not prompt_parts:
-            raise SystemExit("Usage: python main.py chat <prompt> [--show-observations]")
-        asyncio.run(run_chat_cli(project_dir, " ".join(prompt_parts), show_observations))
+            raise SystemExit(
+                "Usage: python main.py chat <prompt> [--show-observations]"
+            )
+        asyncio.run(
+            run_chat_cli(project_dir, " ".join(prompt_parts), show_observations)
+        )
         return
 
     raise SystemExit("Usage: python main.py [api|streamlit|mcp-server|chat]")

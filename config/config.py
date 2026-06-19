@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Tuple
 
+from dotenv import load_dotenv
+
+load_dotenv(override=False)
+
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _VALID_LLM_PROVIDERS = {"ollama", "aiplatform"}
 
