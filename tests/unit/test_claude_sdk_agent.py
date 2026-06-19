@@ -55,6 +55,7 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
         result = await run_claude_sdk_prompt("Tell me a joke.", dry_run=True)
 
         self.assertEqual(result["mode"], "dry-run")
+        self.assertTrue(result["correlation_id"].startswith("corr_"))
         self.assertEqual(result["prompt"], "Tell me a joke.")
         self.assertEqual(result["config"]["mode"], "no-live-call")
         self.assertIn("allowed_tools", result["config"])
@@ -65,9 +66,15 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
     @patch("claude_sdk_agent.smoke.run_claude_sdk_prompt")
     async def test_run_smoke_scenarios_dry_run_reports_labels_prompts_and_config(self, mock_run_prompt) -> None:
         mock_run_prompt.side_effect = [
-            {"mode": "dry-run", "prompt": "Tell me a joke.", "config": {"mode": "no-live-call"}},
             {
                 "mode": "dry-run",
+                "correlation_id": "corr_1111111111111111",
+                "prompt": "Tell me a joke.",
+                "config": {"mode": "no-live-call"},
+            },
+            {
+                "mode": "dry-run",
+                "correlation_id": "corr_2222222222222222",
                 "prompt": "Plan a cozy Saturday in New York with today's weather, 3 mystery books, one joke, and a dog pic.",
                 "config": {"mode": "no-live-call"},
             },
@@ -79,8 +86,10 @@ class ClaudeSdkAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0]["label"], "joke-only")
         self.assertEqual(results[0]["prompt"], "Tell me a joke.")
         self.assertEqual(results[0]["mode"], "dry-run")
+        self.assertEqual(results[0]["correlation_id"], "corr_1111111111111111")
         self.assertIn("config", results[0])
         self.assertEqual(results[1]["label"], "weekend-multi-tool")
+        self.assertEqual(results[1]["correlation_id"], "corr_2222222222222222")
         self.assertIn("config", results[1])
 
     @patch("claude_sdk_agent.tools.l2_random_joke", return_value=JokeResult(joke="A fetched joke."))

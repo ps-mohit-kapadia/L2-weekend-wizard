@@ -68,6 +68,7 @@ class A2AJsonRpcResult(BaseModel):
     """Successful A2A JSON-RPC result payload."""
 
     status: A2ATaskStatus
+    correlation_id: str | None = None
     artifacts: list[A2AArtifact] = Field(default_factory=list)
 
 

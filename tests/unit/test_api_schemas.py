@@ -12,8 +12,9 @@ class ApiSchemaTests(unittest.TestCase):
         self.assertEqual(request.prompt, "hello")
 
     def test_chat_response_captures_tool_observations(self) -> None:
-        response = ChatResponse(answer="done")
+        response = ChatResponse(correlation_id="corr_1234567890abcdef", answer="done")
 
+        self.assertEqual(response.correlation_id, "corr_1234567890abcdef")
         self.assertEqual(response.answer, "done")
         self.assertEqual(response.tool_observations, [])
 

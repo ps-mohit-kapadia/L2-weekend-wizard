@@ -23,10 +23,12 @@ class ChatResponse(BaseModel):
     """Output payload returned by the Weekend Wizard chat endpoint.
 
     Attributes:
+        correlation_id: App-wide correlation id for this execution.
         answer: Final grounded answer generated for the request.
         tool_observations: Structured tool observations collected during execution.
     """
 
+    correlation_id: str
     answer: str
     tool_observations: List[ToolObservation] = Field(default_factory=list)
 

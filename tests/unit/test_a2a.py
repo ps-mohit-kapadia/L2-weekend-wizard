@@ -104,11 +104,12 @@ class A2ATests(unittest.TestCase):
         self.assertEqual(payload["jsonrpc"], "2.0")
         self.assertEqual(payload["id"], "req-1")
         self.assertEqual(payload["result"]["status"]["state"], "completed")
+        self.assertTrue(payload["result"]["correlation_id"].startswith("corr_"))
         self.assertEqual(
             payload["result"]["artifacts"][0]["parts"][0]["text"],
             "Trivia: demo. Answer: demo.",
         )
-        self.assertIn("request_id=req_", joined)
+        self.assertIn("correlation_id=corr_", joined)
         self.assertIn("interface=a2a", joined)
         fake_app.run_interaction.assert_awaited_once()
 

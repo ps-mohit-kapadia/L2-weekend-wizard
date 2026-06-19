@@ -11,7 +11,7 @@ class RequestTraceTests(unittest.TestCase):
     def test_create_trace_adds_interaction_started_event(self) -> None:
         trace = create_trace("hello world")
 
-        self.assertTrue(trace.request_id.startswith("req_"))
+        self.assertTrue(trace.correlation_id.startswith("corr_"))
         self.assertEqual(trace.user_prompt, "hello world")
         self.assertEqual(len(trace.events), 1)
         self.assertEqual(trace.events[0].event, "interaction_started")
@@ -22,7 +22,7 @@ class RequestTraceTests(unittest.TestCase):
 
         rendered = render_trace(trace)
 
-        self.assertIn("REQUEST TRACE:", rendered)
+        self.assertIn("CORRELATION ID:", rendered)
         self.assertIn("STARTED:", rendered)
         self.assertIn("ENDED:", rendered)
         self.assertIn("TOTAL DURATION:", rendered)
@@ -47,7 +47,7 @@ class RequestTraceTests(unittest.TestCase):
 
             contents = log_path.read_text(encoding="utf-8")
 
-        self.assertIn(f"REQUEST TRACE: {trace.request_id}", contents)
+        self.assertIn(f"CORRELATION ID: {trace.correlation_id}", contents)
         self.assertTrue(contents.endswith("\n\n"))
 
 

@@ -23,7 +23,7 @@ class TraceEvent:
 class RequestTrace:
     """Collect chronological debugging events for one request."""
 
-    request_id: str
+    correlation_id: str
     user_prompt: str
     started_at: datetime
     events: List[TraceEvent] = field(default_factory=list)
@@ -39,10 +39,15 @@ class RequestTrace:
         )
 
 
+def create_correlation_id() -> str:
+    """Create one app-wide correlation id for a single execution."""
+    return f"corr_{token_hex(8)}"
+
+
 def create_trace(prompt: str) -> RequestTrace:
     """Create a request trace with a lightweight request id."""
     trace = RequestTrace(
-        request_id=f"req_{token_hex(4)}",
+        correlation_id=create_correlation_id(),
         user_prompt=prompt,
         started_at=datetime.now(),
     )
@@ -67,7 +72,7 @@ def render_trace(trace: RequestTrace) -> str:
 
     lines = [
         "=" * 48,
-        f"REQUEST TRACE: {trace.request_id}",
+        f"CORRELATION ID: {trace.correlation_id}",
         "=" * 48,
         f"STARTED: {started_text}",
         f"ENDED: {ended_text}",
@@ -108,7 +113,7 @@ def write_trace(trace: RequestTrace, log_path: Path | None = None) -> None:
     except OSError as exc:
         logging.getLogger("weekend_wizard.logger.tracing.request_trace").warning(
             "Could not write request trace %s to %s: %s",
-            trace.request_id,
+            trace.correlation_id,
             target,
             exc,
         )

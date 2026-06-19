@@ -203,6 +203,7 @@ class ApiTests(unittest.TestCase):
                 response = client.post("/chat", json={"prompt": "Plan me a weekend in New York"})
 
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["correlation_id"].startswith("corr_"))
         self.assertEqual(response.json()["answer"], "Weekend plan ready.")
         self.assertEqual(response.json()["tool_observations"][0]["tool_name"], "get_weather")
         self.assertEqual(len(fake_app.created_contexts), 1)
@@ -220,9 +221,9 @@ class ApiTests(unittest.TestCase):
         joined = "\n".join(captured.output)
         self.assertIn("Received /chat request", joined)
         self.assertIn("Completed /chat request", joined)
-        self.assertIn("request_id=req_", joined)
+        self.assertIn("correlation_id=corr_", joined)
         self.assertIn("interface=chat", joined)
-        self.assertIn("REQUEST TRACE:", joined)
+        self.assertIn("CORRELATION ID:", joined)
         self.assertIn("EVENT: interaction_started", joined)
         self.assertIn("EVENT: interaction_completed", joined)
 
@@ -349,7 +350,7 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
         joined = "\n".join(captured.output)
-        self.assertIn("REQUEST TRACE:", joined)
+        self.assertIn("CORRELATION ID:", joined)
         self.assertIn("EVENT: interaction_started", joined)
         self.assertIn("EVENT: interaction_completed", joined)
 

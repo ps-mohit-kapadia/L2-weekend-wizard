@@ -39,6 +39,7 @@ async def run_smoke_scenarios(*, dry_run: bool) -> list[dict[str, Any]]:
             "label": scenario.label,
             "prompt": scenario.prompt,
             "mode": result["mode"],
+            "correlation_id": result["correlation_id"],
         }
         if dry_run:
             entry["config"] = result["config"]

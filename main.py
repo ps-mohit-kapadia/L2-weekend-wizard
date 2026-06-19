@@ -12,6 +12,7 @@ from typing import Sequence
 from api import run_api
 from application.service import WeekendWizardApp
 from llm_client import discover_model
+from logger.tracing.request_trace import create_trace
 from mcp_server import run_mcp_server
 
 
@@ -61,8 +62,11 @@ async def run_chat_cli(
         project_dir / "main.py", model_name, ["mcp-server"]
     ) as app:
         context = app.create_interaction_context()
-        result = await app.run_interaction(prompt, context=context)
+        trace = create_trace(prompt)
+        result = await app.run_interaction(prompt, context=context, trace=trace)
 
+    print(f"Correlation ID: {trace.correlation_id}")
+    print()
     print(result.answer)
     if show_observations:
         print()

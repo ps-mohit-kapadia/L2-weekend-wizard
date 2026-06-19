@@ -54,6 +54,7 @@ class StreamlitAppTests(unittest.TestCase):
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
+            "correlation_id": "corr_1234567890abcdef",
             "answer": "Weekend plan ready.",
             "tool_observations": [],
         }
@@ -61,6 +62,7 @@ class StreamlitAppTests(unittest.TestCase):
 
         result = streamlit_app.send_chat_prompt("hello")
 
+        self.assertEqual(result.correlation_id, "corr_1234567890abcdef")
         self.assertEqual(result.answer, "Weekend plan ready.")
         self.assertEqual(result.tool_observations, [])
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 888)
@@ -73,6 +75,7 @@ class StreamlitAppTests(unittest.TestCase):
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
+            "correlation_id": "corr_1234567890abcdef",
             "answer": "Weekend plan ready.",
             "tool_observations": [],
         }

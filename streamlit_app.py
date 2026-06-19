@@ -26,11 +26,13 @@ class ChatTurn:
     Attributes:
         role: Chat role rendered in the UI, such as ``user`` or ``assistant``.
         content: Markdown content displayed for the chat turn.
+        correlation_id: Optional app-wide correlation id for assistant responses.
         tool_observations: Optional serialized tool observations shown in the UI.
     """
 
     role: str
     content: str
+    correlation_id: str | None = None
     tool_observations: list[dict[str, Any]] | None = None
 
 
@@ -138,6 +140,10 @@ def render_chat_history() -> None:
     for turn in st.session_state.get("chat_turns", []):
         with st.chat_message(turn.role):
             st.markdown(turn.content)
+            if turn.correlation_id:
+                with st.expander("Agent run details"):
+                    st.write(f"Correlation ID: `{turn.correlation_id}`")
+                    st.write(f"Tool observations: `{len(turn.tool_observations or [])}`")
             if turn.tool_observations:
                 with st.expander("Tool observations"):
                     for observation in turn.tool_observations:
@@ -152,6 +158,7 @@ def append_result(result: ChatResponse) -> None:
         ChatTurn(
             role="assistant",
             content=result.answer,
+            correlation_id=result.correlation_id,
             tool_observations=[observation.model_dump() for observation in result.tool_observations],
         )
     )
@@ -204,6 +211,9 @@ def run_app() -> None:
                 return
 
             st.markdown(result.answer)
+            with st.expander("Agent run details"):
+                st.write(f"Correlation ID: `{result.correlation_id}`")
+                st.write(f"Tool observations: `{len(result.tool_observations)}`")
             if result.tool_observations:
                 with st.expander("Tool observations"):
                     for observation in result.tool_observations:

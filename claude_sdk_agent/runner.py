@@ -9,6 +9,7 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClie
 from claude_sdk_agent.config import ClaudeSdkAgentConfig, get_default_config
 from claude_sdk_agent.prompts import build_system_prompt
 from claude_sdk_agent.tools import build_sdk_server
+from logger.tracing.request_trace import create_correlation_id
 
 
 def build_agent_options(config: ClaudeSdkAgentConfig) -> ClaudeAgentOptions:
@@ -59,9 +60,11 @@ async def run_claude_sdk_prompt(
     summary of the configured path is returned instead.
     """
     resolved = config or get_default_config()
+    correlation_id = create_correlation_id()
     if dry_run:
         return {
             "mode": "dry-run",
+            "correlation_id": correlation_id,
             "prompt": prompt,
             "config": build_dry_run_summary(resolved),
         }
@@ -82,5 +85,6 @@ async def run_claude_sdk_prompt(
 
     return {
         "mode": "live",
+        "correlation_id": correlation_id,
         "answer": final_text or final_result or "",
     }

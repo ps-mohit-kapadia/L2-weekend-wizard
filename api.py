@@ -52,10 +52,10 @@ A2A_INVALID_REQUEST_DETAIL = "Invalid A2A JSON-RPC request."
 A2A_INVALID_PARAMS_DETAIL = "Invalid A2A message params."
 
 
-def a2a_error(request_id: str | int | None, code: int, message: str) -> JSONResponse:
+def a2a_error(rpc_request_id: str | int | None, code: int, message: str) -> JSONResponse:
     """Build one JSON-RPC error response for A2A protocol failures."""
     response = A2AJsonRpcResponse(
-        id=request_id,
+        id=rpc_request_id,
         error=A2AJsonRpcError(code=code, message=message),
     )
     return JSONResponse(content=response.model_dump(exclude_none=True))
@@ -391,31 +391,31 @@ def create_api() -> FastAPI:
         trace = create_trace(prompt)
         try:
             logger.info(
-                "Received A2A request with prompt length %d | event=request.started request_id=%s interface=a2a prompt_length=%d",
+                "Received A2A request with prompt length %d | event=request.started correlation_id=%s interface=a2a prompt_length=%d",
                 len(prompt),
-                trace.request_id,
+                trace.correlation_id,
                 len(prompt),
             )
             result = await run_agent_prompt(app, prompt, trace, settings)
         except asyncio.TimeoutError as exc:
             logger.warning(
-                "A2A request timed out after %ss | event=request.timeout request_id=%s interface=a2a status=timeout",
+                "A2A request timed out after %ss | event=request.timeout correlation_id=%s interface=a2a status=timeout",
                 settings.request_timeout,
-                trace.request_id,
+                trace.correlation_id,
             )
             raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
         except HTTPException as exc:
             logger.warning(
-                "A2A request failed with HTTP error | event=request.failed request_id=%s interface=a2a status=failed status_code=%d",
-                trace.request_id,
+                "A2A request failed with HTTP error | event=request.failed correlation_id=%s interface=a2a status=failed status_code=%d",
+                trace.correlation_id,
                 exc.status_code,
             )
             return a2a_error(request.id, -32000, str(exc.detail))
         except Exception as exc:
             logger.exception(
-                "A2A request failed: %s | event=request.failed request_id=%s interface=a2a status=failed",
+                "A2A request failed: %s | event=request.failed correlation_id=%s interface=a2a status=failed",
                 exc,
-                trace.request_id,
+                trace.correlation_id,
             )
             return a2a_error(request.id, -32000, UNEXPECTED_CHAT_ERROR_DETAIL)
         finally:
@@ -425,15 +425,16 @@ def create_api() -> FastAPI:
             write_trace(trace)
 
         logger.info(
-            "Completed A2A request with answer length %d | event=request.completed request_id=%s interface=a2a status=completed answer_length=%d",
+            "Completed A2A request with answer length %d | event=request.completed correlation_id=%s interface=a2a status=completed answer_length=%d",
             len(result.answer),
-            trace.request_id,
+            trace.correlation_id,
             len(result.answer),
         )
         response = A2AJsonRpcResponse(
             id=request.id,
             result=A2AJsonRpcResult(
                 status=A2ATaskStatus(state="completed"),
+                correlation_id=trace.correlation_id,
                 artifacts=[
                     A2AArtifact(
                         name="weekend_wizard_answer",
@@ -465,9 +466,9 @@ def create_api() -> FastAPI:
         trace = create_trace(request.prompt)
         try:
             logger.info(
-                "Received /chat request with prompt length %d | event=request.started request_id=%s interface=chat prompt_length=%d",
+                "Received /chat request with prompt length %d | event=request.started correlation_id=%s interface=chat prompt_length=%d",
                 len(request.prompt),
-                trace.request_id,
+                trace.correlation_id,
                 len(request.prompt),
             )
             result = await run_agent_prompt(app, request.prompt, trace, settings)
@@ -475,16 +476,16 @@ def create_api() -> FastAPI:
             raise
         except asyncio.TimeoutError as exc:
             logger.warning(
-                "Chat request timed out after %ss | event=request.timeout request_id=%s interface=chat status=timeout",
+                "Chat request timed out after %ss | event=request.timeout correlation_id=%s interface=chat status=timeout",
                 settings.request_timeout,
-                trace.request_id,
+                trace.correlation_id,
             )
             raise HTTPException(status_code=504, detail=REQUEST_TIMEOUT_DETAIL) from exc
         except Exception as exc:
             logger.exception(
-                "Chat request failed: %s | event=request.failed request_id=%s interface=chat status=failed",
+                "Chat request failed: %s | event=request.failed correlation_id=%s interface=chat status=failed",
                 exc,
-                trace.request_id,
+                trace.correlation_id,
             )
             raise HTTPException(status_code=500, detail=UNEXPECTED_CHAT_ERROR_DETAIL) from exc
         finally:
@@ -494,16 +495,17 @@ def create_api() -> FastAPI:
             write_trace(trace)
 
         logger.info(
-            "Completed /chat request with %d observations, fallback=%s, answer length=%d | event=request.completed request_id=%s interface=chat status=completed fallback=%s observations_count=%d answer_length=%d",
+            "Completed /chat request with %d observations, fallback=%s, answer length=%d | event=request.completed correlation_id=%s interface=chat status=completed fallback=%s observations_count=%d answer_length=%d",
             len(result.tool_observations),
             result.used_fallback,
             len(result.answer),
-            trace.request_id,
+            trace.correlation_id,
             str(result.used_fallback).lower(),
             len(result.tool_observations),
             len(result.answer),
         )
         return ChatResponse(
+            correlation_id=trace.correlation_id,
             answer=result.answer,
             tool_observations=result.tool_observations,
         )
