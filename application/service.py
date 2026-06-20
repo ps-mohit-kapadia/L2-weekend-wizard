@@ -83,26 +83,44 @@ class WeekendWizardApp:
             RuntimeError: If startup validation fails.
         """
         logger.info(
-            "Starting app session with server %s, model %s, args %s",
+            "Starting app session with server %s, model %s, args %s | event=runtime.starting component=app_session model=%s server_path=%s",
             self._server_path,
             self._model_name,
             self._server_args,
+            self._model_name,
+            self._server_path,
         )
         try:
             await self._mcp_service.__aenter__()
             self._tool_names = list(self._mcp_service.tool_names)
             self._validate_startup()
             self._is_initialized = True
-            logger.info("App session ready with model %s and %d tools", self._model_name, len(self._tool_names))
+            logger.info(
+                "App session ready with model %s and %d tools | event=runtime.ready component=app_session model=%s tool_count=%d",
+                self._model_name,
+                len(self._tool_names),
+                self._model_name,
+                len(self._tool_names),
+            )
             return self
         except Exception as exc:
-            logger.exception("App session startup failed: %s", exc)
+            logger.exception(
+                "App session startup failed: %s | event=runtime.startup_failed component=app_session model=%s status=failed",
+                exc,
+                self._model_name,
+            )
             await self._mcp_service.__aexit__(None, None, None)
             raise
 
     async def __aexit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
         """Release MCP resources held by the application service."""
-        logger.info("Closing app session for model %s with %d tools", self._model_name, len(self._tool_names))
+        logger.info(
+            "Closing app session for model %s with %d tools | event=runtime.closing component=app_session model=%s tool_count=%d",
+            self._model_name,
+            len(self._tool_names),
+            self._model_name,
+            len(self._tool_names),
+        )
         self._is_initialized = False
         self._tool_names = []
         await self._mcp_service.__aexit__(exc_type, exc, exc_tb)
@@ -147,7 +165,9 @@ class WeekendWizardApp:
         if not self._is_initialized:
             raise RuntimeError("Weekend Wizard app has not been initialized.")
         logger.info(
-            "Dispatching interaction with model %s and prompt length %d",
+            "Dispatching interaction with model %s and prompt length %d | event=interaction.dispatch component=app_session model=%s prompt_length=%d",
+            context.model_name,
+            len(user_prompt),
             context.model_name,
             len(user_prompt),
         )
@@ -158,9 +178,12 @@ class WeekendWizardApp:
             trace=trace,
         )
         logger.info(
-            "Interaction completed with %d observations, fallback=%s, answer length=%d",
+            "Interaction completed with %d observations, fallback=%s, answer length=%d | event=interaction.completed component=app_session status=completed observations_count=%d fallback=%s answer_length=%d",
             len(result.tool_observations),
             result.used_fallback,
+            len(result.answer),
+            len(result.tool_observations),
+            str(result.used_fallback).lower(),
             len(result.answer),
         )
         return result

@@ -235,23 +235,43 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
             model_available=True,
         )
         if readiness.status != "ready":
-            logger.warning("API runtime is not ready: %s", readiness.details)
+            logger.warning(
+                "API runtime is not ready: %s | event=runtime.not_ready interface=api provider=%s model=%s status=not_ready reason=%s",
+                readiness.details,
+                provider_name,
+                model_name,
+                readiness.details,
+            )
             app.state.readiness = readiness
             await close_wizard_if_present(wizard)
             return
 
         app.state.wizard = wizard
         app.state.readiness = readiness
-        logger.info("API runtime ready with model %s and %d tools", wizard.model_name, len(wizard.tool_names))
+        logger.info(
+            "API runtime ready with model %s and %d tools | event=runtime.ready interface=api provider=%s model=%s tool_count=%d",
+            wizard.model_name,
+            len(wizard.tool_names),
+            provider_name,
+            wizard.model_name,
+            len(wizard.tool_names),
+        )
     except asyncio.CancelledError:
         await close_wizard_if_present(wizard)
         raise
     except Exception as exc:
-        logger.exception("API runtime startup failed: %s", exc)
         await close_wizard_if_present(wizard)
         provider_uses_ollama = provider_name == "ollama"
         details, retryable = classify_startup_failure(exc)
         app.state.startup_retryable = retryable
+        logger.exception(
+            "API runtime startup failed: %s | event=runtime.startup_failed interface=api provider=%s model=%s status=not_ready reason=%s retryable=%s",
+            exc,
+            provider_name,
+            model_name,
+            details,
+            str(retryable).lower(),
+        )
 
         app.state.readiness = build_readiness_response(
             status="not_ready",
@@ -272,7 +292,12 @@ async def supervise_runtime(app: FastAPI, server_path: Path) -> None:
         readiness = app.state.readiness
         if readiness.status == "ready" or not getattr(app.state, "startup_retryable", False):
             return
-        logger.info("Retrying API runtime startup after retryable readiness failure: %s", readiness.details)
+        logger.info(
+            "Retrying API runtime startup after retryable readiness failure: %s | event=runtime.retry interface=api provider=%s status=retrying reason=%s",
+            readiness.details,
+            readiness.provider,
+            readiness.details,
+        )
         await asyncio.sleep(STARTUP_RETRY_INTERVAL_SECONDS)
 
 
@@ -317,7 +342,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 pass
         wizard = getattr(app.state, "wizard", None)
         if wizard is not None:
-            logger.info("Closing API runtime for model %s with %d tools", wizard.model_name, len(wizard.tool_names))
+            logger.info(
+                "Closing API runtime for model %s with %d tools | event=runtime.closing interface=api model=%s tool_count=%d",
+                wizard.model_name,
+                len(wizard.tool_names),
+                wizard.model_name,
+                len(wizard.tool_names),
+            )
             await wizard.__aexit__(None, None, None)
         app.state.wizard = None
         app.state.startup_task = None
