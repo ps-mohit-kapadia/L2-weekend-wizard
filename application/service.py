@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, List, Sequence
 
 from agent.orchestrator import orchestrate_interaction
+from agent.tool_specs import TOOL_SPECS
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace
 from mcp_runtime.client import McpService
@@ -198,3 +199,17 @@ class WeekendWizardApp:
             raise RuntimeError("No Ollama model was resolved for this session.")
         if not self._tool_names:
             raise RuntimeError("Startup check could not discover any MCP tools.")
+        runtime_tools = set(self._tool_names)
+        contract_tools = set(TOOL_SPECS)
+        missing_contracts = sorted(runtime_tools - contract_tools)
+        if missing_contracts:
+            raise RuntimeError(
+                "MCP exposed tools without planner contracts: "
+                + ", ".join(missing_contracts)
+            )
+        missing_runtime_tools = sorted(contract_tools - runtime_tools)
+        if missing_runtime_tools:
+            raise RuntimeError(
+                "Planner contracts reference tools not exposed by MCP: "
+                + ", ".join(missing_runtime_tools)
+            )
