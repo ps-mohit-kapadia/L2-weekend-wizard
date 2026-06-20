@@ -3,6 +3,7 @@ from __future__ import annotations
 """MCP client layer for server lifecycle, tool discovery, and tool calls."""
 
 import asyncio
+import json
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -11,6 +12,36 @@ from typing import Any, Dict, List, Protocol
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
+
+
+def extract_tool_payload(result: Any) -> Any:
+    """Extract one logical payload object from a raw MCP tool result."""
+    if getattr(result, "content", None):
+        for item in result.content:
+            text = getattr(item, "text", None)
+            if text is not None:
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    return text
+            if hasattr(item, "model_dump"):
+                return item.model_dump()
+            if hasattr(item, "model_dump_json"):
+                dumped = item.model_dump_json()
+                try:
+                    return json.loads(dumped)
+                except json.JSONDecodeError:
+                    return dumped
+            return str(item)
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    if hasattr(result, "model_dump_json"):
+        dumped = result.model_dump_json()
+        try:
+            return json.loads(dumped)
+        except json.JSONDecodeError:
+            return dumped
+    return str(result)
 
 
 class ToolGateway(Protocol):

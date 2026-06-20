@@ -6,10 +6,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from mcp_runtime.client import McpService, ToolInvocationError
+from mcp_runtime.client import McpService, ToolInvocationError, extract_tool_payload
 
 
 class McpServiceTests(unittest.IsolatedAsyncioTestCase):
+    def test_extract_tool_payload_reads_text_content_json(self) -> None:
+        result = SimpleNamespace(content=[SimpleNamespace(text='{"status": "ok"}')])
+
+        self.assertEqual(extract_tool_payload(result), {"status": "ok"})
+
+    def test_extract_tool_payload_returns_plain_text_content(self) -> None:
+        result = SimpleNamespace(content=[SimpleNamespace(text="plain result")])
+
+        self.assertEqual(extract_tool_payload(result), "plain result")
+
     async def test_call_tool_raises_before_initialization(self) -> None:
         service = McpService(Path("mcp_server.py"))
 

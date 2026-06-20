@@ -25,7 +25,7 @@ from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace, trace_llm_decision, truncate_repr
-from mcp_runtime.client import ToolGateway, ToolInvocationError
+from mcp_runtime.client import ToolGateway, ToolInvocationError, extract_tool_payload
 from schemas.agent import (
     InteractionResult,
     OrchestratorContext,
@@ -100,36 +100,6 @@ def _serialize_tool_payload(payload: Any) -> str:
     if isinstance(payload, (dict, list)):
         return json.dumps(payload)
     return str(payload)
-
-
-def _extract_tool_payload(result: Any) -> Any:
-    """Extract one logical tool payload object from the raw MCP tool result."""
-    if getattr(result, "content", None):
-        for item in result.content:
-            text = getattr(item, "text", None)
-            if text is not None:
-                try:
-                    return json.loads(text)
-                except json.JSONDecodeError:
-                    return text
-            if hasattr(item, "model_dump"):
-                return item.model_dump()
-            if hasattr(item, "model_dump_json"):
-                dumped = item.model_dump_json()
-                try:
-                    return json.loads(dumped)
-                except json.JSONDecodeError:
-                    return dumped
-            return str(item)
-    if hasattr(result, "model_dump"):
-        return result.model_dump()
-    if hasattr(result, "model_dump_json"):
-        dumped = result.model_dump_json()
-        try:
-            return json.loads(dumped)
-        except json.JSONDecodeError:
-            return dumped
-    return str(result)
 
 
 def _initialize_fulfillment(
@@ -302,7 +272,7 @@ async def execute_tool_call(
         logger.info("Invoking tool %s with args=%s", tool_name, args)
         started = time.perf_counter()
         result = await tool_gateway.call_tool(tool_name, args)
-        raw_payload = _extract_tool_payload(result)
+        raw_payload = extract_tool_payload(result)
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info("Tool %s completed", tool_name)
         if trace is not None:
