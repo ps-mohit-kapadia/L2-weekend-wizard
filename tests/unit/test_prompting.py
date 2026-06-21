@@ -95,7 +95,7 @@ class PromptingTests(unittest.TestCase):
         )
 
         self.assertEqual(len(messages), 2)
-        self.assertIn('{"answer":"...","preserved_fact_ids":["..."]}', messages[0]["content"])
+        self.assertIn('{"answer":"..."}', messages[0]["content"])
         self.assertIn("final user-facing answer", messages[0]["content"])
         self.assertIn("natural prose or cleaner bullets", messages[0]["content"])
         self.assertIn("preserve every concrete grounded fact", messages[0]["content"])

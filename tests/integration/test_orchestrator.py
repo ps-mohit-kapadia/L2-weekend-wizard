@@ -1035,7 +1035,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         "agent.orchestrator.llm_reflection_json",
         return_value={
             "answer": "Joke: A fetched joke. Hope that brightens your day.",
-            "preserved_fact_ids": ["joke:1"],
         },
     )
     @patch("agent.orchestrator.llm_react_json")
@@ -1064,7 +1063,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         "agent.orchestrator.llm_reflection_json",
         return_value={
             "answer": "The weather in Paris is 18.3°C and mainly clear right now.",
-            "preserved_fact_ids": ["weather:1"],
         },
     )
     @patch("agent.orchestrator.llm_react_json")

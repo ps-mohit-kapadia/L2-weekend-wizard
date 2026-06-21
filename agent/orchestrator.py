@@ -391,36 +391,6 @@ def _pending_requested_categories(state: ExecutionState) -> List[str]:
     return pending
 
 
-def _reflection_fact_prefix(tool_name: str) -> str:
-    if tool_name == "city_to_coords":
-        return "city_lookup"
-    if tool_name == "get_weather":
-        return "weather"
-    if tool_name == "book_recs":
-        return "books"
-    if tool_name == "random_joke":
-        return "joke"
-    if tool_name == "random_dog":
-        return "dog_pic"
-    if tool_name == "trivia":
-        return "trivia"
-    return tool_name
-
-
-def _reflection_required_ids(state: ExecutionState) -> set[str]:
-    required_ids: set[str] = set()
-    counts: Dict[str, int] = {}
-    for step in state.steps:
-        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
-            continue
-        if not get_tool_spec(step.tool_name).fulfills_requested_work:
-            continue
-        prefix = _reflection_fact_prefix(step.tool_name)
-        counts[prefix] = counts.get(prefix, 0) + 1
-        required_ids.add(f"{prefix}:{counts[prefix]}")
-    return required_ids
-
-
 def _text_contains(reflected_normalized: str, value: Any) -> bool:
     if value is None:
         return True
@@ -474,7 +444,6 @@ def _reflection_preserves_grounded_content(
     state: ExecutionState,
     grounded: str,
     reflected: str,
-    preserved_fact_ids: List[str] | None = None,
 ) -> bool:
     """Return whether reflection preserved the grounded answer's required facts."""
     reflected_normalized = _normalize_answer_text(reflected)
@@ -485,14 +454,8 @@ def _reflection_preserves_grounded_content(
     if not grounded_lines:
         return True
 
-    required_fact_ids = _reflection_required_ids(state)
-    if required_fact_ids:
-        if not preserved_fact_ids:
-            return False
-        if not required_fact_ids <= set(preserved_fact_ids):
-            return False
-        if not _reflection_preserves_typed_payloads(state, reflected):
-            return False
+    if not _reflection_preserves_typed_payloads(state, reflected):
+        return False
 
     for tool_name, status in (state.fulfillment or {}).items():
         if not status.fulfilled and not status.degraded:
@@ -510,7 +473,7 @@ def run_reflection(
     draft_answer: str,
     *,
     trace: RequestTrace | None = None,
-) -> Tuple[str, bool, List[str]]:
+) -> Tuple[str, bool]:
     """Run one quality pass over the grounded draft and fall back on failure."""
     step_summary_lines = render_reflection_observations(user_prompt, state.steps)
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
@@ -521,12 +484,7 @@ def run_reflection(
             if isinstance(reflected, ReflectionResult)
             else str(reflected["answer"])
         )
-        preserved_fact_ids = (
-            reflected.preserved_fact_ids
-            if isinstance(reflected, ReflectionResult)
-            else list(reflected.get("preserved_fact_ids", []))
-        )
-        return answer.strip(), False, preserved_fact_ids
+        return answer.strip(), False
     except Exception as exc:
         logger.warning(
             "Reflection failed; returning grounded draft instead: %s | event=reflection.failed reason=reflection_error fallback=grounded_draft",
@@ -539,7 +497,7 @@ def run_reflection(
             accepted=False,
             reason="reflection_error",
         )
-        return draft_answer, True, []
+        return draft_answer, True
 
 
 def build_react_failure_answer() -> str:
@@ -573,11 +531,7 @@ def finalize_after_execution(
     reflection_result = run_reflection(
         context, user_prompt, state, grounded, trace=trace
     )
-    if len(reflection_result) == 2:
-        final_answer, reflection_used_fallback = reflection_result
-        preserved_fact_ids = []
-    else:
-        final_answer, reflection_used_fallback, preserved_fact_ids = reflection_result
+    final_answer, reflection_used_fallback = reflection_result
     tool_observations = _derive_tool_observations(state)
     if tool_observations and not reflection_used_fallback:
         if not _reflection_preserves_grounded_content(
@@ -585,20 +539,16 @@ def finalize_after_execution(
             state,
             grounded,
             final_answer,
-            preserved_fact_ids,
         ):
-            required_fact_ids = _reflection_required_ids(state)
-            missing_fact_ids = sorted(required_fact_ids - set(preserved_fact_ids))
             logger.info(
-                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_required_facts missing_fact_ids=%s fallback=grounded_draft",
-                missing_fact_ids,
+                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_typed_facts fallback=grounded_draft",
             )
             trace_llm_decision(
                 trace,
                 phase="reflection",
                 action="accept",
                 accepted=False,
-                reason="reflection_missing_required_facts",
+                reason="reflection_missing_typed_facts",
             )
             final_answer = grounded
             reflection_used_fallback = True
