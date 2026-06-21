@@ -104,22 +104,6 @@ def _tool_sentence(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any
     return None
 
 
-def _fact_prefix(tool_name: str) -> str:
-    if tool_name == "city_to_coords":
-        return "city_lookup"
-    if tool_name == "get_weather":
-        return "weather"
-    if tool_name == "book_recs":
-        return "books"
-    if tool_name == "random_joke":
-        return "joke"
-    if tool_name == "random_dog":
-        return "dog_pic"
-    if tool_name == "trivia":
-        return "trivia"
-    return tool_name
-
-
 def render_tool_feedback(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> str:
     """Render one typed tool result for the next ReAct planner step."""
     return _tool_line(tool_name, args, payload) or f"- {tool_name}: completed"
@@ -131,7 +115,6 @@ def render_reflection_observations(
 ) -> List[str]:
     """Render typed tool results for the reflection prompt."""
     rendered: List[str] = []
-    counts: dict[str, int] = {}
     for step in steps:
         if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
             continue
@@ -139,11 +122,9 @@ def render_reflection_observations(
         line = _tool_line(tool_name, args, payload)
         if not line:
             continue
-        prefix = _fact_prefix(tool_name)
-        counts[prefix] = counts.get(prefix, 0) + 1
-        rendered.append(f"[{prefix}:{counts[prefix]}] {line}")
+        rendered.append(line)
     if not rendered and "weekend" in user_prompt.lower():
-        rendered.append("[detail:1] - Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
+        rendered.append("- Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
     return rendered
 
 
