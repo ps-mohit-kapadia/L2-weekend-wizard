@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.grounding import (
-    build_grounded_facts,
     compose_grounded_answer_from_steps,
-    render_compact_step_summaries,
     render_reflection_observations,
+    render_tool_feedback,
 )
 from agent.tool_specs import get_tool_spec
 from agent.policies.guardrails import (
@@ -36,11 +35,17 @@ from schemas.agent import (
 )
 from schemas.tools import (
     BookArgs,
+    BookResults,
     CityArgs,
+    DogResult,
     EmptyArgs,
+    GeoResult,
+    JokeResult,
     ToolError,
     ToolArgs,
+    TriviaResult,
     WeatherArgs,
+    WeatherResult,
     dump_tool_args,
     parse_tool_payload,
 )
@@ -235,21 +240,8 @@ def _planner_tool_feedback_detail(
     args: ToolArgs | Dict[str, Any],
     parsed: Any,
 ) -> str:
-    """Render planner-local tool feedback from shared grounded facts."""
-    facts = build_grounded_facts(
-        [
-            ExecutionStep(
-                kind="tool_call",
-                tool_name=tool_name,
-                normalized_args=args if not isinstance(args, dict) else None,
-                raw_args=args if isinstance(args, dict) else None,
-                parsed_payload=parsed,
-            )
-        ]
-    )
-    if facts:
-        return facts[0].display_text
-    return f"- {tool_name}: completed"
+    """Render planner-local tool feedback from typed tool output."""
+    return render_tool_feedback(tool_name, args, parsed)
 
 
 async def execute_tool_call(
@@ -376,14 +368,7 @@ def build_grounded_draft(
     state: ExecutionState,
 ) -> str:
     """Build the grounded draft answer before reflection."""
-    grounded = compose_grounded_answer_from_steps(user_prompt, "", state.steps)
-    if grounded.strip():
-        return grounded
-
-    compact_items = render_compact_step_summaries(user_prompt, state.steps)
-    if compact_items:
-        return "Weekend Wizard Results\n" + "\n".join(compact_items)
-    return grounded
+    return compose_grounded_answer_from_steps(user_prompt, "", state.steps)
 
 
 def _normalize_answer_text(text: str) -> str:
@@ -406,6 +391,84 @@ def _pending_requested_categories(state: ExecutionState) -> List[str]:
     return pending
 
 
+def _reflection_fact_prefix(tool_name: str) -> str:
+    if tool_name == "city_to_coords":
+        return "city_lookup"
+    if tool_name == "get_weather":
+        return "weather"
+    if tool_name == "book_recs":
+        return "books"
+    if tool_name == "random_joke":
+        return "joke"
+    if tool_name == "random_dog":
+        return "dog_pic"
+    if tool_name == "trivia":
+        return "trivia"
+    return tool_name
+
+
+def _reflection_required_ids(state: ExecutionState) -> set[str]:
+    required_ids: set[str] = set()
+    counts: Dict[str, int] = {}
+    for step in state.steps:
+        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
+            continue
+        if not get_tool_spec(step.tool_name).fulfills_requested_work:
+            continue
+        prefix = _reflection_fact_prefix(step.tool_name)
+        counts[prefix] = counts.get(prefix, 0) + 1
+        required_ids.add(f"{prefix}:{counts[prefix]}")
+    return required_ids
+
+
+def _text_contains(reflected_normalized: str, value: Any) -> bool:
+    if value is None:
+        return True
+    return _normalize_answer_text(str(value)) in reflected_normalized
+
+
+def _reflection_preserves_typed_payloads(state: ExecutionState, reflected: str) -> bool:
+    reflected_normalized = _normalize_answer_text(reflected)
+    for step in state.steps:
+        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
+            continue
+        if not get_tool_spec(step.tool_name).fulfills_requested_work:
+            continue
+        payload = step.parsed_payload
+        if isinstance(payload, ToolError):
+            detail = payload.details or payload.error
+            if detail and not _text_contains(reflected_normalized, detail):
+                return False
+        elif isinstance(payload, WeatherResult):
+            if not _text_contains(reflected_normalized, payload.temperature):
+                return False
+            if payload.weather_summary and not _text_contains(reflected_normalized, payload.weather_summary):
+                return False
+        elif isinstance(payload, BookResults):
+            requested_limit = (
+                step.normalized_args.limit
+                if isinstance(step.normalized_args, BookArgs)
+                else payload.count or len(payload.results)
+            )
+            for book in payload.results[:requested_limit]:
+                if book.title and not _text_contains(reflected_normalized, book.title):
+                    return False
+        elif isinstance(payload, JokeResult):
+            if not _text_contains(reflected_normalized, payload.joke):
+                return False
+        elif isinstance(payload, DogResult):
+            if not _text_contains(reflected_normalized, payload.image_url):
+                return False
+        elif isinstance(payload, TriviaResult):
+            if not _text_contains(reflected_normalized, payload.question):
+                return False
+            if not _text_contains(reflected_normalized, payload.correct_answer):
+                return False
+        elif isinstance(payload, GeoResult):
+            continue
+    return True
+
+
 def _reflection_preserves_grounded_content(
     user_prompt: str,
     state: ExecutionState,
@@ -422,12 +485,13 @@ def _reflection_preserves_grounded_content(
     if not grounded_lines:
         return True
 
-    facts = build_grounded_facts(state.steps)
-    required_fact_ids = {fact.id for fact in facts if fact.required}
+    required_fact_ids = _reflection_required_ids(state)
     if required_fact_ids:
         if not preserved_fact_ids:
             return False
         if not required_fact_ids <= set(preserved_fact_ids):
+            return False
+        if not _reflection_preserves_typed_payloads(state, reflected):
             return False
 
     for tool_name, status in (state.fulfillment or {}).items():
@@ -523,7 +587,7 @@ def finalize_after_execution(
             final_answer,
             preserved_fact_ids,
         ):
-            required_fact_ids = {fact.id for fact in build_grounded_facts(state.steps) if fact.required}
+            required_fact_ids = _reflection_required_ids(state)
             missing_fact_ids = sorted(required_fact_ids - set(preserved_fact_ids))
             logger.info(
                 "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_required_facts missing_fact_ids=%s fallback=grounded_draft",

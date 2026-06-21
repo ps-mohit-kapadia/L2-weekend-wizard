@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-"""Grounding helpers for tool-result parsing and final answer composition."""
+"""Boundary rendering for typed tool results."""
 
-from dataclasses import dataclass, replace
-from typing import Any, Iterable, List
+from typing import Any, List
 
 from schemas.tools import (
     BookArgs,
@@ -18,18 +17,6 @@ from schemas.tools import (
     WeatherResult,
     dump_tool_args,
 )
-
-
-@dataclass(frozen=True)
-class GroundedFact:
-    """One grounded fact projected from execution truth for answer/reflection use."""
-
-    id: str
-    label: str
-    display_text: str
-    sentence: str | None = None
-    required: bool = True
-    status: str = "success"
 
 
 def _step_fields(step: Any) -> tuple[str, ToolArgs | dict[str, Any], Any]:
@@ -51,251 +38,110 @@ def _coords_label(args: ToolArgs | dict[str, Any]) -> str:
     return f"{latitude}, {longitude}"
 
 
-def _empty_facts() -> list[GroundedFact]:
-    return []
-
-
-def _city_lookup_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
+def _tool_line(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> str | None:
     if isinstance(payload, ToolError):
         detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="city_lookup:1",
-                label="City Lookup",
-                display_text=f"- City Lookup: unavailable ({detail})",
-                status="failed",
-            )
-        ]
+        if tool_name == "city_to_coords":
+            return f"- City Lookup: unavailable ({detail})"
+        if tool_name == "get_weather":
+            return f"- Weather: {_coords_label(args)} unavailable ({detail})"
+        if tool_name == "book_recs":
+            return f"- Books: unavailable ({detail})"
+        if tool_name == "random_joke":
+            return f"- Joke: unavailable ({detail})"
+        if tool_name == "random_dog":
+            return f"- Dog Pic: unavailable ({detail})"
+        if tool_name == "trivia":
+            return f"- Trivia: unavailable ({detail})"
+        return f"- {tool_name}: unavailable ({detail})"
+
     if isinstance(payload, GeoResult):
-        display = f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
-        return [
-            GroundedFact(
-                id="city_lookup:1",
-                label="City Lookup",
-                display_text=display,
-                sentence=f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}.",
-                required=False,
-            )
-        ]
-    return _empty_facts()
-
-
-def _weather_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    if isinstance(payload, ToolError):
-        location = _coords_label(args)
-        detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="weather:1",
-                label="Weather",
-                display_text=f"- Weather: {location} unavailable ({detail})",
-                status="failed",
-            )
-        ]
+        return f"- City Lookup: {payload.city}: {payload.latitude}, {payload.longitude}"
     if isinstance(payload, WeatherResult) and payload.temperature is not None:
-        location = _coords_label(args)
-        display = (
-            f"- Weather: {location}: "
-            f"{payload.temperature}{payload.temperature_unit or ''}, "
-            f"{payload.weather_summary or 'current conditions'}"
-        )
         summary = payload.weather_summary or "current conditions"
-        return [
-            GroundedFact(
-                id="weather:1",
-                label="Weather",
-                display_text=display,
-                sentence=(
-                    f"Weather for {location}: "
-                    f"{payload.temperature}{payload.temperature_unit or ''}, "
-                    f"{summary}."
-                ),
-            )
-        ]
-    return _empty_facts()
-
-
-def _book_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    if isinstance(payload, ToolError):
-        detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="books:1",
-                label="Books",
-                display_text=f"- Books: unavailable ({detail})",
-                status="failed",
-            )
-        ]
+        return f"- Weather: {_coords_label(args)}: {payload.temperature}{payload.temperature_unit or ''}, {summary}"
     if isinstance(payload, BookResults) and payload.results:
-        requested_limit = args.limit if isinstance(args, BookArgs) else payload.count
+        requested_limit = args.limit if isinstance(args, BookArgs) else payload.count or len(payload.results)
         titles = [
             f"{book.title} by {book.author}"
             for book in payload.results[:requested_limit]
             if book.title
         ]
         if titles:
-            rendered_titles = "; ".join(titles)
-            return [
-                GroundedFact(
-                    id="books:1",
-                    label="Books",
-                    display_text=f"- Books: {rendered_titles}",
-                    sentence=f"Book ideas for {payload.topic}: {rendered_titles}.",
-                )
-            ]
-    return _empty_facts()
-
-
-def _joke_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    if isinstance(payload, ToolError):
-        detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="joke:1",
-                label="Joke",
-                display_text=f"- Joke: unavailable ({detail})",
-                status="failed",
-            )
-        ]
+            return "- Books: " + "; ".join(titles)
     if isinstance(payload, JokeResult):
-        return [
-            GroundedFact(
-                id="joke:1",
-                label="Joke",
-                display_text=f"- Joke: {payload.joke}",
-                sentence=f"Joke: {payload.joke}",
-            )
-        ]
-    return _empty_facts()
-
-
-def _dog_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    if isinstance(payload, ToolError):
-        detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="dog_pic:1",
-                label="Dog Pic",
-                display_text=f"- Dog Pic: unavailable ({detail})",
-                status="failed",
-            )
-        ]
+        return f"- Joke: {payload.joke}"
     if isinstance(payload, DogResult):
-        return [
-            GroundedFact(
-                id="dog_pic:1",
-                label="Dog Pic",
-                display_text=f"- Dog Pic: {payload.image_url}",
-                sentence=f"Dog pic: {payload.image_url}",
-            )
-        ]
-    return _empty_facts()
-
-
-def _trivia_facts(args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    if isinstance(payload, ToolError):
-        detail = payload.details or payload.error
-        return [
-            GroundedFact(
-                id="trivia:1",
-                label="Trivia",
-                display_text=f"- Trivia: unavailable ({detail})",
-                status="failed",
-            )
-        ]
+        return f"- Dog Pic: {payload.image_url}"
     if isinstance(payload, TriviaResult):
-        choices = payload.incorrect_answers + [payload.correct_answer]
-        rendered_choices = ", ".join(choices)
-        display = f"- Trivia: {payload.question} Choices: {rendered_choices}. Answer: {payload.correct_answer}"
-        return [
-            GroundedFact(
-                id="trivia:1",
-                label="Trivia",
-                display_text=display,
-                sentence=f"Trivia: {payload.question} Choices: {rendered_choices}. Answer: {payload.correct_answer}.",
-            )
+        choices = ", ".join(payload.incorrect_answers + [payload.correct_answer])
+        return f"- Trivia: {payload.question} Choices: {choices}. Answer: {payload.correct_answer}"
+    return None
+
+
+def _tool_sentence(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> str | None:
+    if isinstance(payload, GeoResult):
+        return f"Resolved {payload.city} to {payload.latitude}, {payload.longitude}."
+    if isinstance(payload, WeatherResult) and payload.temperature is not None:
+        summary = payload.weather_summary or "current conditions"
+        return f"Weather for {_coords_label(args)}: {payload.temperature}{payload.temperature_unit or ''}, {summary}."
+    if isinstance(payload, BookResults) and payload.results:
+        requested_limit = args.limit if isinstance(args, BookArgs) else payload.count or len(payload.results)
+        titles = [
+            f"{book.title} by {book.author}"
+            for book in payload.results[:requested_limit]
+            if book.title
         ]
-    return _empty_facts()
+        if titles:
+            return f"Book ideas for {payload.topic}: {'; '.join(titles)}."
+    if isinstance(payload, JokeResult):
+        return f"Joke: {payload.joke}"
+    if isinstance(payload, DogResult):
+        return f"Dog pic: {payload.image_url}"
+    if isinstance(payload, TriviaResult):
+        choices = ", ".join(payload.incorrect_answers + [payload.correct_answer])
+        return f"Trivia: {payload.question} Choices: {choices}. Answer: {payload.correct_answer}."
+    return None
 
 
-GROUNDING_RENDERERS = {
-    "city_to_coords": _city_lookup_facts,
-    "get_weather": _weather_facts,
-    "book_recs": _book_facts,
-    "random_joke": _joke_facts,
-    "random_dog": _dog_facts,
-    "trivia": _trivia_facts,
-}
+def _fact_prefix(tool_name: str) -> str:
+    if tool_name == "city_to_coords":
+        return "city_lookup"
+    if tool_name == "get_weather":
+        return "weather"
+    if tool_name == "book_recs":
+        return "books"
+    if tool_name == "random_joke":
+        return "joke"
+    if tool_name == "random_dog":
+        return "dog_pic"
+    if tool_name == "trivia":
+        return "trivia"
+    return tool_name
 
 
-def _validate_grounding_renderers() -> None:
-    for tool_name, renderer in GROUNDING_RENDERERS.items():
-        if not tool_name:
-            raise RuntimeError("Grounding renderer registry contains an empty tool name")
-        if not callable(renderer):
-            raise RuntimeError(f"Grounding renderer for {tool_name} must be callable")
-
-
-_validate_grounding_renderers()
-
-
-def extract_grounded_facts(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> list[GroundedFact]:
-    """Extract grounded facts from one parsed execution step."""
-    renderer = GROUNDING_RENDERERS.get(tool_name)
-    if renderer is None:
-        return _empty_facts()
-    return renderer(args, payload)
-
-
-def build_grounded_facts(steps: Iterable[Any]) -> list[GroundedFact]:
-    """Build grounded facts from execution-step state."""
-    facts: list[GroundedFact] = []
-    fact_counts: dict[str, int] = {}
-    for step in steps:
-        if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
-            continue
-        tool_name, args, payload = _step_fields(step)
-        for fact in extract_grounded_facts(tool_name, args, payload):
-            fact_prefix = fact.id.split(":", 1)[0]
-            fact_counts[fact_prefix] = fact_counts.get(fact_prefix, 0) + 1
-            facts.append(replace(fact, id=f"{fact_prefix}:{fact_counts[fact_prefix]}"))
-    return facts
-
-
-def build_grounded_items(user_prompt: str, steps: Iterable[Any]) -> List[Any]:
-    """Return simple objects with title/detail from execution steps."""
-    items: List[Any] = []
-    lowered = user_prompt.lower()
-
-    for fact in build_grounded_facts(steps):
-        if not fact.display_text:
-            continue
-        title, detail = fact.display_text[2:].split(": ", 1)
-        items.append(type("GroundedCompat", (), {"title": title, "detail": detail})())
-
-    if not items and "weekend" in lowered:
-        items.append(type("GroundedCompat", (), {"title": "Detail", "detail": "Try a cozy cafe stop, a short walk, and a relaxing book session this weekend."})())
-
-    return items
-
-
-def render_compact_step_summaries(
-    user_prompt: str,
-    steps: List[Any],
-) -> List[str]:
-    """Render compact grounded step summaries from execution-step state."""
-    rendered = [fact.display_text for fact in build_grounded_facts(steps)]
-    if not rendered and "weekend" in user_prompt.lower():
-        rendered.append("- Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
-    return rendered
+def render_tool_feedback(tool_name: str, args: ToolArgs | dict[str, Any], payload: Any) -> str:
+    """Render one typed tool result for the next ReAct planner step."""
+    return _tool_line(tool_name, args, payload) or f"- {tool_name}: completed"
 
 
 def render_reflection_observations(
     user_prompt: str,
     steps: List[Any],
 ) -> List[str]:
-    """Render grounded observations with fact IDs for reflection contract validation."""
-    rendered = [f"[{fact.id}] {fact.display_text}" for fact in build_grounded_facts(steps)]
+    """Render typed tool results for the reflection prompt."""
+    rendered: List[str] = []
+    counts: dict[str, int] = {}
+    for step in steps:
+        if getattr(step, "kind", "") not in {"tool_call", "tool_invalid"}:
+            continue
+        tool_name, args, payload = _step_fields(step)
+        line = _tool_line(tool_name, args, payload)
+        if not line:
+            continue
+        prefix = _fact_prefix(tool_name)
+        counts[prefix] = counts.get(prefix, 0) + 1
+        rendered.append(f"[{prefix}:{counts[prefix]}] {line}")
     if not rendered and "weekend" in user_prompt.lower():
         rendered.append("[detail:1] - Detail: Try a cozy cafe stop, a short walk, and a relaxing book session this weekend.")
     return rendered
@@ -306,7 +152,7 @@ def compose_grounded_answer_from_steps(
     answer: str,
     steps: List[Any],
 ) -> str:
-    """Compose the final grounded answer directly from execution steps."""
+    """Compose the grounded draft directly from typed execution-step payloads."""
     tool_steps = [
         step
         for step in steps
@@ -316,9 +162,16 @@ def compose_grounded_answer_from_steps(
     if not tool_steps:
         return answer
 
-    facts = build_grounded_facts(tool_steps)
-    detail_lines = [fact.display_text for fact in facts]
-    fact_lines = [fact.sentence for fact in facts if fact.sentence]
+    detail_lines: List[str] = []
+    fact_lines: List[str] = []
+    for step in tool_steps:
+        tool_name, args, payload = _step_fields(step)
+        line = _tool_line(tool_name, args, payload)
+        sentence = _tool_sentence(tool_name, args, payload)
+        if line:
+            detail_lines.append(line)
+        if sentence:
+            fact_lines.append(sentence)
 
     if not detail_lines and not fact_lines:
         return answer
@@ -328,9 +181,8 @@ def compose_grounded_answer_from_steps(
 
     if len(tool_steps) > 1 or is_plan_request:
         intro = "Weekend Wizard Plan" if is_plan_request else "Weekend Wizard Results"
-        body = detail_lines
         outro = ["Enjoy the vibe and follow the links if something catches your eye."] if is_plan_request else []
-        return "\n".join([intro, *body, *outro])
+        return "\n".join([intro, *detail_lines, *outro])
 
     if len(fact_lines) == 1:
         return fact_lines[0]

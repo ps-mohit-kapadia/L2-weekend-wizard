@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from agent.grounding import (
     compose_grounded_answer_from_steps,
-    render_compact_step_summaries,
+    render_reflection_observations,
 )
 from agent.policies.guardrails import analyze_request
 from agent.prompts import build_react_messages, build_reflection_messages
@@ -77,7 +77,7 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("A fetched joke.", messages[3]["content"])
 
     def test_build_reflection_messages_include_observations_and_draft(self) -> None:
-        step_summary_lines = render_compact_step_summaries(
+        step_summary_lines = render_reflection_observations(
             "Tell me a joke.",
             [
                 SimpleNamespace(
@@ -105,7 +105,7 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
 
     def test_build_reflection_messages_use_compact_error_detail_without_raw_payload_blob(self) -> None:
-        step_summary_lines = render_compact_step_summaries(
+        step_summary_lines = render_reflection_observations(
             "Give me the weather and a joke.",
             [
                 SimpleNamespace(
@@ -137,7 +137,7 @@ class PromptingTests(unittest.TestCase):
         self.assertNotIn('{"joke":"Hi"}', messages[1]["content"])
 
     def test_build_reflection_messages_include_grounded_dog_url_without_raw_payload_blob(self) -> None:
-        step_summary_lines = render_compact_step_summaries(
+        step_summary_lines = render_reflection_observations(
             "Plan a cozy Saturday with a dog pic.",
             [
                 SimpleNamespace(
@@ -283,7 +283,7 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", composed)
 
     def test_build_reflection_messages_preserve_two_weather_observations(self) -> None:
-        step_summary_lines = render_compact_step_summaries(
+        step_summary_lines = render_reflection_observations(
             "Compare the weather in Chicago and New York.",
             [
                 SimpleNamespace(
@@ -322,7 +322,7 @@ class PromptingTests(unittest.TestCase):
         self.assertIn("- Weather: 40.71427, -74.00597: 6.1C, light rain", messages[1]["content"])
 
     def test_build_reflection_messages_preserve_two_city_lookups(self) -> None:
-        step_summary_lines = render_compact_step_summaries(
+        step_summary_lines = render_reflection_observations(
             "Compare Chicago and New York.",
             [
                 SimpleNamespace(
