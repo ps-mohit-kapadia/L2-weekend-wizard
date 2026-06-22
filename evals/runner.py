@@ -11,6 +11,16 @@ from typing import Any
 
 import requests
 
+from config.config import get_settings
+
+
+def build_chat_headers() -> dict[str, str]:
+    """Return optional headers required by the backend chat endpoint."""
+    api_key = get_settings().api_key
+    if api_key is None:
+        return {}
+    return {"X-API-Key": api_key}
+
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_SECONDS = 1200
@@ -115,7 +125,13 @@ def post_chat(api_url: str, prompt: str, timeout: int) -> dict[str, Any]:
         requests.RequestException: If the HTTP request fails.
     """
 
-    response = requests.post(f"{api_url.rstrip('/')}/chat", json={"prompt": prompt}, timeout=timeout)
+    headers = build_chat_headers()
+    response = requests.post(
+        f"{api_url.rstrip('/')}/chat",
+        json={"prompt": prompt},
+        headers=headers,
+        timeout=timeout
+    )
     try:
         payload = response.json()
     except ValueError as exc:
