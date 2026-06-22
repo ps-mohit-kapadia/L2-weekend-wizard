@@ -10,7 +10,7 @@ import requests
 
 from config.config import get_settings
 from logger.logging import get_logger
-from logger.tracing.request_trace import RequestTrace
+from logger.tracing.request_trace import RequestTrace, traced_span
 from schemas.agent import (
     ReactDecision,
     ReflectionResult,
@@ -109,6 +109,15 @@ def list_available_models(timeout: int = 5) -> List[str]:
     return names
 
 
+@traced_span(
+    "llm.call",
+    lambda args: {
+        "model": args["model"],
+        "messages_count": len(args["messages"]),
+        "json_mode": args["json_mode"],
+        "temperature": args["temperature"],
+    },
+)
 def call_model(
     messages: List[Dict[str, str]],
     model: str,

@@ -23,7 +23,7 @@ from agent.policies.guardrails import (
 from agent.prompts import build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
-from logger.tracing.request_trace import RequestTrace, trace_llm_decision, truncate_repr
+from logger.tracing.request_trace import RequestTrace, trace_llm_decision, traced_span, truncate_repr
 from mcp_runtime.client import ToolGateway, ToolInvocationError, extract_tool_payload
 from schemas.agent import (
     InteractionResult,
@@ -244,6 +244,13 @@ def _planner_tool_feedback_detail(
     return render_tool_feedback(tool_name, args, parsed)
 
 
+@traced_span(
+    "tool.call",
+    lambda args: {
+        "tool_name": args["tool_name"],
+        "step_number": args["step_number"],
+    },
+)
 async def execute_tool_call(
     tool_gateway: ToolGateway,
     tool_name: str,
@@ -398,7 +405,12 @@ def _text_contains(reflected_normalized: str, value: Any) -> bool:
 
 
 def _reflection_preserves_typed_payloads(state: ExecutionState, reflected: str) -> bool:
+    return not _missing_typed_payload_facts(state, reflected)
+
+
+def _missing_typed_payload_facts(state: ExecutionState, reflected: str) -> List[Dict[str, str]]:
     reflected_normalized = _normalize_answer_text(reflected)
+    missing: List[Dict[str, str]] = []
     for step in state.steps:
         if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
             continue
@@ -408,35 +420,35 @@ def _reflection_preserves_typed_payloads(state: ExecutionState, reflected: str) 
         if isinstance(payload, ToolError):
             detail = payload.details or payload.error
             if detail and not _text_contains(reflected_normalized, detail):
-                return False
+                missing.append({"field": f"{step.tool_name}.error", "expected": truncate_repr(detail, 120)})
         elif isinstance(payload, WeatherResult):
             if not _text_contains(reflected_normalized, payload.temperature):
-                return False
+                missing.append({"field": f"{step.tool_name}.temperature", "expected": truncate_repr(payload.temperature, 120)})
             if payload.weather_summary and not _text_contains(reflected_normalized, payload.weather_summary):
-                return False
+                missing.append({"field": f"{step.tool_name}.weather_summary", "expected": truncate_repr(payload.weather_summary, 120)})
         elif isinstance(payload, BookResults):
             requested_limit = (
                 step.normalized_args.limit
                 if isinstance(step.normalized_args, BookArgs)
                 else payload.count or len(payload.results)
             )
-            for book in payload.results[:requested_limit]:
+            for index, book in enumerate(payload.results[:requested_limit]):
                 if book.title and not _text_contains(reflected_normalized, book.title):
-                    return False
+                    missing.append({"field": f"{step.tool_name}.results[{index}].title", "expected": truncate_repr(book.title, 120)})
         elif isinstance(payload, JokeResult):
             if not _text_contains(reflected_normalized, payload.joke):
-                return False
+                missing.append({"field": f"{step.tool_name}.joke", "expected": truncate_repr(payload.joke, 120)})
         elif isinstance(payload, DogResult):
             if not _text_contains(reflected_normalized, payload.image_url):
-                return False
+                missing.append({"field": f"{step.tool_name}.image_url", "expected": truncate_repr(payload.image_url, 120)})
         elif isinstance(payload, TriviaResult):
             if not _text_contains(reflected_normalized, payload.question):
-                return False
+                missing.append({"field": f"{step.tool_name}.question", "expected": truncate_repr(payload.question, 120)})
             if not _text_contains(reflected_normalized, payload.correct_answer):
-                return False
+                missing.append({"field": f"{step.tool_name}.correct_answer", "expected": truncate_repr(payload.correct_answer, 120)})
         elif isinstance(payload, GeoResult):
             continue
-    return True
+    return missing
 
 
 def _reflection_preserves_grounded_content(
@@ -478,7 +490,11 @@ def run_reflection(
     step_summary_lines = render_reflection_observations(user_prompt, state.steps)
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
-        reflected = llm_reflection_json(messages, context.model_name, trace=trace)
+        if trace is None:
+            reflected = llm_reflection_json(messages, context.model_name, trace=trace)
+        else:
+            with trace.span("reflection.call", observations_count=len(step_summary_lines)):
+                reflected = llm_reflection_json(messages, context.model_name, trace=trace)
         answer = (
             reflected.answer
             if isinstance(reflected, ReflectionResult)
@@ -523,25 +539,54 @@ def finalize_after_execution(
     is allowed to improve presentation quality, but grounded output remains the
     authority baseline when reflection fails or drifts away from grounded facts.
     """
-    grounded = (
-        build_grounded_draft(user_prompt, state)
-        if _derive_tool_observations(state)
-        else draft_answer
-    )
+    if trace is None:
+        grounded = (
+            build_grounded_draft(user_prompt, state)
+            if _derive_tool_observations(state)
+            else draft_answer
+        )
+    else:
+        with trace.span("grounding.build"):
+            grounded = (
+                build_grounded_draft(user_prompt, state)
+                if _derive_tool_observations(state)
+                else draft_answer
+            )
     reflection_result = run_reflection(
         context, user_prompt, state, grounded, trace=trace
     )
     final_answer, reflection_used_fallback = reflection_result
     tool_observations = _derive_tool_observations(state)
     if tool_observations and not reflection_used_fallback:
-        if not _reflection_preserves_grounded_content(
-            user_prompt,
-            state,
-            grounded,
-            final_answer,
-        ):
+        if trace is None:
+            missing_typed_facts = _missing_typed_payload_facts(state, final_answer)
+            preserves_grounded_content = _reflection_preserves_grounded_content(
+                user_prompt,
+                state,
+                grounded,
+                final_answer,
+            )
+        else:
+            with trace.span("reflection.verify", observations_count=len(tool_observations)):
+                missing_typed_facts = _missing_typed_payload_facts(state, final_answer)
+                preserves_grounded_content = _reflection_preserves_grounded_content(
+                    user_prompt,
+                    state,
+                    grounded,
+                    final_answer,
+                )
+                if missing_typed_facts:
+                    trace.add_event(
+                        "reflection.verify.failed",
+                        reason="missing_typed_fact",
+                        missing_facts=missing_typed_facts,
+                    )
+                else:
+                    trace.add_event("reflection.verify.passed")
+        if not preserves_grounded_content:
             logger.info(
-                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_typed_facts fallback=grounded_draft",
+                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_typed_facts missing_facts=%s fallback=grounded_draft",
+                missing_typed_facts,
             )
             trace_llm_decision(
                 trace,
@@ -584,6 +629,13 @@ def finalize_after_execution(
     return result
 
 
+@traced_span(
+    "agent.interaction",
+    lambda args: {
+        "model": args["context"].model_name,
+        "prompt_length": len(args["user_prompt"]),
+    },
+)
 async def orchestrate_interaction(
     tool_gateway: ToolGateway,
     context: OrchestratorContext,

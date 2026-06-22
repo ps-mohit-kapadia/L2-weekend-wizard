@@ -436,7 +436,8 @@ def create_api() -> FastAPI:
                 trace.correlation_id,
                 len(prompt),
             )
-            result = await run_agent_prompt(app, prompt, trace, settings)
+            with trace.span("api.a2a", interface="a2a", prompt_length=len(prompt)):
+                result = await run_agent_prompt(app, prompt, trace, settings)
         except asyncio.TimeoutError as exc:
             logger.warning(
                 "A2A request timed out after %ss | event=request.timeout correlation_id=%s interface=a2a status=timeout",
@@ -511,7 +512,8 @@ def create_api() -> FastAPI:
                 trace.correlation_id,
                 len(request.prompt),
             )
-            result = await run_agent_prompt(app, request.prompt, trace, settings)
+            with trace.span("api.chat", interface="chat", prompt_length=len(request.prompt)):
+                result = await run_agent_prompt(app, request.prompt, trace, settings)
         except HTTPException:
             raise
         except asyncio.TimeoutError as exc:
