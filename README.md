@@ -69,7 +69,7 @@ flowchart TD
     C --> D["application/service.py"]
     D --> E["agent/orchestrator.py"]
     E --> F["ReAct Prompt"]
-    F --> G["Ollama ReAct Decision"]
+    F --> G["LLM ReAct Decision"]
     G --> H{"Action?"}
     H -->|tool| I["Normalize Tool Args"]
     I --> J["MCP Runtime Client"]
@@ -80,12 +80,19 @@ flowchart TD
     N --> E
     H -->|finish| O["Grounded Draft"]
     O --> P["Reflection Prompt"]
-    P --> Q["Ollama Reflection"]
+    P --> Q["LLM Reflection"]
     Q --> R["Final Grounded Answer"]
     R --> C
     R --> B
     R --> CLI
     R --> A2A
+    
+    subgraph "LLM Provider"
+        G --> OLLAMA["Ollama (local)"]
+        G --> AIPLATFORM["AI Platform (hosted)"]
+        Q --> OLLAMA
+        Q --> AIPLATFORM
+    end
 ```
 
 ### Execution Flow
@@ -291,16 +298,21 @@ Responsibilities:
 
 ---
 
-### 8. Ollama Integration (`llm_client.py`)
+### 8. LLM Client (`llm_client.py`)
 
-This module manages local LLM interaction through Ollama.
+This module manages LLM interaction through either Ollama or AI Platform.
 
 Responsibilities:
 
-- discover available local models
+- discover available local models (Ollama only)
 - call the bounded ReAct LLM
 - call the reflection LLM
 - perform one repair attempt for invalid ReAct or reflection JSON
+
+Supported providers:
+
+- **Ollama**: local runtime for privacy-friendly execution
+- **AI Platform**: company AI platform endpoint for hosted model access
 
 ---
 
@@ -317,9 +329,13 @@ python -m pip install -r .\requirements.txt
 
 ---
 
-### 2. Ensure Ollama is running
+### 2. Configure LLM Provider
 
-Make sure a local chat model is available:
+Choose your LLM provider based on your needs:
+
+**Option A: Ollama (local)**
+
+Ensure Ollama is running with a local chat model:
 
 ```powershell
 ollama list
@@ -330,6 +346,25 @@ If needed:
 ```powershell
 ollama pull llama3.1:8b
 ```
+
+Set in `.env`:
+
+```env
+LLM_PROVIDER=ollama
+MODEL=llama3.1:8b
+```
+
+**Option B: AI Platform (hosted)**
+
+Set in `.env`:
+
+```env
+LLM_PROVIDER=aiplatform
+AIPLATFORM_API_KEY=<secret-key>:<public-key>
+MODEL=<platform-model-identifier>
+```
+
+See the [LLM Provider Configuration](#llm-provider-configuration) section for detailed guidance.
 
 ---
 
@@ -394,14 +429,113 @@ Start the API first, then run:
 
 ---
 
+## LLM Provider Configuration
+
+Weekend Wizard supports two LLM providers:
+
+### Ollama (Local)
+
+Ollama provides local LLM execution for privacy-friendly, cost-free inference.
+
+**When to use Ollama:**
+
+- Local development and testing
+- Privacy-sensitive workloads
+- No external API costs
+- Reproducible runtime environment
+
+**Ollama configuration:**
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434/api/chat
+MODEL=llama3.1:8b
+```
+
+**Ollama setup:**
+
+```powershell
+# List available models
+ollama list
+
+# Pull a model if needed
+ollama pull llama3.1:8b
+```
+
+### AI Platform (Hosted)
+
+AI Platform provides access to company-hosted models through a centralized endpoint.
+
+**When to use AI Platform:**
+
+- Production or shared environments
+- Stronger model capabilities
+- Centralized model management
+- When local GPU resources are limited
+
+**AI Platform configuration:**
+
+```env
+LLM_PROVIDER=aiplatform
+AIPLATFORM_API_KEY=<secret-key>:<public-key>
+AIPLATFORM_BASE_URL=https://aiapidev.3ecompany.com
+AIPLATFORM_TIMEOUT=120
+AIPLATFORM_CHAT_PATH=/v1/chat/completions
+MODEL=<platform-model-identifier>
+```
+
+**AI Platform notes:**
+
+- `AIPLATFORM_API_KEY` is required when `LLM_PROVIDER=aiplatform`
+- The API key format is `<secret-key>:<public-key>`
+- Model discovery is skipped for AI Platform (model validation is provider-side)
+- Timeout defaults to 120 seconds; increase for slower models
+
+### Provider Selection Guidance
+
+| Factor | Ollama | AI Platform |
+|--------|--------|-------------|
+| Privacy | Local execution | Hosted endpoint |
+| Cost | Free | Company platform |
+| Model strength | Depends on local hardware | Access to stronger models |
+| Setup complexity | Requires Ollama installation | Requires API key |
+| Network dependency | None | Requires network access |
+| Model discovery | Automatic via Ollama | Provider-side |
+
+---
+
 ## Configuration
 
 Configuration is managed through environment variables and repo config.
 
-Example values:
+Example values for Ollama:
 
 ```env
+LLM_PROVIDER=ollama
 OLLAMA_URL=http://127.0.0.1:11434/api/chat
+MODEL=llama3.1:8b
+
+WEEKEND_WIZARD_REQUEST_TIMEOUT=1200
+WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
+WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
+
+WEEKEND_WIZARD_LOG_LEVEL=INFO
+WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
+WEEKEND_WIZARD_API_KEY=
+WEEKEND_WIZARD_MAX_PROMPT_CHARS=4000
+WEEKEND_WIZARD_RATE_LIMIT_REQUESTS=20
+WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+Example values for AI Platform:
+
+```env
+LLM_PROVIDER=aiplatform
+AIPLATFORM_API_KEY=<secret-key>:<public-key>
+AIPLATFORM_BASE_URL=https://aiapidev.3ecompany.com
+AIPLATFORM_TIMEOUT=120
+AIPLATFORM_CHAT_PATH=/v1/chat/completions
+MODEL=<platform-model-identifier>
 
 WEEKEND_WIZARD_REQUEST_TIMEOUT=600
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
@@ -422,6 +556,7 @@ Notes:
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 - `WEEKEND_WIZARD_API_KEY` enables `X-API-Key` protection for `/chat` and A2A calls when set
 - prompt size and rate-limit settings protect the local/demo API boundary
+- see `.env.example` for the full configuration template
 
 ---
 
@@ -445,16 +580,25 @@ Checks whether the backend runtime is actually usable, including:
 
 ## Design Decisions
 
-### Local-first runtime
+### Dual LLM Provider Support
 
-Weekend Wizard uses a local Ollama model rather than a hosted API.
+Weekend Wizard supports both local Ollama and hosted AI Platform providers.
 
-Advantages:
+**Ollama advantages:**
 
 - privacy-friendly local execution
 - no external LLM API cost
 - reproducible runtime environment
 - strong alignment with the training project goal
+
+**AI Platform advantages:**
+
+- access to stronger hosted models
+- centralized model management
+- no local GPU requirements
+- production-ready endpoint
+
+The provider is selected via `LLM_PROVIDER` environment variable.
 
 ---
 
@@ -548,7 +692,7 @@ over unrestricted flexibility.
 
 Weekend Wizard demonstrates a local MCP-backed ReAct-style agent that:
 
-- uses Ollama to decide one next action at a time
+- uses Ollama or AI Platform to decide one next action at a time
 - executes tool calls deterministically through MCP
 - observes real tool output before deciding what to do next
 - runs one lightweight reflection pass before replying
