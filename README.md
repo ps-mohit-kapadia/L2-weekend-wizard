@@ -40,7 +40,7 @@ Useful SDK dry-run commands:
 Notes:
 
 - the original L2 ReAct implementation and entrypoints below remain intact
-- live Claude SDK behavior has not yet been verified on this branch
+- the SDK path is implementation-complete; live verification requires Claude API access
 - the live runner requires valid Claude SDK / Claude Code authentication available in the environment
 - the live smoke harness currently pre-checks `ANTHROPIC_API_KEY`
 - alternative company Claude Code auth paths are still pending clarification
@@ -519,7 +519,7 @@ WEEKEND_WIZARD_REQUEST_TIMEOUT=1200
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 
-WEEKEND_WIZARD_LOG_LEVEL=INFO
+WEEKEND_WIZARD_LOG_LEVEL=WARNING  # Use INFO for debugging, WARNING for production
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 WEEKEND_WIZARD_API_KEY=
 WEEKEND_WIZARD_MAX_PROMPT_CHARS=4000
@@ -541,7 +541,7 @@ WEEKEND_WIZARD_REQUEST_TIMEOUT=600
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 
-WEEKEND_WIZARD_LOG_LEVEL=INFO
+WEEKEND_WIZARD_LOG_LEVEL=WARNING  # Use INFO for debugging, WARNING for production
 WEEKEND_WIZARD_API_URL=http://127.0.0.1:8000
 WEEKEND_WIZARD_API_KEY=
 WEEKEND_WIZARD_MAX_PROMPT_CHARS=4000
@@ -556,6 +556,7 @@ Notes:
 - `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
 - `WEEKEND_WIZARD_API_KEY` enables `X-API-Key` protection for `/chat` and A2A calls when set
 - prompt size and rate-limit settings protect the local/demo API boundary
+- the default log level is `WARNING` for production use; set `WEEKEND_WIZARD_LOG_LEVEL=INFO` in your `.env` file for more verbose debugging output
 - see `.env.example` for the full configuration template
 
 ---

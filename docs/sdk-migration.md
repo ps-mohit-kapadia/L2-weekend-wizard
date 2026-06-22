@@ -159,7 +159,7 @@ What is discarded between separate runs:
 - The original L2 implementation is still the more fully exercised runtime path.
 - The SDK path currently focuses on structure, tool wiring, and offline verification.
 - `--dry-run` verifies scenario/config shape only. It does not verify live model behavior.
-- Live Claude SDK behavior has not yet been verified on this branch unless a later run is explicitly approved and executed.
+- The SDK path is implementation-complete with runner, tools, config, prompts, and smoke harness. Live Claude SDK behavior verification requires Claude API access and explicit approval to run.
 - The SDK path does not yet expose its own API surface.
 - The SDK path does not yet replace the original L2 smoke test or runtime.
 
