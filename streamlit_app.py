@@ -11,7 +11,7 @@ from typing import Any
 import requests
 import streamlit as st
 
-from agent.prompts import PROMPT_CONTRACTS
+from agent.prompts import PROMPT_CONTRACTS, build_react_messages, build_reflection_messages
 from config.config import get_settings
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
@@ -198,6 +198,26 @@ def extract_prompt_provenance(trace_block: str) -> list[dict[str, str]]:
     return usage
 
 
+def summarize_prompt_usage(receipts: list[dict[str, str]]) -> dict[str, dict[str, Any]]:
+    """Group prompt usage receipts by prompt id for display."""
+    summary: dict[str, dict[str, Any]] = {}
+    for receipt in receipts:
+        prompt_id = receipt.get("prompt_id", "unknown")
+        item = summary.setdefault(
+            prompt_id,
+            {
+                "count": 0,
+                "version": receipt.get("prompt_version", "?"),
+                "contract": receipt.get("output_contract", "unknown"),
+                "spans": [],
+            },
+        )
+        item["count"] += 1
+        if receipt.get("span_id"):
+            item["spans"].append(receipt["span_id"])
+    return summary
+
+
 def render_sidebar(readiness: ReadinessResponse) -> None:
     """Render Streamlit sidebar controls and backend details."""
     with st.sidebar:
@@ -304,13 +324,56 @@ def render_observability(readiness: ReadinessResponse) -> None:
 
 def render_prompts_tab() -> None:
     """Render read-only prompt registry metadata."""
-    st.subheader("Prompt Registry")
-    st.caption("Read-only prompt contracts used for trace provenance. Prompt editing is intentionally out of scope.")
+    st.subheader("Prompt Governance")
+    st.caption(
+        "Prompts are governed production contracts. Runtime editing is intentionally disabled for release safety."
+    )
+
+    st.markdown(
+        "- Prompt identity, version, phase, and output contract are recorded on every LLM trace span.\n"
+        "- Prompt text remains code-owned for this release; UI editing is a future hardening phase.\n"
+        "- Invalid prompt outputs are contract-validated, repaired once, then fail closed or fall back safely."
+    )
+
+    latest_turn = latest_assistant_turn()
+    prompt_usage: dict[str, dict[str, Any]] = {}
+    if latest_turn and latest_turn.correlation_id:
+        trace_block = load_trace_by_correlation_id(latest_turn.correlation_id)
+        if trace_block:
+            prompt_usage = summarize_prompt_usage(extract_prompt_provenance(trace_block))
+
+    st.subheader("Prompt Contracts")
     for contract in PROMPT_CONTRACTS:
-        st.write(
-            f"`{contract.prompt_id}` v{contract.version} | "
-            f"phase `{contract.phase}` | output `{contract.output_contract}`"
-        )
+        usage = prompt_usage.get(contract.prompt_id)
+        with st.expander(f"{contract.prompt_id} v{contract.version}", expanded=contract.prompt_id in {"react_planner", "reflection_review"}):
+            st.write(f"Purpose: {contract.purpose}")
+            st.write(f"Owns: {contract.owns}")
+            st.write(f"Does not own: {contract.does_not_own}")
+            st.write(f"Output contract: `{contract.output_contract}`")
+            st.write(f"Failure mode: {contract.failure_mode}")
+            st.write("Runtime editing: `disabled`")
+            if usage:
+                spans = ", ".join(usage["spans"]) if usage["spans"] else "n/a"
+                st.write(f"Latest trace usage: `{usage['count']}` call(s), spans `{spans}`")
+            else:
+                st.write("Latest trace usage: `not used in latest run`")
+
+    st.subheader("Prompt Template Preview")
+    react_preview = build_react_messages(
+        planner_messages=[],
+        tool_names=["city_to_coords", "get_weather", "book_recs", "random_joke", "random_dog", "trivia"],
+        step_number=1,
+        max_steps=6,
+    )[0]["content"]
+    reflection_preview = build_reflection_messages(
+        "Sample request only. No live user data is shown here.",
+        ["- Weather: sample location: 21°C, clear sky"],
+        "Weather for sample location: 21°C, clear sky.",
+    )[0]["content"]
+    with st.expander("ReAct Planner Prompt Template"):
+        st.code(react_preview, language="text")
+    with st.expander("Reflection Review Prompt Template"):
+        st.code(reflection_preview, language="text")
 
 
 def append_result(result: ChatResponse) -> None:

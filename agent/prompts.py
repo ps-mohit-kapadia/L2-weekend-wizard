@@ -17,6 +17,10 @@ class PromptContract:
     version: str
     phase: str
     output_contract: str
+    purpose: str
+    owns: str
+    does_not_own: str
+    failure_mode: str
 
     def trace_fields(self) -> dict[str, str]:
         """Return stable fields safe to attach to request traces."""
@@ -33,24 +37,40 @@ REACT_PROMPT_CONTRACT = PromptContract(
     version="1",
     phase="react",
     output_contract="ReactDecision",
+    purpose="Choose one bounded ReAct action: call a necessary tool or finish.",
+    owns="Tool/finish decision, selected tool name, and tool arguments.",
+    does_not_own="Tool execution, canonical facts, final grounded rendering, or reflection.",
+    failure_mode="Validate contract, attempt one repair, then fail closed or return grounded fallback.",
 )
 REACT_REPAIR_PROMPT_CONTRACT = PromptContract(
     prompt_id="react_repair",
     version="1",
     phase="react_repair",
     output_contract="ReactDecision",
+    purpose="Repair one invalid ReAct decision into the required JSON contract.",
+    owns="Contract repair for malformed planner output.",
+    does_not_own="New planning policy, tool execution, or final answer facts.",
+    failure_mode="One repair attempt only; invalid repaired output fails closed.",
 )
 REFLECTION_PROMPT_CONTRACT = PromptContract(
     prompt_id="reflection_review",
     version="1",
     phase="reflection",
     output_contract="ReflectionResult",
+    purpose="Review grounded answer quality and optionally provide intro/outro metadata.",
+    owns="Review verdict, issues, and optional presentation framing.",
+    does_not_own="Canonical tool facts, fact rewriting, tool calls, or grounding.",
+    failure_mode="Invalid reflection falls back to the grounded deterministic answer.",
 )
 REFLECTION_REPAIR_PROMPT_CONTRACT = PromptContract(
     prompt_id="reflection_repair",
     version="1",
     phase="reflection_repair",
     output_contract="ReflectionResult",
+    purpose="Repair one invalid reflection review into the required JSON contract.",
+    owns="Contract repair for malformed reflection metadata.",
+    does_not_own="Grounded answer content or factual validation.",
+    failure_mode="One repair attempt only; invalid repaired output falls back to grounded answer.",
 )
 PROMPT_CONTRACTS = (
     REACT_PROMPT_CONTRACT,
