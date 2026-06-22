@@ -164,6 +164,22 @@ def load_trace_by_correlation_id(correlation_id: str) -> str | None:
     return contents[max(0, block_start):block_end].strip()
 
 
+def extract_reflection_summary(trace_block: str) -> dict[str, str] | None:
+    """Extract the latest reflection review summary from a rendered trace block."""
+    lines = trace_block.splitlines()
+    for index, line in reversed(list(enumerate(lines))):
+        if "EVENT: reflection.reviewed" not in line:
+            continue
+        summary: dict[str, str] = {}
+        for detail in lines[index + 1:]:
+            if detail.startswith("[") or not detail.startswith("* "):
+                break
+            key, _, value = detail[2:].partition(": ")
+            summary[key] = value
+        return summary
+    return None
+
+
 def render_sidebar(readiness: ReadinessResponse) -> None:
     """Render Streamlit sidebar controls and backend details."""
     with st.sidebar:
@@ -246,6 +262,16 @@ def render_observability(readiness: ReadinessResponse) -> None:
         st.warning("Trace block was not found in logs/trace.log yet.")
         return
     st.code(trace_block, language="text")
+
+    reflection = extract_reflection_summary(trace_block)
+    if reflection:
+        st.subheader("Reflection")
+        st.write(f"Verdict: `{reflection.get('verdict', 'unknown')}`")
+        st.write(f"Issues: `{reflection.get('issues_count', '0')}`")
+        if reflection.get("intro_preview"):
+            st.write(f"Intro: {reflection['intro_preview']}")
+        if reflection.get("outro_preview"):
+            st.write(f"Outro: {reflection['outro_preview']}")
 
 
 def append_result(result: ChatResponse) -> None:

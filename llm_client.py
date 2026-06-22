@@ -299,8 +299,8 @@ def llm_reflection_json(
             {
                 "role": "system",
                 "content": (
-                    'Return only one valid JSON object in the shape {"answer":"..."} '
-                    "and keep it grounded in the provided observations."
+                    'Return only one valid JSON object in the shape {"verdict":"pass","intro":"","outro":"","issues":[]} '
+                    "and do not rewrite grounded facts."
                 ),
             },
             {"role": "user", "content": raw},

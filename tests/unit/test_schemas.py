@@ -33,10 +33,11 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(decision.final_answer, "Here is your answer.")
 
     def test_validate_reflection_result_parses_answer(self) -> None:
-        result = validate_reflection_result({"answer": "tightened"})
+        result = validate_reflection_result({"verdict": "pass", "intro": "Hi", "outro": "Bye", "issues": []})
 
         self.assertIsInstance(result, ReflectionResult)
-        self.assertEqual(result.answer, "tightened")
+        self.assertEqual(result.verdict, "pass")
+        self.assertEqual(result.intro, "Hi")
 
     def test_orchestrator_context_keeps_runtime_state(self) -> None:
         context = OrchestratorContext(

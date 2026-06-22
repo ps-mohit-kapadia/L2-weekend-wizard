@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class ReactDecision(BaseModel):
@@ -18,9 +18,14 @@ class ReactDecision(BaseModel):
 
 
 class ReflectionResult(BaseModel):
-    """One-shot reflection payload used to revise the final grounded answer."""
+    """One-shot reflection review metadata for the grounded answer."""
 
-    answer: str
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["pass", "revise"] = "pass"
+    intro: str = ""
+    outro: str = ""
+    issues: List[str] = Field(default_factory=list)
 
 
 class ToolObservation(BaseModel):

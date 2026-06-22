@@ -96,11 +96,12 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(result.action, "tool")
         self.assertEqual(result.tool, "random_joke")
 
-    @patch("llm_client.call_model", return_value='{"answer":"tightened"}')
+    @patch("llm_client.call_model", return_value='{"verdict":"pass","intro":"Nice.","outro":"Enjoy.","issues":[]}')
     def test_llm_reflection_json_returns_model_json(self, _call_model: Mock) -> None:
         result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result.answer, "tightened")
+        self.assertEqual(result.verdict, "pass")
+        self.assertEqual(result.intro, "Nice.")
 
     @patch(
         "llm_client.call_model",
@@ -195,13 +196,14 @@ class LlmClientTests(unittest.TestCase):
         "llm_client.call_model",
         side_effect=[
             '{"unexpected":"shape"}',
-            '{"answer":"tightened"}',
+            '{"verdict":"pass","intro":"Nice.","outro":"","issues":[]}',
         ],
     )
     def test_llm_reflection_json_repairs_invalid_shape(self, _call_model: Mock) -> None:
         result = llm_client.llm_reflection_json([{"role": "user", "content": "hello"}], "demo-model")
 
-        self.assertEqual(result.answer, "tightened")
+        self.assertEqual(result.verdict, "pass")
+        self.assertEqual(result.intro, "Nice.")
 
     @patch("llm_client.requests.get")
     @patch("llm_client.get_settings")

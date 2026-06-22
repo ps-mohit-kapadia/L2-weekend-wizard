@@ -105,17 +105,15 @@ def build_reflection_messages(
         {
             "role": "system",
             "content": (
-                "You are composing the final grounded Weekend Wizard answer.\n"
-                'Return ONLY valid JSON in the shape {"answer":"..."}.\n'
-                "Write the final user-facing answer, not a raw intermediate dump.\n"
-                "You may rewrite the structure into natural prose or cleaner bullets when helpful.\n"
+                "You are reviewing the final grounded Weekend Wizard answer.\n"
+                'Return ONLY valid JSON in the shape {"verdict":"pass","intro":"...","outro":"...","issues":[]}.\n'
+                "Do not rewrite the grounded facts.\n"
+                "You may provide a short optional intro and outro only.\n"
                 "Requirements:\n"
-                "- preserve every concrete grounded fact already present in the draft\n"
-                "- preserve failures, counts, locations, coordinates when needed for clarity, comparisons, and supported caveats\n"
-                "- keep all requested result categories that were successfully fetched\n"
-                "- keep the answer short, upbeat, complete, and grounded in observations\n"
+                '- verdict must be "pass" unless the draft is unsafe, empty, or obviously unusable\n'
+                "- keep intro and outro short, upbeat, and grounded in the user request\n"
                 "- do not introduce new facts or suggest new tool calls\n"
-                "- do not remove, soften, or reinterpret supported facts"
+                "- do not mention tool internals, validation, or hidden reasoning"
             ),
         },
         {

@@ -12,7 +12,6 @@ from agent.orchestrator import (
     FulfillmentState,
     SAFE_TOOL_INVOCATION_DETAIL,
     _initialize_fulfillment,
-    _reflection_preserves_grounded_content,
     _update_fulfillment,
     orchestrate_interaction,
     validate_react_decision_semantics,
@@ -25,6 +24,9 @@ from schemas.tools import JokeResult, ToolError
 
 def fake_tool_result(payload: dict) -> SimpleNamespace:
     return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))])
+
+
+REFLECTION_PASS = {"verdict": "pass", "intro": "", "outro": "", "issues": []}
 
 
 class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
@@ -55,28 +57,6 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(state.fulfillment["get_weather"].fulfilled)
         self.assertFalse(state.fulfillment["get_weather"].degraded)
-
-    def test_reflection_contract_rejects_missing_required_fact_id(self) -> None:
-        state = ExecutionState(
-            user_prompt="Tell me a joke.",
-            steps=[
-                ExecutionStep(
-                    kind="tool_call",
-                    tool_name="random_joke",
-                    parsed_payload=JokeResult(joke="A fetched joke."),
-                )
-            ],
-        )
-
-        preserved = _reflection_preserves_grounded_content(
-            "Tell me a joke.",
-            state,
-            "Joke: A fetched joke.",
-            "Joke: A fetched joke.",
-            ["weather:1"],
-        )
-
-        self.assertFalse(preserved)
 
     def test_requested_category_becomes_fulfilled_or_degraded(self) -> None:
         state = ExecutionState(
@@ -121,15 +101,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={
-            "answer": (
-                "Weekend Wizard Plan\n"
-                "- Weather: 6.1C, clear sky\n"
-                "- Books: A Caribbean Mystery by Agatha Christie\n"
-                "- Joke: A fetched joke.\n"
-                "- Dog Pic: https://example.com/dog.jpg"
-            )
-        },
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_city_prompt_flows_to_reflected_grounded_final_answer(
@@ -199,7 +171,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Plan a cozy Saturday in New York. Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.",
         )
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertIn("Weather:", result.answer)
         self.assertIn("Books:", result.answer)
         self.assertIn("Joke:", result.answer)
@@ -229,7 +201,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("A fetched joke.", result.answer)
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is your joke."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_post_joke_invalid_output_can_be_repaired_to_finish(
         self,
@@ -247,7 +219,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 1)
         self.assertEqual(result.answer, "Joke: A fetched joke.")
         self.assertEqual(tool_gateway.call_tool.await_count, 1)
@@ -258,7 +230,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- Joke: A fetched joke.", combined)
         self.assertEqual(result.tool_observations[0].payload, '{"joke": "A fetched joke."}')
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Weather fetched."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_city_lookup_summary_is_available_to_follow_up_weather_step(
         self,
@@ -310,7 +282,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('"latitude": 40.71427', combined)
         self.assertNotIn('"longitude": -74.00597', combined)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_prompt_coordinates_weather_with_empty_args_is_invalid(
         self,
@@ -353,7 +325,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "Weekend Wizard Results\n- Weather: requested location unavailable (latitude and longitude are required)",
         )
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_duplicate_successful_get_weather_executes_only_once(
         self,
@@ -407,7 +379,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(mock_react.call_count, 4)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_explicit_equivalent_weather_args_count_as_duplicate(
         self,
@@ -466,7 +438,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(mock_react.call_count, 4)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Could not disambiguate weather."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_multiple_city_lookups_make_empty_arg_weather_invalid(
         self,
@@ -516,7 +488,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.tool_observations[2].tool_name, "get_weather")
         self.assertIn("latitude and longitude", result.tool_observations[2].payload)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_using_their_coordinates_prompt_fetches_weather_for_both_cities_before_finish(
         self,
@@ -608,7 +580,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- City Lookup: New York: 40.71427, -74.00597\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
         )
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_duplicate_chicago_weather_is_skipped_and_loop_continues_to_new_york(
         self,
@@ -692,7 +664,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- City Lookup: New York: 40.71427, -74.00597\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
         )
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_weather_no_longer_blocks_early_finish_with_custom_progress_gate(
         self,
@@ -748,7 +720,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.tool_observations[0].tool_name, "city_to_coords")
         self.assertEqual(result.tool_observations[1].tool_name, "get_weather")
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Book ideas fetched."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_book_recs_follow_up_planning_sees_compact_summary_context(
         self,
@@ -792,7 +764,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "Weather failed, but here's a joke."},
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_failed_tool_summary_includes_safe_detail_for_next_react_step(
@@ -831,7 +803,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("token=secret", combined)
         self.assertNotIn('{"error": "get_weather failed"', combined)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Weather retried."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_failed_duplicate_call_remains_retryable(
         self,
@@ -876,7 +848,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "Weekend Wizard Results\n- Weather: 41.85003, -87.65005 unavailable (tool execution failed)\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
         )
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here are both weather results."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_different_weather_args_are_not_blocked(
         self,
@@ -978,13 +950,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={
-            "answer": (
-                "Weekend Wizard Plan\n"
-                "- Weather: unavailable (weather request failed)\n"
-                "- Joke: A fetched joke."
-            )
-        },
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_tool_failures_are_recorded_and_remaining_steps_continue(
@@ -1016,7 +982,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Give me the weather and a joke for 40.7128, -74.0060.",
         )
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(
             result.answer,
@@ -1034,7 +1000,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     @patch(
         "agent.orchestrator.llm_reflection_json",
         return_value={
-            "answer": "Joke: A fetched joke. Hope that brightens your day.",
+            "verdict": "pass",
+            "intro": "Hope that brightens your day.",
+            "outro": "",
+            "issues": [],
         },
     )
     @patch("agent.orchestrator.llm_react_json")
@@ -1062,7 +1031,10 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     @patch(
         "agent.orchestrator.llm_reflection_json",
         return_value={
-            "answer": "The weather in Paris is 18.3°C and mainly clear right now.",
+            "verdict": "pass",
+            "intro": "",
+            "outro": "",
+            "issues": [],
         },
     )
     @patch("agent.orchestrator.llm_react_json")
@@ -1114,7 +1086,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mainly clear", result.answer)
         self.assertNotIn("City Lookup", result.answer)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is a joke for you."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_grounded_draft_wins_when_reflection_drops_fetched_fact(
         self,
@@ -1132,12 +1104,12 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = OrchestratorContext(history=[], tool_names=["random_joke"], model_name="demo-model")
         result = await orchestrate_interaction(tool_gateway=tool_gateway, context=context, user_prompt="Tell me a joke.")
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(result.answer, "Joke: A fetched joke.")
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "Weekend Wizard Plan\n- Joke: A fetched joke."},
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_grounded_draft_wins_when_reflection_hides_failure(
@@ -1168,13 +1140,13 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Give me the weather and a joke for 40.7128, -74.0060.",
         )
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertIn("unavailable", result.answer)
         self.assertIn("A fetched joke.", result.answer)
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={"answer": "Here is the weather comparison."},
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_grounded_draft_wins_when_reflection_collapses_multiple_results(
@@ -1221,21 +1193,13 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Compare the weather for Chicago and New York.",
         )
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertIn("41.85003, -87.65005", result.answer)
         self.assertIn("40.71427, -74.00597", result.answer)
 
     @patch(
         "agent.orchestrator.llm_reflection_json",
-        return_value={
-            "answer": (
-                "Weekend Wizard Plan\n"
-                "- Weather: 40.71427, -74.00597: 32.5C, overcast\n"
-                "- Mystery Book Ideas: Invented Book One; Invented Book Two\n"
-                "- Joke: Invented joke.\n"
-                "- Pawsome Pic: [Insert adorable dog photo here]"
-            )
-        },
+        return_value=REFLECTION_PASS,
     )
     @patch("agent.orchestrator.llm_react_json")
     async def test_reflection_cannot_invent_pending_requested_categories(
@@ -1304,7 +1268,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             user_prompt="Plan a cozy Saturday in New York with today's weather, 3 mystery book ideas, a joke, and a dog pic.",
         )
 
-        self.assertTrue(result.used_fallback)
+        self.assertFalse(result.used_fallback)
         self.assertEqual(tool_gateway.call_tool.await_count, 5)
         self.assertIn("Books:", result.answer)
         self.assertIn("Joke:", result.answer)
@@ -1313,17 +1277,12 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch(
         "agent.orchestrator.run_reflection",
-        return_value=(
-            "Weather: overcast, 32.5C.\nBooks: A Caribbean Mystery; The Mysterious Affair at Styles.\nJoke: A fetched joke.\nDog Pic: https://example.com/dog.jpg",
-            False,
-        ),
+        return_value=(None, False),
     )
-    @patch("agent.orchestrator._reflection_preserves_grounded_content", return_value=True)
     @patch("agent.orchestrator.llm_react_json")
     async def test_finish_is_blocked_while_requested_categories_are_pending(
         self,
         mock_react: Mock,
-        _mock_preservation_gate: Mock,
         _mock_reflection: Mock,
     ) -> None:
         mock_react.side_effect = [
@@ -1394,7 +1353,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Joke:", result.answer)
         self.assertIn("Dog Pic:", result.answer)
 
-    @patch("agent.orchestrator.llm_reflection_json", return_value={"answer": "Here is the weather."})
+    @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
     @patch("agent.orchestrator.llm_react_json")
     async def test_repeated_duplicate_successful_call_finalizes_early(
         self,

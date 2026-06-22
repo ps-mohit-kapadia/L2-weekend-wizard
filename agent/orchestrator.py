@@ -35,17 +35,11 @@ from schemas.agent import (
 )
 from schemas.tools import (
     BookArgs,
-    BookResults,
     CityArgs,
-    DogResult,
     EmptyArgs,
-    GeoResult,
-    JokeResult,
     ToolError,
     ToolArgs,
-    TriviaResult,
     WeatherArgs,
-    WeatherResult,
     dump_tool_args,
     parse_tool_payload,
 )
@@ -375,19 +369,16 @@ def build_grounded_draft(
     state: ExecutionState,
 ) -> str:
     """Build the grounded draft answer before reflection."""
-    return compose_grounded_answer_from_steps(user_prompt, "", state.steps)
-
-
-def _normalize_answer_text(text: str) -> str:
-    return " ".join(text.lower().split())
+    rendered_steps = [
+        step
+        for step in state.steps
+        if not step.tool_name or get_tool_spec(step.tool_name).fulfills_requested_work
+    ]
+    return compose_grounded_answer_from_steps(user_prompt, "", rendered_steps)
 
 
 def _category_label(tool_name: str) -> str:
     return get_tool_spec(tool_name).category_label
-
-
-def _category_markers(tool_name: str) -> tuple[str, ...]:
-    return get_tool_spec(tool_name).markers
 
 
 def _pending_requested_categories(state: ExecutionState) -> List[str]:
@@ -398,86 +389,6 @@ def _pending_requested_categories(state: ExecutionState) -> List[str]:
     return pending
 
 
-def _text_contains(reflected_normalized: str, value: Any) -> bool:
-    if value is None:
-        return True
-    return _normalize_answer_text(str(value)) in reflected_normalized
-
-
-def _reflection_preserves_typed_payloads(state: ExecutionState, reflected: str) -> bool:
-    return not _missing_typed_payload_facts(state, reflected)
-
-
-def _missing_typed_payload_facts(state: ExecutionState, reflected: str) -> List[Dict[str, str]]:
-    reflected_normalized = _normalize_answer_text(reflected)
-    missing: List[Dict[str, str]] = []
-    for step in state.steps:
-        if step.kind not in {"tool_call", "tool_invalid"} or not step.tool_name:
-            continue
-        if not get_tool_spec(step.tool_name).fulfills_requested_work:
-            continue
-        payload = step.parsed_payload
-        if isinstance(payload, ToolError):
-            detail = payload.details or payload.error
-            if detail and not _text_contains(reflected_normalized, detail):
-                missing.append({"field": f"{step.tool_name}.error", "expected": truncate_repr(detail, 120)})
-        elif isinstance(payload, WeatherResult):
-            if not _text_contains(reflected_normalized, payload.temperature):
-                missing.append({"field": f"{step.tool_name}.temperature", "expected": truncate_repr(payload.temperature, 120)})
-            if payload.weather_summary and not _text_contains(reflected_normalized, payload.weather_summary):
-                missing.append({"field": f"{step.tool_name}.weather_summary", "expected": truncate_repr(payload.weather_summary, 120)})
-        elif isinstance(payload, BookResults):
-            requested_limit = (
-                step.normalized_args.limit
-                if isinstance(step.normalized_args, BookArgs)
-                else payload.count or len(payload.results)
-            )
-            for index, book in enumerate(payload.results[:requested_limit]):
-                if book.title and not _text_contains(reflected_normalized, book.title):
-                    missing.append({"field": f"{step.tool_name}.results[{index}].title", "expected": truncate_repr(book.title, 120)})
-        elif isinstance(payload, JokeResult):
-            if not _text_contains(reflected_normalized, payload.joke):
-                missing.append({"field": f"{step.tool_name}.joke", "expected": truncate_repr(payload.joke, 120)})
-        elif isinstance(payload, DogResult):
-            if not _text_contains(reflected_normalized, payload.image_url):
-                missing.append({"field": f"{step.tool_name}.image_url", "expected": truncate_repr(payload.image_url, 120)})
-        elif isinstance(payload, TriviaResult):
-            if not _text_contains(reflected_normalized, payload.question):
-                missing.append({"field": f"{step.tool_name}.question", "expected": truncate_repr(payload.question, 120)})
-            if not _text_contains(reflected_normalized, payload.correct_answer):
-                missing.append({"field": f"{step.tool_name}.correct_answer", "expected": truncate_repr(payload.correct_answer, 120)})
-        elif isinstance(payload, GeoResult):
-            continue
-    return missing
-
-
-def _reflection_preserves_grounded_content(
-    user_prompt: str,
-    state: ExecutionState,
-    grounded: str,
-    reflected: str,
-) -> bool:
-    """Return whether reflection preserved the grounded answer's required facts."""
-    reflected_normalized = _normalize_answer_text(reflected)
-    if not reflected_normalized:
-        return False
-
-    grounded_lines = [line.strip() for line in grounded.splitlines() if line.strip()]
-    if not grounded_lines:
-        return True
-
-    if not _reflection_preserves_typed_payloads(state, reflected):
-        return False
-
-    for tool_name, status in (state.fulfillment or {}).items():
-        if not status.fulfilled and not status.degraded:
-            for marker in _category_markers(tool_name):
-                if _normalize_answer_text(marker) in reflected_normalized:
-                    return False
-
-    return True
-
-
 def run_reflection(
     context: OrchestratorContext,
     user_prompt: str,
@@ -485,8 +396,8 @@ def run_reflection(
     draft_answer: str,
     *,
     trace: RequestTrace | None = None,
-) -> Tuple[str, bool]:
-    """Run one quality pass over the grounded draft and fall back on failure."""
+) -> Tuple[ReflectionResult | None, bool]:
+    """Run one quality pass over the grounded draft and return review metadata."""
     step_summary_lines = render_reflection_observations(user_prompt, state.steps)
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
@@ -495,12 +406,20 @@ def run_reflection(
         else:
             with trace.span("reflection.call", observations_count=len(step_summary_lines)):
                 reflected = llm_reflection_json(messages, context.model_name, trace=trace)
-        answer = (
-            reflected.answer
+        reflection = (
+            reflected
             if isinstance(reflected, ReflectionResult)
-            else str(reflected["answer"])
+            else ReflectionResult.model_validate(reflected)
         )
-        return answer.strip(), False
+        if trace is not None:
+            trace.add_event(
+                "reflection.reviewed",
+                verdict=reflection.verdict,
+                issues_count=len(reflection.issues),
+                intro_preview=truncate_repr(reflection.intro, 120),
+                outro_preview=truncate_repr(reflection.outro, 120),
+            )
+        return reflection, False
     except Exception as exc:
         logger.warning(
             "Reflection failed; returning grounded draft instead: %s | event=reflection.failed reason=reflection_error fallback=grounded_draft",
@@ -513,7 +432,15 @@ def run_reflection(
             accepted=False,
             reason="reflection_error",
         )
-        return draft_answer, True
+        return None, True
+
+
+def _compose_final_answer(grounded: str, reflection: ReflectionResult | None) -> str:
+    """Compose final output while keeping grounded facts deterministic."""
+    if reflection is None or reflection.verdict != "pass":
+        return grounded
+    parts = [part.strip() for part in (reflection.intro, grounded, reflection.outro) if part and part.strip()]
+    return "\n\n".join(parts) if parts else grounded
 
 
 def build_react_failure_answer() -> str:
@@ -555,63 +482,16 @@ def finalize_after_execution(
     reflection_result = run_reflection(
         context, user_prompt, state, grounded, trace=trace
     )
-    final_answer, reflection_used_fallback = reflection_result
+    reflection, reflection_used_fallback = reflection_result
     tool_observations = _derive_tool_observations(state)
-    if tool_observations and not reflection_used_fallback:
-        if trace is None:
-            missing_typed_facts = _missing_typed_payload_facts(state, final_answer)
-            preserves_grounded_content = _reflection_preserves_grounded_content(
-                user_prompt,
-                state,
-                grounded,
-                final_answer,
-            )
-        else:
-            with trace.span("reflection.verify", observations_count=len(tool_observations)):
-                missing_typed_facts = _missing_typed_payload_facts(state, final_answer)
-                preserves_grounded_content = _reflection_preserves_grounded_content(
-                    user_prompt,
-                    state,
-                    grounded,
-                    final_answer,
-                )
-                if missing_typed_facts:
-                    trace.add_event(
-                        "reflection.verify.failed",
-                        reason="missing_typed_fact",
-                        missing_facts=missing_typed_facts,
-                    )
-                else:
-                    trace.add_event("reflection.verify.passed")
-        if not preserves_grounded_content:
-            logger.info(
-                "Reflection drifted from grounded content; returning grounded draft instead | event=reflection.rejected reason=reflection.missing_typed_facts missing_facts=%s fallback=grounded_draft",
-                missing_typed_facts,
-            )
-            trace_llm_decision(
-                trace,
-                phase="reflection",
-                action="accept",
-                accepted=False,
-                reason="reflection_missing_typed_facts",
-            )
-            final_answer = grounded
-            reflection_used_fallback = True
-        else:
-            trace_llm_decision(
-                trace,
-                phase="reflection",
-                action="accept",
-                accepted=True,
-                reason="reflection_preserved_grounded_content",
-            )
-    elif not reflection_used_fallback:
+    final_answer = _compose_final_answer(grounded, reflection)
+    if not reflection_used_fallback:
         trace_llm_decision(
             trace,
             phase="reflection",
             action="accept",
             accepted=True,
-            reason="reflection_accepted",
+            reason="reflection_reviewed",
         )
     result = build_interaction_result(
         context.history,
