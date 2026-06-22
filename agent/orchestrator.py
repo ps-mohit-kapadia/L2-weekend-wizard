@@ -20,7 +20,7 @@ from agent.policies.guardrails import (
     infer_book_topic,
     infer_city,
 )
-from agent.prompts import build_react_messages, build_reflection_messages
+from agent.prompts import REACT_PROMPT_CONTRACT, REFLECTION_PROMPT_CONTRACT, build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace, trace_llm_decision, traced_span, truncate_repr
@@ -402,10 +402,20 @@ def run_reflection(
     messages = build_reflection_messages(user_prompt, step_summary_lines, draft_answer)
     try:
         if trace is None:
-            reflected = llm_reflection_json(messages, context.model_name, trace=trace)
+            reflected = llm_reflection_json(
+                messages,
+                context.model_name,
+                trace=trace,
+                prompt_contract=REFLECTION_PROMPT_CONTRACT,
+            )
         else:
             with trace.span("reflection.call", observations_count=len(step_summary_lines)):
-                reflected = llm_reflection_json(messages, context.model_name, trace=trace)
+                reflected = llm_reflection_json(
+                    messages,
+                    context.model_name,
+                    trace=trace,
+                    prompt_contract=REFLECTION_PROMPT_CONTRACT,
+                )
         reflection = (
             reflected
             if isinstance(reflected, ReflectionResult)
@@ -551,6 +561,7 @@ async def orchestrate_interaction(
                 context.model_name,
                 allowed_tools=context.tool_names,
                 trace=trace,
+                prompt_contract=REACT_PROMPT_CONTRACT,
             )
             if not isinstance(decision, ReactDecision):
                 decision = validate_react_decision(decision)

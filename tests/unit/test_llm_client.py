@@ -34,8 +34,9 @@ class LlmClientTests(unittest.TestCase):
 
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 777)
-        self.assertEqual(trace.events[-2].event, "llm_call_started")
-        self.assertEqual(trace.events[-1].event, "llm_call_completed")
+        event_names = [event.event for event in trace.events]
+        self.assertIn("llm_call_started", event_names)
+        self.assertIn("llm_call_completed", event_names)
 
     @patch("llm_client.requests.post")
     @patch("llm_client.get_settings")

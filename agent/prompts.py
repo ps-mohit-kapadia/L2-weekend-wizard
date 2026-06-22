@@ -2,10 +2,62 @@ from __future__ import annotations
 
 """Prompt construction helpers for the Weekend Wizard ReAct and reflection steps."""
 
+from dataclasses import dataclass
 from typing import Iterable, List
 
 from agent.policies.guardrails import RequestAnalysis
 from agent.tool_specs import TOOL_SPECS
+
+
+@dataclass(frozen=True)
+class PromptContract:
+    """Read-only prompt metadata used for trace provenance."""
+
+    prompt_id: str
+    version: str
+    phase: str
+    output_contract: str
+
+    def trace_fields(self) -> dict[str, str]:
+        """Return stable fields safe to attach to request traces."""
+        return {
+            "prompt_id": self.prompt_id,
+            "prompt_version": self.version,
+            "prompt_phase": self.phase,
+            "output_contract": self.output_contract,
+        }
+
+
+REACT_PROMPT_CONTRACT = PromptContract(
+    prompt_id="react_planner",
+    version="1",
+    phase="react",
+    output_contract="ReactDecision",
+)
+REACT_REPAIR_PROMPT_CONTRACT = PromptContract(
+    prompt_id="react_repair",
+    version="1",
+    phase="react_repair",
+    output_contract="ReactDecision",
+)
+REFLECTION_PROMPT_CONTRACT = PromptContract(
+    prompt_id="reflection_review",
+    version="1",
+    phase="reflection",
+    output_contract="ReflectionResult",
+)
+REFLECTION_REPAIR_PROMPT_CONTRACT = PromptContract(
+    prompt_id="reflection_repair",
+    version="1",
+    phase="reflection_repair",
+    output_contract="ReflectionResult",
+)
+PROMPT_CONTRACTS = (
+    REACT_PROMPT_CONTRACT,
+    REACT_REPAIR_PROMPT_CONTRACT,
+    REFLECTION_PROMPT_CONTRACT,
+    REFLECTION_REPAIR_PROMPT_CONTRACT,
+)
 
 
 def _tool_lines(tool_names: Iterable[str]) -> str:

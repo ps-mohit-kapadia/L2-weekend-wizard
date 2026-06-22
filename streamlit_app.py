@@ -11,6 +11,7 @@ from typing import Any
 import requests
 import streamlit as st
 
+from agent.prompts import PROMPT_CONTRACTS
 from config.config import get_settings
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
@@ -180,6 +181,23 @@ def extract_reflection_summary(trace_block: str) -> dict[str, str] | None:
     return None
 
 
+def extract_prompt_provenance(trace_block: str) -> list[dict[str, str]]:
+    """Extract prompt usage receipts from a rendered trace block."""
+    usage: list[dict[str, str]] = []
+    lines = trace_block.splitlines()
+    for index, line in enumerate(lines):
+        if "EVENT: prompt.used" not in line:
+            continue
+        receipt: dict[str, str] = {}
+        for detail in lines[index + 1:]:
+            if detail.startswith("[") or not detail.startswith("* "):
+                break
+            key, _, value = detail[2:].partition(": ")
+            receipt[key] = value
+        usage.append(receipt)
+    return usage
+
+
 def render_sidebar(readiness: ReadinessResponse) -> None:
     """Render Streamlit sidebar controls and backend details."""
     with st.sidebar:
@@ -273,6 +291,27 @@ def render_observability(readiness: ReadinessResponse) -> None:
         if reflection.get("outro_preview"):
             st.write(f"Outro: {reflection['outro_preview']}")
 
+    prompt_usage = extract_prompt_provenance(trace_block)
+    if prompt_usage:
+        st.subheader("Prompt Provenance")
+        for receipt in prompt_usage:
+            st.write(
+                f"`{receipt.get('prompt_id', 'unknown')}` "
+                f"v{receipt.get('prompt_version', '?')} -> "
+                f"`{receipt.get('output_contract', 'unknown')}`"
+            )
+
+
+def render_prompts_tab() -> None:
+    """Render read-only prompt registry metadata."""
+    st.subheader("Prompt Registry")
+    st.caption("Read-only prompt contracts used for trace provenance. Prompt editing is intentionally out of scope.")
+    for contract in PROMPT_CONTRACTS:
+        st.write(
+            f"`{contract.prompt_id}` v{contract.version} | "
+            f"phase `{contract.phase}` | output `{contract.output_contract}`"
+        )
+
 
 def append_result(result: ChatResponse) -> None:
     """Append one assistant result to the Streamlit transcript."""
@@ -348,11 +387,13 @@ def run_app() -> None:
         return
 
     render_sidebar(readiness)
-    chat_tab, observability_tab = st.tabs(["Chat", "Observability"])
+    chat_tab, observability_tab, prompts_tab = st.tabs(["Chat", "Observability", "Prompts"])
     with chat_tab:
         render_chat_tab(readiness)
     with observability_tab:
         render_observability(readiness)
+    with prompts_tab:
+        render_prompts_tab()
 
     prompt = st.chat_input("What kind of weekend are you looking for?")
     if prompt:

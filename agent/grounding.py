@@ -169,4 +169,6 @@ def compose_grounded_answer_from_steps(
         return fact_lines[0]
     if fact_lines:
         return " ".join(fact_lines)
+    if detail_lines:
+        return "\n".join(["Weekend Wizard Results", *detail_lines])
     return answer

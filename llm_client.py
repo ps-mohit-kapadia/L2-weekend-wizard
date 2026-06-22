@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config.config import get_settings
+from agent.prompts import REACT_REPAIR_PROMPT_CONTRACT, REFLECTION_REPAIR_PROMPT_CONTRACT, PromptContract
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace, traced_span
 from schemas.agent import (
@@ -114,8 +115,9 @@ def list_available_models(timeout: int = 5) -> List[str]:
     lambda args: {
         "model": args["model"],
         "messages_count": len(args["messages"]),
-        "json_mode": args["json_mode"],
+        "json_mode": args.get("json_mode", False),
         "temperature": args["temperature"],
+        **(args["prompt_contract"].trace_fields() if args.get("prompt_contract") else {}),
     },
 )
 def call_model(
@@ -125,15 +127,19 @@ def call_model(
     json_mode: bool = False,
     *,
     trace: RequestTrace | None = None,
+    prompt_contract: PromptContract | None = None,
 ) -> str:
     """Call the configured LLM provider and return raw message content."""
     settings = get_settings()
 
     if trace is not None:
+        if prompt_contract is not None:
+            trace.add_event("prompt.used", **prompt_contract.trace_fields())
         trace.add_event(
             "llm_call_started",
             model=model,
             messages_count=len(messages),
+            **(prompt_contract.trace_fields() if prompt_contract else {}),
         )
 
     logger.info(
@@ -171,6 +177,7 @@ def call_model(
             model=model,
             duration_ms=duration_ms,
             messages_count=len(messages),
+            **(prompt_contract.trace_fields() if prompt_contract else {}),
         )
     return content
 
@@ -228,9 +235,17 @@ def llm_react_json(
     *,
     allowed_tools: List[str],
     trace: RequestTrace | None = None,
+    prompt_contract: PromptContract | None = None,
 ) -> ReactDecision:
     """Return one bounded ReAct decision from Ollama."""
-    raw = call_model(messages, model, temperature=0.2, json_mode=True, trace=trace)
+    raw = call_model(
+        messages,
+        model,
+        temperature=0.2,
+        json_mode=True,
+        trace=trace,
+        prompt_contract=prompt_contract,
+    )
 
     try:
         return _extract_valid_decision_json(raw)
@@ -266,7 +281,12 @@ def llm_react_json(
             },
         ]
         repaired = call_model(
-            repair_messages, model, temperature=0.0, json_mode=True, trace=trace
+            repair_messages,
+            model,
+            temperature=0.0,
+            json_mode=True,
+            trace=trace,
+            prompt_contract=REACT_REPAIR_PROMPT_CONTRACT,
         )
         try:
             return _extract_valid_decision_json(repaired)
@@ -285,9 +305,17 @@ def llm_reflection_json(
     model: str,
     *,
     trace: RequestTrace | None = None,
+    prompt_contract: PromptContract | None = None,
 ) -> ReflectionResult:
     """Return a JSON reflection payload from Ollama."""
-    raw = call_model(messages, model, temperature=0.0, json_mode=True, trace=trace)
+    raw = call_model(
+        messages,
+        model,
+        temperature=0.0,
+        json_mode=True,
+        trace=trace,
+        prompt_contract=prompt_contract,
+    )
 
     try:
         return _extract_valid_reflection_json(raw)
@@ -306,7 +334,12 @@ def llm_reflection_json(
             {"role": "user", "content": raw},
         ]
         repaired = call_model(
-            repair_messages, model, temperature=0.0, json_mode=True, trace=trace
+            repair_messages,
+            model,
+            temperature=0.0,
+            json_mode=True,
+            trace=trace,
+            prompt_contract=REFLECTION_REPAIR_PROMPT_CONTRACT,
         )
         try:
             return _extract_valid_reflection_json(repaired)

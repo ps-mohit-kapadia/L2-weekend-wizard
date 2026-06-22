@@ -375,7 +375,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
+            "Weather for 41.85003, -87.65005: 11.2C, clear sky.",
         )
         self.assertEqual(mock_react.call_count, 4)
 
@@ -434,7 +434,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
+            "Weather for 41.85003, -87.65005: 11.2C, clear sky.",
         )
         self.assertEqual(mock_react.call_count, 4)
 
@@ -577,7 +577,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- City Lookup: New York: 40.71427, -74.00597\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
+            "Weekend Wizard Results\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
         )
 
     @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
@@ -661,7 +661,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- City Lookup: New York: 40.71427, -74.00597\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
+            "Weekend Wizard Results\n- Weather: 41.85003, -87.65005: 11.2C, clear sky\n- Weather: 40.71427, -74.00597: 6.1C, light rain",
         )
 
     @patch("agent.orchestrator.llm_reflection_json", return_value=REFLECTION_PASS)
@@ -714,7 +714,7 @@ class OrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_react.call_count, 4)
         self.assertEqual(
             result.answer,
-            "Weekend Wizard Results\n- City Lookup: Chicago: 41.85003, -87.65005\n- Weather: 41.85003, -87.65005: 11.2C, clear sky",
+            "Weather for 41.85003, -87.65005: 11.2C, clear sky.",
         )
         self.assertEqual(len(result.tool_observations), 2)
         self.assertEqual(result.tool_observations[0].tool_name, "city_to_coords")

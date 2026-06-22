@@ -195,6 +195,12 @@ def parse_tool_payload(tool_name: str, payload: Any) -> Any:
     if not isinstance(payload, dict):
         return payload
 
+    if "error" in payload:
+        try:
+            return ToolError.model_validate(payload)
+        except Exception:
+            return payload
+
     adapter = _adapters.get(tool_name)
     if adapter is None:
         return payload
