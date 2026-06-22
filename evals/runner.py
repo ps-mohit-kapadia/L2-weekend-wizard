@@ -11,6 +11,11 @@ from typing import Any
 
 import requests
 
+# Add repository root to Python path for config import
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 from config.config import get_settings
 
 
