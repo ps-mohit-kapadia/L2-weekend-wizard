@@ -28,6 +28,8 @@ This adapter is an access boundary only. It does not create a second agent brain
 
 The Agent Card advertises Weekend Wizard capabilities, skills, endpoint, protocol version, and supported input/output modes.
 
+**Protocol Version:** Weekend Wizard uses A2A protocol version `0.3.0`. This version was selected as the latest stable A2A specification at the time of implementation, ensuring compatibility with current A2A client implementations while providing access to the core `message/send` functionality.
+
 ## Request Example
 
 ```json

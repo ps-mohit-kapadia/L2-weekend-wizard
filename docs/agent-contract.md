@@ -106,7 +106,7 @@ Data handling rules:
 
 Reliability controls include:
 
-- bounded ReAct step count
+- bounded ReAct step count (max 6 steps, hardcoded in `agent/orchestrator.py`)
 - strict ReAct decision validation
 - supported-tool validation
 - tool argument normalization

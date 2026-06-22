@@ -537,7 +537,8 @@ AIPLATFORM_TIMEOUT=120
 AIPLATFORM_CHAT_PATH=/v1/chat/completions
 MODEL=<platform-model-identifier>
 
-WEEKEND_WIZARD_REQUEST_TIMEOUT=600
+WEEKEND_WIZARD_REQUEST_TIMEOUT=1200
+WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT=20
 WEEKEND_WIZARD_HTTP_MAX_RETRIES=2
 WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS=0.5
 
@@ -553,7 +554,9 @@ Notes:
 
 - the active runtime model is configured in [config/config.py](config/config.py)
 - `WEEKEND_WIZARD_API_URL` controls where Streamlit sends requests
-- `WEEKEND_WIZARD_REQUEST_TIMEOUT` is especially relevant for slower local Ollama runs
+- `WEEKEND_WIZARD_REQUEST_TIMEOUT` defaults to 1200 seconds (20 minutes) to accommodate longer LLM response times, especially for multi-step ReAct loops with local models
+- `WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT` controls the timeout for individual tool HTTP calls (default: 20 seconds)
+- `WEEKEND_WIZARD_HTTP_MAX_RETRIES` and `WEEKEND_WIZARD_HTTP_RETRY_BACKOFF_SECONDS` control retry behavior for transient HTTP failures in tool calls
 - `WEEKEND_WIZARD_API_KEY` enables `X-API-Key` protection for `/chat` and A2A calls when set
 - prompt size and rate-limit settings protect the local/demo API boundary
 - the default log level is `WARNING` for production use; set `WEEKEND_WIZARD_LOG_LEVEL=INFO` in your `.env` file for more verbose debugging output
@@ -612,7 +615,7 @@ The system uses:
 with:
 
 - a strict JSON decision schema
-- a max step budget
+- a max step budget of 6 ReAct steps (hardcoded in `agent/orchestrator.py`)
 - deterministic tool execution
 - one reflection pass at the end
 

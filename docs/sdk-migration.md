@@ -131,6 +131,15 @@ The current SDK runner assumes:
 - dry-run mode should work without Claude authentication
 - live smoke currently pre-checks `ANTHROPIC_API_KEY`
 
+## SDK Configuration
+
+The SDK path uses its own configuration in `claude_sdk_agent/config.py`:
+
+- **max_turns**: defaults to 4 turns per agent invocation (controls the maximum number of agent-tool interaction cycles before the SDK terminates the run)
+- **MCP tool naming**: tools from MCP servers are automatically prefixed as `mcp__<server_key>__<tool_name>` (e.g., `mcp__weekend_wizard__get_weather`)
+
+These settings control the SDK agent's bounded execution behavior and tool discovery.
+
 ## Context management
 
 The original L2 ReAct path manages its own bounded conversation and tool-observation history inside the orchestrator.
