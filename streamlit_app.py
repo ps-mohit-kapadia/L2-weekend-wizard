@@ -13,6 +13,7 @@ import streamlit as st
 
 from agent.prompts import PROMPT_CONTRACTS, build_react_messages, build_reflection_messages
 from config.config import get_settings
+from evals.runner import EvalCase, EvalResult, evaluate_case, load_cases, post_chat
 from logger.logging import get_logger
 from schemas.api import ChatResponse, ReadinessResponse
 
@@ -433,6 +434,122 @@ def render_chat_tab(readiness: ReadinessResponse) -> None:
     append_result(result)
 
 
+def render_eval_tab() -> None:
+    """Render the evaluation tab for running evals from the UI."""
+    st.subheader("Evaluation Framework")
+    st.caption(
+        "Run acceptance evals against the Weekend Wizard API to verify tool usage and response quality."
+    )
+
+    st.markdown(
+        "- Evals verify that the agent uses the correct tools for each prompt type.\n"
+        "- Each case checks expected tools, forbidden tools, and answer markers.\n"
+        "- Results show pass/fail status with detailed failure reasons.\n"
+        "- Requires the API to be running at the configured base URL."
+    )
+
+    cases_path = Path(__file__).resolve().parent / "evals" / "cases.jsonl"
+    api_url = get_api_base_url()
+    timeout = get_settings().request_timeout
+
+    try:
+        cases = load_cases(cases_path)
+    except Exception as exc:
+        st.error(f"Failed to load eval cases: {exc}")
+        return
+
+    st.subheader("Eval Cases")
+    st.write(f"Loaded {len(cases)} eval cases from `evals/cases.jsonl`")
+
+    case_data = []
+    for case in cases:
+        prompt_preview = case.prompt[:60] + "..." if len(case.prompt) > 60 else case.prompt
+        expected = ", ".join(case.expected_tools) if case.expected_tools else "-"
+        case_data.append({
+            "Case ID": case.id,
+            "Prompt Preview": prompt_preview,
+            "Expected Tools": expected,
+            "Max Observations": case.max_observations,
+        })
+
+    st.dataframe(case_data, use_container_width=True, hide_index=True)
+
+    st.subheader("Run Evals")
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        run_button = st.button("Run All Evals", type="primary", use_container_width=True)
+
+    if "eval_results" not in st.session_state:
+        st.session_state.eval_results = None
+
+    if run_button:
+        results: list[EvalResult] = []
+        progress_bar = st.progress(0, text="Running evals...")
+        status_text = st.empty()
+
+        for index, case in enumerate(cases):
+            status_text.text(f"Running case {index + 1}/{len(cases)}: {case.id}...")
+            try:
+                payload = post_chat(api_url, case.prompt, timeout)
+                result = evaluate_case(case, payload)
+            except Exception as exc:
+                result = EvalResult(
+                    case_id=case.id,
+                    passed=False,
+                    failures=[str(exc)],
+                    observed_tools=[],
+                    answer_preview="",
+                )
+            results.append(result)
+            progress_bar.progress((index + 1) / len(cases), text=f"Running evals... ({index + 1}/{len(cases)})")
+
+        progress_bar.empty()
+        status_text.empty()
+        st.session_state.eval_results = results
+        st.rerun()
+
+    results = st.session_state.eval_results
+    if results is None:
+        st.info("Click 'Run All Evals' to execute the evaluation suite.")
+        return
+
+    st.subheader("Results Summary")
+    passed_count = sum(1 for result in results if result.passed)
+    failed_count = len(results) - passed_count
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Cases", len(results))
+    with col2:
+        st.metric("Passed", passed_count, delta_color="normal")
+    with col3:
+        st.metric("Failed", failed_count, delta_color="inverse" if failed_count > 0 else "normal")
+
+    st.subheader("Detailed Results")
+    for result in results:
+        with st.expander(
+            f"{'PASS' if result.passed else 'FAIL'}: {result.case_id}",
+            expanded=not result.passed,
+        ):
+            if result.passed:
+                st.success("All checks passed.")
+            else:
+                st.error("One or more checks failed.")
+                st.write("**Failure reasons:**")
+                for failure in result.failures:
+                    st.write(f"- {failure}")
+
+            st.write("**Observed Tools:**")
+            if result.observed_tools:
+                st.write(", ".join(result.observed_tools))
+            else:
+                st.write("-")
+
+            if result.answer_preview:
+                st.write("**Answer Preview:**")
+                st.code(result.answer_preview, language="text")
+
+
 def run_app() -> None:
     """Render the Streamlit Weekend Wizard interface."""
     st.set_page_config(page_title="Weekend Wizard", page_icon="W", layout="wide")
@@ -450,13 +567,15 @@ def run_app() -> None:
         return
 
     render_sidebar(readiness)
-    chat_tab, observability_tab, prompts_tab = st.tabs(["Chat", "Observability", "Prompts"])
+    chat_tab, observability_tab, prompts_tab, eval_tab = st.tabs(["Chat", "Observability", "Prompts", "Evaluation"])
     with chat_tab:
         render_chat_tab(readiness)
     with observability_tab:
         render_observability(readiness)
     with prompts_tab:
         render_prompts_tab()
+    with eval_tab:
+        render_eval_tab()
 
     prompt = st.chat_input("What kind of weekend are you looking for?")
     if prompt:
