@@ -71,10 +71,13 @@ The Agent Card advertises Weekend Wizard capabilities, skills, endpoint, protoco
           }
         ]
       }
-    ]
+    ],
+    "correlation_id": "trace-abc123"
   }
 }
 ```
+
+The `correlation_id` field contains the request trace identifier for observability and debugging.
 
 ## Security and Runtime Controls
 

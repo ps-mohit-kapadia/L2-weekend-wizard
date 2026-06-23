@@ -427,6 +427,8 @@ Start the API first, then run:
 .\.venv\Scripts\python.exe .\evals\runner.py
 ```
 
+**Alternative:** You can also run evals from the Streamlit UI. Navigate to the "Evaluation" tab in the Streamlit app to run all evals or individual test cases with visual pass/fail feedback.
+
 ---
 
 ## LLM Provider Configuration
