@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from config.config import get_settings
+
 
 @dataclass(frozen=True)
 class ClaudeSdkAgentConfig:
@@ -39,11 +41,12 @@ class ClaudeSdkAgentConfig:
 def get_default_config() -> ClaudeSdkAgentConfig:
     """Return the deterministic default SDK configuration for this repo."""
     project_root = Path(__file__).resolve().parent.parent
+    settings = get_settings()
     return ClaudeSdkAgentConfig(
         server_key="weekend_wizard",
         server_name="weekend-wizard-sdk",
         server_version="0.1.0",
-        max_turns=4,
+        max_turns=settings.claude_sdk_max_turns,
         model=None,
         cwd=project_root,
     )

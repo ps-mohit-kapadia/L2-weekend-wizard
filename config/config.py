@@ -98,6 +98,10 @@ class Settings:
     max_prompt_chars: int
     rate_limit_requests: int
     rate_limit_window_seconds: int
+    api_host: str
+    api_port: int
+    max_react_steps: int
+    claude_sdk_max_turns: int
 
 
 @lru_cache(maxsize=1)
@@ -127,4 +131,8 @@ def get_settings() -> Settings:
         max_prompt_chars=_env_positive_int("WEEKEND_WIZARD_MAX_PROMPT_CHARS", 4000),
         rate_limit_requests=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_REQUESTS", 20),
         rate_limit_window_seconds=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS", 60),
+        api_host=os.getenv("WEEKEND_WIZARD_API_HOST", "127.0.0.1"),
+        api_port=_env_positive_int("WEEKEND_WIZARD_API_PORT", 8000),
+        max_react_steps=_env_positive_int("WEEKEND_WIZARD_MAX_REACT_STEPS", 6),
+        claude_sdk_max_turns=_env_positive_int("CLAUDE_SDK_MAX_TURNS", 4),
     )

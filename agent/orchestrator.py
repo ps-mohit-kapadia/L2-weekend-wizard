@@ -18,6 +18,7 @@ from agent.policies.guardrails import (
     analyze_request,
 )
 from agent.prompts import REACT_PROMPT_CONTRACT, REFLECTION_PROMPT_CONTRACT, build_react_messages, build_reflection_messages
+from config.config import get_settings
 from llm_client import llm_react_json, llm_reflection_json
 from logger.logging import get_logger
 from logger.tracing.request_trace import RequestTrace, trace_llm_decision, traced_span, truncate_repr
@@ -39,7 +40,6 @@ from schemas.tools import (
 
 
 logger = get_logger("agent.orchestrator")
-MAX_REACT_STEPS = 6
 SAFE_TOOL_INVOCATION_DETAIL = "tool execution failed"
 
 
@@ -497,14 +497,15 @@ async def orchestrate_interaction(
     state.fulfillment = _initialize_fulfillment(state.request_analysis)
     draft_answer = ""
     duplicate_skip_counts: Dict[str, int] = {}
+    max_react_steps = get_settings().max_react_steps
 
-    for step_number in range(1, MAX_REACT_STEPS + 1):
+    for step_number in range(1, max_react_steps + 1):
         planner_messages = _render_planner_messages(state)
         react_messages = build_react_messages(
             planner_messages,
             context.tool_names,
             step_number=step_number,
-            max_steps=MAX_REACT_STEPS,
+            max_steps=max_react_steps,
             request_analysis=state.request_analysis,
         )
         try:
@@ -598,7 +599,7 @@ async def orchestrate_interaction(
         logger.info(
             "Executing ReAct step %d of %d: %s",
             step_number,
-            MAX_REACT_STEPS,
+            max_react_steps,
             decision.tool,
         )
         normalized_args, error = normalize_tool_args(
