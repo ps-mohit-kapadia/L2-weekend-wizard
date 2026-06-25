@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 
 
 class EmptyArgs(BaseModel):
@@ -171,16 +171,6 @@ class TriviaResult(BaseModel):
     incorrect_answers: List[str]
 
 
-_adapters: Dict[str, TypeAdapter[Any]] = {
-    "city_to_coords": TypeAdapter(GeoResult | ToolError),
-    "get_weather": TypeAdapter(WeatherResult | ToolError),
-    "book_recs": TypeAdapter(BookResults | ToolError),
-    "random_joke": TypeAdapter(JokeResult | ToolError),
-    "random_dog": TypeAdapter(DogResult | ToolError),
-    "trivia": TypeAdapter(TriviaResult | ToolError),
-}
-
-
 def parse_tool_payload(tool_name: str, payload: Any) -> Any:
     """Parse known tool payloads into typed models when possible.
 
@@ -192,20 +182,11 @@ def parse_tool_payload(tool_name: str, payload: Any) -> Any:
         A typed payload model for known tool shapes, or the original payload when it
         cannot be validated safely.
     """
-    if not isinstance(payload, dict):
-        return payload
-
-    if "error" in payload:
-        try:
-            return ToolError.model_validate(payload)
-        except Exception:
-            return payload
-
-    adapter = _adapters.get(tool_name)
-    if adapter is None:
-        return payload
+    from agent.tool_specs import get_tool_spec
 
     try:
-        return adapter.validate_python(payload)
-    except Exception:
+        spec = get_tool_spec(tool_name)
+    except ValueError:
         return payload
+
+    return spec.parse_payload(payload)

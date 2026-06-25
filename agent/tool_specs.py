@@ -3,7 +3,19 @@ from __future__ import annotations
 """Central tool behavior metadata for orchestrator control logic."""
 
 from dataclasses import dataclass
-from typing import Literal, Mapping
+from typing import Any, Literal, Mapping
+
+from pydantic import TypeAdapter
+
+from schemas.tools import (
+    BookResults,
+    DogResult,
+    GeoResult,
+    JokeResult,
+    ToolError,
+    TriviaResult,
+    WeatherResult,
+)
 
 
 ArgPolicy = Literal["city", "weather_coords", "book_recs", "empty", "passthrough"]
@@ -21,6 +33,23 @@ class ToolBehaviorSpec:
     markers: tuple[str, ...]
     fulfills_requested_work: bool
     arg_policy: ArgPolicy
+    payload_adapter: TypeAdapter[Any]
+
+    def parse_payload(self, payload: Any) -> Any:
+        """Parse this tool's raw payload into its declared result contract."""
+        if not isinstance(payload, dict):
+            return payload
+
+        if "error" in payload:
+            try:
+                return ToolError.model_validate(payload)
+            except Exception:
+                return payload
+
+        try:
+            return self.payload_adapter.validate_python(payload)
+        except Exception:
+            return payload
 
 
 TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
@@ -33,6 +62,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("city lookup",),
         fulfills_requested_work=False,
         arg_policy="city",
+        payload_adapter=TypeAdapter(GeoResult | ToolError),
     ),
     "get_weather": ToolBehaviorSpec(
         name="get_weather",
@@ -43,6 +73,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("weather",),
         fulfills_requested_work=True,
         arg_policy="weather_coords",
+        payload_adapter=TypeAdapter(WeatherResult | ToolError),
     ),
     "book_recs": ToolBehaviorSpec(
         name="book_recs",
@@ -53,6 +84,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("books", "book", "book ideas", "mystery book"),
         fulfills_requested_work=True,
         arg_policy="book_recs",
+        payload_adapter=TypeAdapter(BookResults | ToolError),
     ),
     "random_joke": ToolBehaviorSpec(
         name="random_joke",
@@ -63,6 +95,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("joke",),
         fulfills_requested_work=True,
         arg_policy="empty",
+        payload_adapter=TypeAdapter(JokeResult | ToolError),
     ),
     "random_dog": ToolBehaviorSpec(
         name="random_dog",
@@ -73,6 +106,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("dog pic", "dog photo", "dog", "pawsome pic"),
         fulfills_requested_work=True,
         arg_policy="empty",
+        payload_adapter=TypeAdapter(DogResult | ToolError),
     ),
     "trivia": ToolBehaviorSpec(
         name="trivia",
@@ -83,6 +117,7 @@ TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
         markers=("trivia",),
         fulfills_requested_work=True,
         arg_policy="empty",
+        payload_adapter=TypeAdapter(TriviaResult | ToolError),
     ),
 }
 
@@ -103,6 +138,8 @@ def _validate_tool_specs() -> None:
             raise RuntimeError(f"Tool spec {name} must define at least one marker")
         if any(not marker.strip() for marker in spec.markers):
             raise RuntimeError(f"Tool spec {name} has an empty marker")
+        if spec.payload_adapter is None:
+            raise RuntimeError(f"Tool spec {name} must define a payload adapter")
 
 
 _validate_tool_specs()
