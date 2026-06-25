@@ -16,9 +16,6 @@ from agent.tool_specs import get_tool_spec
 from agent.policies.guardrails import (
     RequestAnalysis,
     analyze_request,
-    infer_book_limit,
-    infer_book_topic,
-    infer_city,
 )
 from agent.prompts import REACT_PROMPT_CONTRACT, REFLECTION_PROMPT_CONTRACT, build_react_messages, build_reflection_messages
 from llm_client import llm_react_json, llm_reflection_json
@@ -34,12 +31,8 @@ from schemas.agent import (
     validate_react_decision,
 )
 from schemas.tools import (
-    BookArgs,
-    CityArgs,
-    EmptyArgs,
     ToolError,
     ToolArgs,
-    WeatherArgs,
     dump_tool_args,
     parse_tool_payload,
 )
@@ -300,53 +293,12 @@ def normalize_tool_args(
     state: ExecutionState,
 ) -> Tuple[Optional[ToolArgs], Optional[str]]:
     """Normalize and repair ReAct-produced tool args before execution."""
-    args = dict(args or {})
     spec = get_tool_spec(tool_name)
-
-    if spec.arg_policy == "city":
-        city = (
-            args.get("city")
-            or (state.request_analysis.city if state.request_analysis is not None else None)
-            or infer_city(state.user_prompt)
-        )
-        if not city:
-            return None, "city is required"
-        return CityArgs(city=str(city)), None
-
-    if spec.arg_policy == "weather_coords":
-        latitude = args.get("latitude")
-        longitude = args.get("longitude")
-        if latitude is None or longitude is None:
-            return None, "latitude and longitude are required"
-        try:
-            return WeatherArgs(latitude=float(latitude), longitude=float(longitude)), None
-        except (TypeError, ValueError):
-            return None, "latitude and longitude must be numeric"
-
-    if spec.arg_policy == "book_recs":
-        topic = (
-            args.get("topic")
-            or args.get("param")
-            or (state.request_analysis.book_topic if state.request_analysis is not None else None)
-            or infer_book_topic(state.user_prompt)
-        )
-        limit = (
-            (state.request_analysis.book_limit if state.request_analysis is not None else None)
-            or args.get("limit")
-            or infer_book_limit(state.user_prompt)
-        )
-        if not topic:
-            return None, "topic is required"
-        try:
-            safe_limit = max(1, min(int(limit), 10))
-        except (TypeError, ValueError):
-            safe_limit = 3
-        return BookArgs(topic=str(topic), limit=safe_limit), None
-
-    if spec.arg_policy == "empty":
-        return EmptyArgs(), None
-
-    return EmptyArgs(), None
+    return spec.normalize_args(
+        args,
+        user_prompt=state.user_prompt,
+        request_analysis=state.request_analysis,
+    )
 
 
 def validate_react_decision_semantics(

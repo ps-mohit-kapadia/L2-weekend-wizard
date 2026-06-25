@@ -7,13 +7,19 @@ from typing import Any, Literal, Mapping
 
 from pydantic import TypeAdapter
 
+from agent.policies.guardrails import infer_book_limit, infer_book_topic, infer_city
 from schemas.tools import (
+    BookArgs,
     BookResults,
+    CityArgs,
     DogResult,
+    EmptyArgs,
     GeoResult,
     JokeResult,
     ToolError,
+    ToolArgs,
     TriviaResult,
+    WeatherArgs,
     WeatherResult,
 )
 
@@ -50,6 +56,61 @@ class ToolBehaviorSpec:
             return self.payload_adapter.validate_python(payload)
         except Exception:
             return payload
+
+    def normalize_args(
+        self,
+        args: dict[str, Any],
+        *,
+        user_prompt: str,
+        request_analysis: Any,
+    ) -> tuple[ToolArgs | None, str | None]:
+        """Normalize ReAct-produced args into this tool's input contract."""
+        args = dict(args or {})
+
+        if self.arg_policy == "city":
+            city = (
+                args.get("city")
+                or (request_analysis.city if request_analysis is not None else None)
+                or infer_city(user_prompt)
+            )
+            if not city:
+                return None, "city is required"
+            return CityArgs(city=str(city)), None
+
+        if self.arg_policy == "weather_coords":
+            latitude = args.get("latitude")
+            longitude = args.get("longitude")
+            if latitude is None or longitude is None:
+                return None, "latitude and longitude are required"
+            try:
+                return WeatherArgs(latitude=float(latitude), longitude=float(longitude)), None
+            except (TypeError, ValueError):
+                return None, "latitude and longitude must be numeric"
+
+        if self.arg_policy == "book_recs":
+            topic = (
+                args.get("topic")
+                or args.get("param")
+                or (request_analysis.book_topic if request_analysis is not None else None)
+                or infer_book_topic(user_prompt)
+            )
+            limit = (
+                (request_analysis.book_limit if request_analysis is not None else None)
+                or args.get("limit")
+                or infer_book_limit(user_prompt)
+            )
+            if not topic:
+                return None, "topic is required"
+            try:
+                safe_limit = max(1, min(int(limit), 10))
+            except (TypeError, ValueError):
+                safe_limit = 3
+            return BookArgs(topic=str(topic), limit=safe_limit), None
+
+        if self.arg_policy == "empty":
+            return EmptyArgs(), None
+
+        return EmptyArgs(), None
 
 
 TOOL_SPECS: Mapping[str, ToolBehaviorSpec] = {
