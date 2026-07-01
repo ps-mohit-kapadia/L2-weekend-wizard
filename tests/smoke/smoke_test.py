@@ -13,8 +13,14 @@ from typing import Any
 
 import requests
 
+# Add repository root to Python path for config import
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
-DEFAULT_API_URL = "http://127.0.0.1:8000"
+from config.config import get_settings
+
+
 DEFAULT_PROMPT = "Tell me a joke."
 DEFAULT_CHAT_TIMEOUT_SECONDS = 1200
 
@@ -26,8 +32,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--api-url",
-        default=DEFAULT_API_URL,
-        help=f"Base URL of the FastAPI service. Default: {DEFAULT_API_URL}",
+        default=None,
+        help="Base URL of the FastAPI service. Default: from config.api_url",
     )
     parser.add_argument(
         "--prompt",
@@ -159,7 +165,7 @@ def main() -> None:
     """Run the end-to-end smoke test."""
     args = parse_args()
     project_dir = Path(__file__).resolve().parents[2]
-    base_url = args.api_url.rstrip("/")
+    base_url = (args.api_url or get_settings().api_url).rstrip("/")
     process: subprocess.Popen[str] | None = None
 
     try:

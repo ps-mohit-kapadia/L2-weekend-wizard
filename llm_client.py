@@ -100,7 +100,7 @@ def list_available_models(timeout: int = 5) -> List[str]:
     """Return the models currently reported by the local Ollama runtime."""
     logger.info("Requesting available Ollama models with timeout %ss", timeout)
     response = requests.get(
-        get_settings().ollama_url.replace("/api/chat", "/api/tags"),
+        get_settings().ollama_tags_url,
         timeout=timeout,
     )
     response.raise_for_status()
@@ -238,10 +238,11 @@ def llm_react_json(
     prompt_contract: PromptContract | None = None,
 ) -> ReactDecision:
     """Return one bounded ReAct decision from Ollama."""
+    settings = get_settings()
     raw = call_model(
         messages,
         model,
-        temperature=0.2,
+        temperature=settings.react_temperature,
         json_mode=True,
         trace=trace,
         prompt_contract=prompt_contract,
@@ -283,7 +284,7 @@ def llm_react_json(
         repaired = call_model(
             repair_messages,
             model,
-            temperature=0.0,
+            temperature=settings.repair_temperature,
             json_mode=True,
             trace=trace,
             prompt_contract=REACT_REPAIR_PROMPT_CONTRACT,
@@ -308,10 +309,11 @@ def llm_reflection_json(
     prompt_contract: PromptContract | None = None,
 ) -> ReflectionResult:
     """Return a JSON reflection payload from Ollama."""
+    settings = get_settings()
     raw = call_model(
         messages,
         model,
-        temperature=0.0,
+        temperature=settings.repair_temperature,
         json_mode=True,
         trace=trace,
         prompt_contract=prompt_contract,
@@ -336,7 +338,7 @@ def llm_reflection_json(
         repaired = call_model(
             repair_messages,
             model,
-            temperature=0.0,
+            temperature=settings.repair_temperature,
             json_mode=True,
             trace=trace,
             prompt_contract=REFLECTION_REPAIR_PROMPT_CONTRACT,

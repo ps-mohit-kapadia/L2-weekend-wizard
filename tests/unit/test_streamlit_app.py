@@ -10,12 +10,14 @@ import streamlit_app
 
 
 class StreamlitAppTests(unittest.TestCase):
-    @patch.dict("os.environ", {}, clear=True)
-    def test_get_api_base_url_uses_default(self) -> None:
+    @patch("streamlit_app.get_settings")
+    def test_get_api_base_url_uses_default(self, mock_settings: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(api_url="http://127.0.0.1:8000")
         self.assertEqual(streamlit_app.get_api_base_url(), "http://127.0.0.1:8000")
 
-    @patch.dict("os.environ", {"WEEKEND_WIZARD_API_URL": "http://example.com/"}, clear=True)
-    def test_get_api_base_url_strips_trailing_slash(self) -> None:
+    @patch("streamlit_app.get_settings")
+    def test_get_api_base_url_strips_trailing_slash(self, mock_settings: Mock) -> None:
+        mock_settings.return_value = SimpleNamespace(api_url="http://example.com/")
         self.assertEqual(streamlit_app.get_api_base_url(), "http://example.com")
 
     @patch("streamlit_app.requests.get")
@@ -59,7 +61,7 @@ class StreamlitAppTests(unittest.TestCase):
     @patch("streamlit_app.requests.post")
     @patch("streamlit_app.get_settings")
     def test_send_chat_prompt_returns_structured_response(self, mock_settings: Mock, mock_post: Mock) -> None:
-        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None)
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None, api_url="http://127.0.0.1:8000")
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
@@ -80,7 +82,7 @@ class StreamlitAppTests(unittest.TestCase):
     @patch("streamlit_app.requests.post")
     @patch("streamlit_app.get_settings")
     def test_send_chat_prompt_sends_configured_api_key(self, mock_settings: Mock, mock_post: Mock) -> None:
-        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key="secret")
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key="secret", api_url="http://127.0.0.1:8000")
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
@@ -97,7 +99,7 @@ class StreamlitAppTests(unittest.TestCase):
     @patch("streamlit_app.requests.post")
     @patch("streamlit_app.get_settings")
     def test_send_chat_prompt_raises_with_api_error_detail(self, mock_settings: Mock, mock_post: Mock) -> None:
-        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None)
+        mock_settings.return_value = SimpleNamespace(request_timeout=888, api_key=None, api_url="http://127.0.0.1:8000")
         response = Mock()
         response.status_code = 503
         response.json.return_value = {"detail": "Service is not ready."}

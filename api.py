@@ -42,7 +42,6 @@ OLLAMA_UNREACHABLE_DETAIL = "Ollama is not reachable."
 MODEL_UNAVAILABLE_DETAIL = "Resolved model is not available in Ollama."
 MCP_SERVER_MISSING_DETAIL = "MCP server file is missing."
 STARTING_READINESS_DETAIL = "API runtime is starting."
-STARTUP_RETRY_INTERVAL_SECONDS = 5.0
 UNAUTHORIZED_DETAIL = "Invalid or missing API key."
 PROMPT_TOO_LARGE_DETAIL = "Prompt is too large."
 RATE_LIMITED_DETAIL = "Too many requests. Please try again later."
@@ -287,6 +286,7 @@ async def warm_runtime(app: FastAPI, server_path: Path) -> None:
 
 async def supervise_runtime(app: FastAPI, server_path: Path) -> None:
     """Own runtime startup and retry only failures that can recover in-process."""
+    settings = get_settings()
     while not getattr(app.state, "startup_stopped", False):
         await warm_runtime(app, server_path)
         readiness = app.state.readiness
@@ -298,7 +298,7 @@ async def supervise_runtime(app: FastAPI, server_path: Path) -> None:
             readiness.provider,
             readiness.details,
         )
-        await asyncio.sleep(STARTUP_RETRY_INTERVAL_SECONDS)
+        await asyncio.sleep(settings.startup_retry_interval_seconds)
 
 
 @asynccontextmanager

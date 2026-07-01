@@ -57,6 +57,17 @@ def _env_non_negative_float(name: str, default: float) -> float:
     return parsed
 
 
+def _env_float(name: str, default: float) -> float:
+    """Read a float environment variable with a fallback value."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a valid number.") from exc
+
+
 def _env_log_level(name: str, default: str) -> str:
     """Read and validate a log level environment variable with a fallback value."""
     value = os.getenv(name)
@@ -88,6 +99,7 @@ class Settings:
     http_retry_backoff_seconds: float
     llm_provider: str
     ollama_url: str
+    ollama_tags_url: str
     aiplatform_api_key: str | None
     aiplatform_base_url: str
     aiplatform_timeout: int
@@ -100,13 +112,21 @@ class Settings:
     rate_limit_window_seconds: int
     api_host: str
     api_port: int
+    api_url: str
     max_react_steps: int
     claude_sdk_max_turns: int
+    react_temperature: float
+    repair_temperature: float
+    startup_retry_interval_seconds: float
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Load and cache application settings from environment variables."""
+    api_host = os.getenv("WEEKEND_WIZARD_API_HOST", "127.0.0.1")
+    api_port = _env_positive_int("WEEKEND_WIZARD_API_PORT", 8000)
+    api_url = os.getenv("WEEKEND_WIZARD_API_URL", f"http://{api_host}:{api_port}")
+
     return Settings(
         request_timeout=_env_positive_int("WEEKEND_WIZARD_REQUEST_TIMEOUT", 1200),
         tool_http_timeout=_env_positive_int("WEEKEND_WIZARD_TOOL_HTTP_TIMEOUT", 20),
@@ -117,6 +137,7 @@ def get_settings() -> Settings:
         ),
         llm_provider=_env_llm_provider("LLM_PROVIDER", "ollama"),
         ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat"),
+        ollama_tags_url=os.getenv("OLLAMA_TAGS_URL", "http://127.0.0.1:11434/api/tags"),
         aiplatform_api_key=os.getenv("AIPLATFORM_API_KEY"),
         aiplatform_base_url=os.getenv(
             "AIPLATFORM_BASE_URL", "https://aiapidev.3ecompany.com"
@@ -131,8 +152,12 @@ def get_settings() -> Settings:
         max_prompt_chars=_env_positive_int("WEEKEND_WIZARD_MAX_PROMPT_CHARS", 4000),
         rate_limit_requests=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_REQUESTS", 20),
         rate_limit_window_seconds=_env_positive_int("WEEKEND_WIZARD_RATE_LIMIT_WINDOW_SECONDS", 60),
-        api_host=os.getenv("WEEKEND_WIZARD_API_HOST", "127.0.0.1"),
-        api_port=_env_positive_int("WEEKEND_WIZARD_API_PORT", 8000),
+        api_host=api_host,
+        api_port=api_port,
+        api_url=api_url,
         max_react_steps=_env_positive_int("WEEKEND_WIZARD_MAX_REACT_STEPS", 6),
         claude_sdk_max_turns=_env_positive_int("CLAUDE_SDK_MAX_TURNS", 4),
+        react_temperature=_env_float("WEEKEND_WIZARD_REACT_TEMPERATURE", 0.2),
+        repair_temperature=_env_float("WEEKEND_WIZARD_REPAIR_TEMPERATURE", 0.0),
+        startup_retry_interval_seconds=_env_float("WEEKEND_WIZARD_STARTUP_RETRY_INTERVAL_SECONDS", 5.0),
     )

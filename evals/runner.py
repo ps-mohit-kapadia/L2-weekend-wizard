@@ -27,7 +27,6 @@ def build_chat_headers() -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-DEFAULT_API_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_SECONDS = 1200
 
 
@@ -81,7 +80,7 @@ def parse_args() -> argparse.Namespace:
     """
 
     parser = argparse.ArgumentParser(description="Run Weekend Wizard evals against /chat.")
-    parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"API base URL. Default: {DEFAULT_API_URL}")
+    parser.add_argument("--api-url", default=None, help="API base URL. Default: from config.api_url")
     parser.add_argument("--cases", type=Path, default=Path(__file__).with_name("cases.jsonl"))
     parser.add_argument("--report", type=Path, default=Path(__file__).with_name("report.md"))
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -232,12 +231,13 @@ def main() -> None:
     """Run all configured eval cases and write the Markdown report."""
 
     args = parse_args()
+    api_url = args.api_url or get_settings().api_url
     cases = load_cases(args.cases)
     results: list[EvalResult] = []
 
     for case in cases:
         try:
-            payload = post_chat(args.api_url, case.prompt, args.timeout)
+            payload = post_chat(api_url, case.prompt, args.timeout)
             result = evaluate_case(case, payload)
         except Exception as exc:
             result = EvalResult(

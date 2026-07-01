@@ -20,7 +20,6 @@ from schemas.api import ChatResponse, ReadinessResponse
 
 logger = get_logger("agent.streamlit")
 
-DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 TRACE_LOG_PATH = Path("logs") / "trace.log"
 TRACE_READ_BYTES = 1_000_000
 
@@ -48,7 +47,7 @@ def get_api_base_url() -> str:
     Returns:
         The normalized backend base URL with any trailing slash removed.
     """
-    return os.getenv("WEEKEND_WIZARD_API_URL", DEFAULT_API_BASE_URL).rstrip("/")
+    return get_settings().api_url.rstrip("/")
 
 
 def build_chat_headers() -> dict[str, str]:

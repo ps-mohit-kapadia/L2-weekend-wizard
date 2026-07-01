@@ -119,7 +119,7 @@ class ApiTests(unittest.TestCase):
     def test_ready_endpoint_recovers_when_startup_failure_is_retryable(self) -> None:
         with (
             patch("api.Path.resolve", return_value=Path("C:/project/api.py")),
-            patch("api.STARTUP_RETRY_INTERVAL_SECONDS", 0),
+            patch("api.get_settings", return_value=replace(get_settings(), api_key=None, llm_provider="ollama", startup_retry_interval_seconds=0)),
             patch(
                 "api.discover_model",
                 side_effect=[

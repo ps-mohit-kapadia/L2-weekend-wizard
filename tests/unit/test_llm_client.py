@@ -211,6 +211,7 @@ class LlmClientTests(unittest.TestCase):
     def test_discover_model_uses_configured_model(self, mock_settings: Mock, mock_get: Mock) -> None:
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
+            ollama_tags_url="http://127.0.0.1:11434/api/tags",
             preferred_models=("gpt-oss:20b-cloud",),
             llm_provider="ollama",
         )
@@ -233,6 +234,7 @@ class LlmClientTests(unittest.TestCase):
     def test_discover_model_fails_when_configured_model_is_missing(self, mock_settings: Mock, mock_get: Mock) -> None:
         mock_settings.return_value = SimpleNamespace(
             ollama_url="http://127.0.0.1:11434/api/chat",
+            ollama_tags_url="http://127.0.0.1:11434/api/tags",
             preferred_models=("gpt-oss:20b-cloud",),
             llm_provider="ollama",
         )
